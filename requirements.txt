@@ -1,0 +1,11 @@
+pandas
+requests
+bioservices
+networkx
+pyvis
+tqdm
+openpyxl
+jupyterlab
+notebook
+ipython
+ipykernel
