@@ -2,6 +2,7 @@
 
 ![PathwaySeeker](images/graphical_abstract.png)
 
+
 PathwaySeeker **integrates proteomics and metabolomics data**, map reactions, recover balanced equations, and visualize metabolic networks as interactive graphs.  
 Designed to accelerate **multi-omics exploration** in environmental, industrial, or discovery-driven contexts.  
 
@@ -43,7 +44,7 @@ Open ```notebooks/multiomics_graph.ipynb``` and run the pipeline step by step.
 - `graph_all.html` → interactive graph, viewable in any browser  
 - `graph_all.json` → JSON representation of the graph (nodes, edges, attributes), compatible with [PathwayViz](https://tanuki.pnnl.gov/vast35/pathway_viz)  
 
-## ⚠️ Important Notes
+## Important Notes
 
 Between Step 4 and Step 5, manual curation of the data is recommended before proceeding.
 
@@ -57,7 +58,7 @@ The graph can be visualized either in a web browser or embedded in Jupyter.
 
 ## Authors
 
-Lummy Monteiro - multiomics graph
-Myo
-Niaz
-Sutanay
+- Lummy M O Monteiro - multiomics graph
+- Marjolein T Oostrom
+- Niaz Chowdhury
+- Sutanay Choudhury
