@@ -1,0 +1,41 @@
+!!!SBtab DocumentName='Pathway 7 from PathwaySeeker' SBtabVersion='1.0'			
+!!SBtab TableID='Configuration' TableType='Config'			
+!Option	!Value	!Comment	
+algorithm	MDF	ECM, or MDF	
+p_h	7		
+ionic_strength	250 mM		
+p_mg	3		
+dg_confidence	0.95	
+			
+!!SBtab TableID='Reaction' TableType='Reaction'			
+!ID	!ReactionFormula				
+R00737	C00082 <=> C00811 + C00014		
+R01308	C00811 + 2 C00001 + C00003 <=> C00156 + C00033 + C00004				
+			
+!!SBtab TableID='Compound' TableType='Compound'			
+!ID	!Identifiers		
+mal	kegg:C00149		
+C00082	kegg:C00082	
+C00811	kegg:C00811		
+C00014	kegg:C00014		
+C00001	kegg:C00001		
+C00003	kegg:C00003		
+C00156	kegg:C00156		
+C00033	kegg:C00033		
+C00004	kegg:C00004		
+			
+!!SBtab TableID='Flux' TableType='Quantity' Unit='mM/s'			
+!QuantityType	!Reaction	!Value	
+rate of reaction	R00737	1.0	
+rate of reaction	R01308	1.0	
+			
+!!SBtab TableID='ConcentrationConstraint' TableType='Quantity' Unit='mM'			
+!QuantityType	!Compound	!Min	!Max
+concentration	C00082	0.00001	10
+concentration	C00811	0.00001	10
+concentration	C00014	0.00001	10
+concentration	C00001	0.00001	10
+concentration	C00003	0.00001	10
+concentration	C00156	0.00001	10
+concentration	C00033	0.00001	10
+concentration	C00004	0.00001	10
