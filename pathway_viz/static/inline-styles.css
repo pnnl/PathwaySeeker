@@ -1,0 +1,25 @@
+/* Instructions box styling */
+.instructions-box {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+/* Hidden button state */
+.hidden-button {
+    display: none;
+}
+
+/* Inline form breaks replacement */
+form input[type="file"] {
+    margin-bottom: 16px;
+}
+
+/* No nodes selected message */
+.empty-state {
+    color: #666;
+    font-style: italic;
+}

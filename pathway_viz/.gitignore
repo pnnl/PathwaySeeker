@@ -1,0 +1,37 @@
+# Directories
+__pycache__/
+# Files
+*.log
+# Documentation
+docs/build/
+docs/source/data/*
+docs/source/pathway.html
+docs/source/summary.txt
+!docs/source/data/reactions.txt
+!docs/source/data/metabolites.txt
+
+# All non-essential files created/used by tox
+.tox
+
+# node_modules
+node_modules/
+credentials.txt
+# JS Build Files
+src/cobramod/static/escher.mjs
+src/cobramod/static/force_graph.mjs
+src/cobramod/static/LICENSES.txt
+
+# ui test results
+ui-tests/playwright-report
+ui-tests/test-results
+
+credentials.txt
+static/json_pathway/
+static/uploads/
+# Ignore all .json files except kegg_pubchem_mapping.json and kegg_names.json
+*.json
+!kegg_pubchem_mapping.json
+!kegg_names.json
+!failed_downloads.json
+*.pickle
+*.csv

@@ -1,0 +1,700 @@
+/* === LAYOUT === */
+#map_container {
+    position: relative;
+    width: calc(100% - 320px);
+    height: calc(100vh - 50px);
+    margin-top: 50px;
+    margin-left: 320px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+#sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 300px;
+    height: 100vh;
+    background-color: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    z-index: 1000;
+    overflow-y: auto;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+#sidebar-toggle {
+    position: fixed;
+    left: 10px;
+    top: 10px;
+    z-index: 1001;
+    background-color: #060a0e;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#sidebar-toggle:hover {
+    background-color: #5a6268;
+}
+
+#sidebar-content {
+    padding: 20px;
+}
+
+/* === HEADINGS === */
+#sidebar h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 2px solid #6c757d;
+    padding-bottom: 10px;
+}
+
+#canvas-config h4,
+#path-selection label,
+#multi-node-selection label {
+    margin-top: 10px;
+    font-weight: bold;
+    color: #555;
+}
+
+/* === FORMS AND INPUTS === */
+#upload-form label,
+#path-selection label,
+#multi-node-selection label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+#upload-form input[type="file"],
+#path-selection input[type="text"],
+#multi-node-search,
+.config-input-row input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    box-sizing: border-box;
+}
+
+#connection-distance {
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+/* === BUTTONS === */
+button {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 8px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    background-color: #6c757d;
+    color: white;
+}
+
+button:hover:enabled {
+    background-color: #5a6268;
+}
+
+button:disabled {
+    background-color: #adb5bd;
+    cursor: not-allowed;
+}
+
+/* === MAP CONTROLS === */
+#map_controls {
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    z-index: 999;
+    display: flex;
+    gap: 10px;
+}
+
+#export-svg-btn {
+    width: auto;
+    padding: 10px 15px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    margin-bottom: 0;
+}
+
+#export-svg-btn:hover {
+    background-color: #218838;
+}
+
+#export-svg-btn:active {
+    transform: scale(0.98);
+}
+
+/* === CONFIGURATION === */
+#canvas-config {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #6c757d;
+}
+
+.config-section {
+    margin-bottom: 15px;
+}
+
+.config-section-title {
+    font-weight: bold;
+    color: #555;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.config-form-wrapper {
+    pointer-events: auto;
+}
+
+.config-form-wrapper:focus-within {
+    background-color: rgba(42, 157, 143, 0.05);
+    border-radius: 4px;
+    padding: 8px;
+    margin: -8px;
+}
+
+.config-input-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.config-input-row > div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.config-input-row label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.config-input-row input {
+    padding: 8px;
+    border: 1px solid #999;
+    border-radius: 4px;
+}
+
+.config-input-row input:focus {
+    outline: none;
+    border-color: #5a6268;
+    box-shadow: 0 0 3px rgba(90, 98, 104, 0.3);
+}
+
+/* === DROPDOWN === */
+.dropdown-container {
+    position: relative;
+    margin-bottom: 15px;
+}
+
+.dropdown-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.dropdown-list.show {
+    display: block;
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 12px;
+}
+
+.dropdown-item:hover {
+    background-color: #f8f9fa;
+}
+
+.dropdown-item.selected {
+    background-color: #6c757d;
+    color: white;
+}
+
+.node-name {
+    font-weight: bold;
+}
+
+.node-id {
+    color: #666;
+    font-size: 11px;
+}
+
+/* === INFO BOXES === */
+#selection-status,
+#multi-selection-status {
+    background-color: #e9ecef;
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+#selection-status p,
+#multi-selection-status p {
+    margin: 5px 0;
+    font-size: 12px;
+}
+
+#path-info,
+#multi-node-info {
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 15px;
+    display: none;
+}
+
+#path-info h4,
+#multi-node-info h4 {
+    margin-top: 0;
+    color: #0c5460;
+}
+
+/* === MULTI-NODE TAGS === */
+#selected-nodes-container {
+    min-height: 40px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
+    background-color: #f8f9fa;
+    margin-bottom: 10px;
+}
+
+.selected-node-tag {
+    display: inline-block;
+    background-color: #6c757d;
+    color: white;
+    padding: 4px 8px;
+    margin: 2px;
+    border-radius: 12px;
+    font-size: 11px;
+}
+
+.selected-node-tag .remove-node {
+    margin-left: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.selected-node-tag .remove-node:hover {
+    color: #ffcccb;
+}
+
+/* === NODE HIGHLIGHTING === */
+circle.node-circle.metabolite-circle {
+    opacity: 1;
+    fill: grey;
+    z-index: 500 !important;
+}
+
+circle.node-circle.metabolite-circle.highlighted {
+    opacity: 1;
+    fill: red;
+    z-index: 600 !important;
+}
+
+circle.node-circle.coproduct-circle {
+    opacity: 0.7;
+    fill: grey;
+    z-index: 300 !important;
+}
+
+circle.node-circle.midpoint-circle {
+    z-index: 300 !important;
+}
+
+/* === PATH HIGHLIGHTING === */
+.path-node.highlighted-path,
+.multi-node.highlighted-multi {
+    opacity: 1 !important;
+    z-index: 600 !important;
+}
+
+.path-node.highlighted-path {
+    stroke: #ff6b35;
+    stroke-width: 4px;
+    fill: #ff6b35;
+}
+
+.multi-node.highlighted-multi {
+    stroke: #ff4500;
+    stroke-width: 5px;
+    fill: #ff4500;
+}
+
+.path-segment.highlighted-path,
+.multi-segment.highlighted-multi {
+    opacity: 1;
+    z-index: 550 !important;
+    stroke-dasharray: none;
+}
+
+.path-segment.highlighted-path {
+    stroke: #ff6b35 !important;
+    stroke-width: 4px !important;
+}
+
+.multi-segment.highlighted-multi {
+    stroke: #ff4500 !important;
+    stroke-width: 6px !important;
+}
+
+/* === OVERRIDE ESCHER SELECTED NODE OUTLINE === */
+svg.escher-svg g.selected .node-circle {
+    stroke-width: 2px !important;
+    stroke: rgb(162, 69, 16) !important;
+}
+
+svg.escher-svg g.selected .metabolite-circle {
+    stroke: rgb(162, 69, 16) !important;
+}
+
+svg.escher-svg g.selected .label {
+    fill: inherit !important;
+}
+
+/* === SVG STYLES === */
+svg.escher-svg .node-label {
+    font-weight: bold !important;
+    fill: #333 !important;
+}
+
+svg.escher-svg .node-label.metabolite-name {
+    font-size: inherit;
+}
+
+svg.escher-svg .node-label.coproduct-name {
+    font-size: inherit;
+}
+
+path.segment {
+    opacity: 0.3;
+    stroke-width: 3px !important;
+    z-index: -100 !important;
+    stroke: grey !important;
+}
+
+/* === INSTRUCTIONS BOX === */
+.instructions-box {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+/* === HIDDEN BUTTON STATE === */
+.hidden-button {
+    display: none;
+}
+
+/* === FORM SPACING === */
+form input[type="file"] {
+    margin-bottom: 16px;
+}
+
+/* === EMPTY STATE === */
+.empty-state {
+    color: #666;
+    font-style: italic;
+}
+
+/* === SUBGRAPH STATUS === */
+#subgraph-status-container {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 12px;
+    margin-top: 15px;
+}
+
+#subgraph-status-container p {
+    margin: 0 0 10px 0;
+    color: #856404;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.revert-config-btn {
+    background-color: #ffc107;
+    color: #333;
+    font-weight: bold;
+}
+
+.revert-config-btn:hover:enabled {
+    background-color: #e0a800;
+}
+
+/* === FLASK-WTF FORMS === */
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    box-sizing: border-box;
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #2a9d8f;
+    box-shadow: 0 0 5px rgba(42, 157, 143, 0.3);
+}
+
+/* Multi-select styling */
+.form-control[multiple],
+.multi-node-select,
+.node-select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    box-sizing: border-box;
+    font-size: 14px;
+}
+
+.form-control[multiple]:focus,
+.multi-node-select:focus,
+.node-select:focus {
+    outline: none;
+    border-color: #2a9d8f;
+    box-shadow: 0 0 5px rgba(42, 157, 143, 0.3);
+}
+
+.form-control[multiple] option:checked {
+    background: linear-gradient(#2a9d8f 0%, #2a9d8f 100%);
+    background-color: #2a9d8f;
+    color: white;
+}
+
+.form-control[multiple] option {
+    padding: 3px 5px;
+}
+
+.form-errors {
+    color: #dc3545;
+    font-size: 12px;
+    margin-top: 3px;
+    padding: 5px;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 3px;
+}
+
+/* === FLASH MESSAGES === */
+.alert {
+    padding: 12px 15px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    border: 1px solid;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+    border-color: #c3e6cb;
+}
+
+.alert-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border-color: #f5c6cb;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border-color: #bee5eb;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    color: #856404;
+    border-color: #ffeeba;
+}
+
+.alert-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 10px;
+    color: inherit;
+    opacity: 0.7;
+}
+
+.alert-close:hover {
+    opacity: 1;
+}
+
+/* === BUTTON STYLES === */
+.btn {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 8px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    font-size: 14px;
+}
+
+.btn-primary {
+    background-color: #2a9d8f;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #1f7a67;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: #5a6268;
+}
+
+/* === CONFIG SECTION DIVIDERS === */
+.config-section-divider {
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+}
+.config-section-divider h4 {
+    margin-top: 0;
+    font-size: 13px;
+    color: #444;
+}
+
+/* === INPUT ROW (side-by-side pairs) === */
+.input-row {
+    display: flex;
+    gap: 8px;
+}
+.input-row .form-control {
+    width: 50%;
+}
+
+/* === STATUS MESSAGES (replaces inline JS styling) === */
+.status-message {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-size: 13px;
+}
+.status-success {
+    color: #155724;
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+}
+.status-error {
+    color: #721c24;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+}
+.status-warning {
+    color: #856404;
+    background-color: #fff3cd;
+    border-color: #ffc107;
+}
+.status-info {
+    color: #004085;
+    background-color: #cce5ff;
+    border-color: #b8daff;
+}
+
+/* === BACKEND INPUT CHANGED INDICATOR === */
+.backend-input-changed {
+    border-color: #e0a800 !important;
+    background-color: #fffbe6 !important;
+    box-shadow: 0 0 4px rgba(224, 168, 0, 0.5) !important;
+}
+
+/* === REGENERATE BUTTON === */
+.btn-danger {
+    background-color: #d9534f;
+    border-color: #d43f3a;
+    color: white;
+    width: 100%;
+    margin-top: 10px;
+}
+.btn-danger:hover:not(:disabled) {
+    background-color: #c9302c;
+}
+
+/* === FORM TEXT (small helper text) === */
+.form-text {
+    display: block;
+    font-size: 11px;
+    color: #6c757d;
+    margin-top: 2px;
+}

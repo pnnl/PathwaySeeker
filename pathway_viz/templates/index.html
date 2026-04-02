@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Escher Structures with Bar Charts</title>
+    <script src="static/escher.min.js" charset="utf-8"></script>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+    <button id="sidebar-toggle">☰</button>
+
+    <div id="sidebar">
+        <div id="sidebar-content">
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                            <button class="alert-close"
+                                onclick="this.parentElement.style.display='none';">&times;</button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- ═══════════════════════════════════════════
+                 FILE UPLOAD
+            ════════════════════════════════════════════ -->
+            <h3>Upload Files</h3>
+            <div class="instructions-box">
+                <p><strong>Instructions:</strong></p>
+                <ul>
+                    <li>Graph file (.pickle or .json)</li>
+                    <li>Metabolomics CSV (optional)</li>
+                    <li>Proteomics CSV (optional)</li>
+                </ul>
+            </div>
+            <form method="POST" action="{{ url_for('upload_files') }}"
+                  enctype="multipart/form-data">
+                {{ upload_form.hidden_tag() }}
+                <div class="form-group">
+                    {{ upload_form.graph_pickle.label }}
+                    {{ upload_form.graph_pickle(class="form-control") }}
+                    {% if upload_form.graph_pickle.errors %}
+                        <div class="form-errors">{{ upload_form.graph_pickle.errors[0] }}</div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    {{ upload_form.metabolomics_csv.label }}
+                    {{ upload_form.metabolomics_csv(class="form-control") }}
+                </div>
+                <div class="form-group">
+                    {{ upload_form.proteomics_csv.label }}
+                    {{ upload_form.proteomics_csv(class="form-control") }}
+                </div>
+                {{ upload_form.submit(class="btn btn-primary") }}
+            </form>
+
+            <!-- Subgraph status + revert -->
+            <div id="subgraph-status-container" style="display:none;">
+                <p>Currently viewing subgraph</p>
+                <form method="POST" action="{{ url_for('revert_to_full_graph') }}">
+                    {{ revert_form.hidden_tag() }}
+                    {{ revert_form.submit(class="btn btn-secondary") }}
+                </form>
+            </div>
+
+            <!-- ═══════════════════════════════════════════
+                 SHORTEST PATH
+            ════════════════════════════════════════════ -->
+            <h3>Shortest Path</h3>
+            <form method="POST" action="{{ url_for('find_path') }}">
+                {{ path_form.hidden_tag() }}
+                <div class="instructions-box">
+                    <p>1. Select two nodes</p>
+                    <p>2. Click "Find Shortest Path"</p>
+                </div>
+                <div class="form-group">
+                    {{ path_form.start_node.label }}
+                    <select id="start-node" name="start_node"
+                            class="form-control node-select" required>
+                        <option value="">-- Select start node --</option>
+                    </select>
+                    {% if path_form.start_node.errors %}
+                        <div class="form-errors">{{ path_form.start_node.errors[0] }}</div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    {{ path_form.end_node.label }}
+                    <select id="end-node" name="end_node"
+                            class="form-control node-select" required>
+                        <option value="">-- Select end node --</option>
+                    </select>
+                    {% if path_form.end_node.errors %}
+                        <div class="form-errors">{{ path_form.end_node.errors[0] }}</div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    {{ path_form.keep_positions(class="form-check-input") }}
+                    {{ path_form.keep_positions.label(class="form-check-label") }}
+                </div>
+                {{ path_form.submit(class="btn btn-primary") }}
+            </form>
+
+            <!-- ═══════════════════════════════════════════
+                 MULTI-NODE SUBGRAPH
+            ════════════════════════════════════════════ -->
+            <h3>Multi-Node Subgraph</h3>
+            <form method="POST" action="{{ url_for('create_multi_node_subgraph') }}">
+                {{ multi_node_form.hidden_tag() }}
+                <div class="instructions-box">
+                    <p>1. Select nodes</p>
+                    <p>2. Set distance</p>
+                    <p>3. Create subgraph</p>
+                </div>
+                <div class="form-group">
+                    <label>Select Nodes (type to search):</label>
+                    <input type="text" id="node-search-input" class="form-control"
+                           placeholder="Type node name or ID...">
+                    <select id="node-multiselect" multiple
+                            class="form-control multi-node-select">
+                        <option value="" disabled>-- Select nodes --</option>
+                    </select>
+                    <input type="hidden" id="selected_nodes" name="selected_nodes">
+                    {% if multi_node_form.selected_nodes.errors %}
+                        <div class="form-errors">
+                            {{ multi_node_form.selected_nodes.errors[0] }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    {{ multi_node_form.connection_distance.label }}
+                    {{ multi_node_form.connection_distance(
+                        class="form-control", id="connection_distance",
+                        min="1", max="5") }}
+                    {% if multi_node_form.connection_distance.errors %}
+                        <div class="form-errors">
+                            {{ multi_node_form.connection_distance.errors[0] }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    {{ multi_node_form.keep_positions(class="form-check-input") }}
+                    {{ multi_node_form.keep_positions.label(class="form-check-label") }}
+                </div>
+                {{ multi_node_form.submit(class="btn btn-primary") }}
+            </form>
+
+            <!-- ═══════════════════════════════════════════
+                 BACKEND GRAPH LAYOUT SETTINGS
+            ════════════════════════════════════════════ -->
+            <h3>Graph Layout Settings</h3>
+            <div class="instructions-box">
+                <p><strong>Note:</strong> Changes here regenerate the graph.
+                   This may take a moment.</p>
+            </div>
+
+            <form method="POST" action="{{ url_for('regenerate_graph') }}"
+                  id="backend-config-form">
+                {{ backend_config_form.hidden_tag() }}
+
+                {# Hidden view-state fields - filled by app.js before submit #}
+                {{ backend_config_form.view_type(id="hidden-view-type") }}
+                {{ backend_config_form.start_node(id="hidden-start-node") }}
+                {{ backend_config_form.end_node(id="hidden-end-node") }}
+                {{ backend_config_form.path_nodes(id="hidden-path-nodes") }}
+                {{ backend_config_form.selected_nodes(id="hidden-selected-nodes") }}
+                {{ backend_config_form.connection_distance(id="hidden-connection-distance") }}
+                {{ backend_config_form.keep_positions(id="hidden-keep-positions") }}
+
+                <!-- Layout Orientation -->
+                <div class="config-section-divider">
+                    <h4>Layout Orientation</h4>
+                    <div class="form-group">
+                        {{ backend_config_form.small_graph_layout_vertical(
+                            class="form-check-input backend-config-input") }}
+                        {{ backend_config_form.small_graph_layout_vertical.label(
+                            class="form-check-label") }}
+                    </div>
+                </div>
+
+                <!-- Canvas Dimensions -->
+                <div class="config-section-divider">
+                    <h4>Canvas Dimensions</h4>
+                    <div class="form-group">
+                        <label>Small Graph (W × H):</label>
+                        <div class="input-row">
+                            {{ backend_config_form.small_graph_width(
+                                class="form-control backend-config-input",
+                                min="100", max="100000") }}
+                            {{ backend_config_form.small_graph_height(
+                                class="form-control backend-config-input",
+                                min="100", max="100000") }}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Medium Graph (W × H):</label>
+                        <div class="input-row">
+                            {{ backend_config_form.medium_graph_width(
+                                class="form-control backend-config-input",
+                                min="100", max="200000") }}
+                            {{ backend_config_form.medium_graph_height(
+                                class="form-control backend-config-input",
+                                min="100", max="100000") }}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Large Graph (W × H):</label>
+                        <div class="input-row">
+                            {{ backend_config_form.large_graph_width(
+                                class="form-control backend-config-input",
+                                min="100", max="200000") }}
+                            {{ backend_config_form.large_graph_height(
+                                class="form-control backend-config-input",
+                                min="100", max="100000") }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Node Thresholds -->
+                <div class="config-section-divider">
+                    <h4>Node Thresholds</h4>
+                    <div class="form-group">
+                        {{ backend_config_form.node_threshold_small.label }}
+                        {{ backend_config_form.node_threshold_small(
+                            class="form-control backend-config-input",
+                            min="2", max="100") }}
+                    </div>
+                    <div class="form-group">
+                        {{ backend_config_form.node_threshold_medium.label }}
+                        {{ backend_config_form.node_threshold_medium(
+                            class="form-control backend-config-input",
+                            min="5", max="500") }}
+                    </div>
+                </div>
+
+                <!-- Coproduct Positioning -->
+                <div class="config-section-divider">
+                    <h4>Coproduct Positioning</h4>
+                    <div class="form-group">
+                        {{ backend_config_form.coproduct_radius.label }}
+                        {{ backend_config_form.coproduct_radius(
+                            class="form-control backend-config-input",
+                            min="5", max="200") }}
+                    </div>
+                    <div class="form-group">
+                        {{ backend_config_form.coproduct_offset.label }}
+                        {{ backend_config_form.coproduct_offset(
+                            class="form-control backend-config-input",
+                            min="5", max="300") }}
+                    </div>
+                </div>
+
+                <!-- Aspect Ratio -->
+                <div class="config-section-divider">
+                    <h4>Aspect Ratio Limits</h4>
+                    <div class="form-group">
+                        {{ backend_config_form.max_aspect_ratio.label }}
+                        {{ backend_config_form.max_aspect_ratio(
+                            class="form-control backend-config-input",
+                            min="1", max="20", step="0.5") }}
+                    </div>
+                    <div class="form-group">
+                        {{ backend_config_form.min_aspect_ratio.label }}
+                        {{ backend_config_form.min_aspect_ratio(
+                            class="form-control backend-config-input",
+                            min="0.01", max="1", step="0.05") }}
+                    </div>
+                </div>
+
+                {{ backend_config_form.submit(class="btn btn-danger",
+                    id="regenerateGraphBtn") }}
+            </form>
+
+            <!-- ═══════════════════════════════════════════
+                 FRONTEND VISUALIZATION SETTINGS
+                 (auto-apply on change, no page reload)
+            ════════════════════════════════════════════ -->
+            <h3>Visualization Settings</h3>
+
+            <!-- Node Styling -->
+            <div class="config-section-divider">
+                <h4>Node Styling</h4>
+                <div class="form-group">
+                    <label for="nodeRadius">Node Radius (px):</label>
+                    <input type="number" id="nodeRadius" class="form-control frontend-config-input"
+                           min="1" max="50"
+                           value="{{ frontend_config.nodeRadius }}">
+                    <small class="form-text">Default: 10px</small>
+                </div>
+                <div class="form-group">
+                    <label for="metaboliteRadius">Metabolite Radius (px):</label>
+                    <input type="number" id="metaboliteRadius"
+                           class="form-control frontend-config-input"
+                           min="1" max="50"
+                           value="{{ frontend_config.metaboliteRadius }}">
+                    <small class="form-text">Default: 10px</small>
+                </div>
+                <div class="form-group">
+                    <label for="reactionRadius">Reaction Radius (px):</label>
+                    <input type="number" id="reactionRadius"
+                           class="form-control frontend-config-input"
+                           min="1" max="50"
+                           value="{{ frontend_config.reactionRadius }}">
+                    <small class="form-text">Default: 8px</small>
+                </div>
+            </div>
+
+            <!-- Label Styling -->
+            <div class="config-section-divider">
+                <h4>Label Styling</h4>
+                <div class="form-group">
+                    <label for="labelOffsetY">Label Vertical Offset (px):</label>
+                    <input type="number" id="labelOffsetY"
+                           class="form-control frontend-config-input"
+                           min="0" max="200"
+                           value="{{ frontend_config.labelOffsetY }}">
+                    <small class="form-text">Default: 35px</small>
+                </div>
+                <div class="form-group">
+                    <label for="metaboliteLabelFontSize">Metabolite Font Size (px):</label>
+                    <input type="number" id="metaboliteLabelFontSize"
+                           class="form-control frontend-config-input"
+                           min="8" max="32"
+                           value="{{ frontend_config.metaboliteLabelFontSize }}">
+                    <small class="form-text">Default: 14px</small>
+                </div>
+                <div class="form-group">
+                    <label for="coproductLabelOffsetY">Coproduct Label Offset (px):</label>
+                    <input type="number" id="coproductLabelOffsetY"
+                           class="form-control frontend-config-input"
+                           min="0" max="200"
+                           value="{{ frontend_config.coproductLabelOffsetY }}">
+                    <small class="form-text">Default: 25px</small>
+                </div>
+                <div class="form-group">
+                    <label for="coproductLabelFontSize">Coproduct Font Size (px):</label>
+                    <input type="number" id="coproductLabelFontSize"
+                           class="form-control frontend-config-input"
+                           min="8" max="32"
+                           value="{{ frontend_config.coproductLabelFontSize }}">
+                    <small class="form-text">Default: 10px</small>
+                </div>
+            </div>
+
+            <!-- Bar Chart Styling -->
+            <div class="config-section-divider">
+                <h4>Bar Chart Styling</h4>
+                <div class="form-group">
+                    <label for="barChartWidth">Width (px):</label>
+                    <input type="number" id="barChartWidth"
+                           class="form-control frontend-config-input"
+                           min="10" max="500"
+                           value="{{ frontend_config.barChartWidth }}">
+                    <small class="form-text">Default: 100px</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartHeight">Height (px):</label>
+                    <input type="number" id="barChartHeight"
+                           class="form-control frontend-config-input"
+                           min="10" max="500"
+                           value="{{ frontend_config.barChartHeight }}">
+                    <small class="form-text">Default: 100px</small>
+                </div>
+                <div class="form-group">
+                    <label for="barHeight">Bar Height Per Bar (px):</label>
+                    <input type="number" id="barHeight"
+                           class="form-control frontend-config-input"
+                           min="5" max="100"
+                           value="{{ frontend_config.barHeight }}">
+                    <small class="form-text">Default: 15px</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartOffsetY">Vertical Offset (px):</label>
+                    <input type="number" id="barChartOffsetY"
+                           class="form-control frontend-config-input"
+                           min="0" max="200"
+                           value="{{ frontend_config.barChartOffsetY }}">
+                    <small class="form-text">Default: 60px</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartAxisPadding">Axis Padding (px):</label>
+                    <input type="number" id="barChartAxisPadding"
+                           class="form-control frontend-config-input"
+                           min="0" max="100"
+                           value="{{ frontend_config.barChartAxisPadding }}">
+                    <small class="form-text">Default: 20px</small>
+                </div>
+                <div class="form-group">
+                    <label for="chartTitleFontSize">Title Font Size (px):</label>
+                    <input type="number" id="chartTitleFontSize"
+                           class="form-control frontend-config-input"
+                           min="8" max="32"
+                           value="{{ frontend_config.chartTitleFontSize }}">
+                    <small class="form-text">Default: 14px</small>
+                </div>
+                <div class="form-group">
+                    <label for="chartLabelFontSize">Label Font Size (px):</label>
+                    <input type="number" id="chartLabelFontSize"
+                           class="form-control frontend-config-input"
+                           min="8" max="32"
+                           value="{{ frontend_config.chartLabelFontSize }}">
+                    <small class="form-text">Default: 14px</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartTitle">Chart Title:</label>
+                    <input type="text" id="barChartTitle"
+                           class="form-control frontend-config-input"
+                           value="{{ frontend_config.barChartTitle }}">
+                    <small class="form-text">Leave empty to hide</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartXLabel">X-Axis Label:</label>
+                    <input type="text" id="barChartXLabel"
+                           class="form-control frontend-config-input"
+                           value="{{ frontend_config.barChartXLabel }}">
+                    <small class="form-text">Default: "Abundance"</small>
+                </div>
+                <div class="form-group">
+                    <label for="barChartYLabel">Y-Axis Label:</label>
+                    <input type="text" id="barChartYLabel"
+                           class="form-control frontend-config-input"
+                           value="{{ frontend_config.barChartYLabel }}">
+                    <small class="form-text">Leave empty to hide</small>
+                </div>
+                <div class="form-group">
+                    <label for="imageSize">Structure Image Size (px):</label>
+                    <input type="number" id="imageSize" class="form-control frontend-config-input"
+                           min="50" max="2000"
+                           value="{{ frontend_config.imageSize }}">
+                    <small class="form-text">Default: 200px</small>
+                </div>
+            </div>
+
+            <div id="frontend-config-status" class="status-message" style="display:none;"></div>
+
+        </div><!-- /sidebar-content -->
+    </div><!-- /sidebar -->
+
+    <div id="map_controls">
+        <button id="export-svg-btn" class="btn btn-export">📥 Export SVG + PNG</button>
+    </div>
+
+    <div id="map_container"></div>
+
+    <!-- Single config object for all JS -->
+    <script>
+        window.initialJsonData = {{ json_data|tojson|safe if json_data else 'null' }};
+        window.CONFIG = {{ frontend_config|tojson|safe }};
+    </script>
+
+    <script src="static/visualizer.js?v={{ range(0,999999)|random }}"></script>
+    <script src="static/app.js?v={{ range(0,999999)|random }}"></script>
+</body>
+</html>

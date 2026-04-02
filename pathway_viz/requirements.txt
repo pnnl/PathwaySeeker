@@ -1,0 +1,26 @@
+# Web framework
+flask==3.1.1
+flask-wtf==1.2.1
+
+# Graph processing
+networkx==3.2.1
+pygraphviz
+
+# Data processing
+pandas==2.3.1
+openpyxl          # Excel .xlsx support
+xlrd              # Excel .xls support
+
+# Scientific computing
+numpy
+scipy
+matplotlib
+
+# Image processing
+Pillow
+
+# HTTP client (KEGG + PubChem API calls)
+requests==2.32.4
+
+# Escher map format reference
+escher==1.8.1
