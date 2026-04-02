@@ -1,0 +1,11 @@
+pandas==2.3.1
+escher==1.8.1
+ipython==8.18.1
+notebook==7.4.5
+memote==0.17.0
+matplotlib
+requests==2.32.4
+flask==3.1.1
+flask-wtf==1.2.1
+networkx==3.2.1
+scipy

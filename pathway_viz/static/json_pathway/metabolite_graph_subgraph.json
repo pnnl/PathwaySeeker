@@ -1,0 +1,711 @@
+[
+  {
+    "map_name": "Metabolic Pathway Map",
+    "map_id": "generated_pathway",
+    "map_description": "Auto-generated pathway map with integrated omics data",
+    "homepage": "",
+    "schema": "https://escher.github.io/escher/jsonschema/1-0-0#"
+  },
+  {
+    "nodes": {
+      "C00082": {
+        "node_type": "metabolite",
+        "color": "#2a9d8f",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 200.0,
+        "label_x": 200.0,
+        "label_y": 200.0,
+        "bigg_id": "C00082",
+        "name": "L-Tyrosine;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 6313365.333333333,
+            "std_dev": 2427871.596345518,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 1565941.2083333333,
+            "std_dev": 203388.52828562554,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 5209001.333333333,
+            "std_dev": 479266.82462286425,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 1445983.7916666667,
+            "std_dev": 343312.15812863765,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 210333.33333333334,
+            "std_dev": 26950.572040929546,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "C00811": {
+        "node_type": "metabolite",
+        "color": "#2a9d8f",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 1166.6666666666665,
+        "label_x": 200.0,
+        "label_y": 1166.6666666666665,
+        "bigg_id": "C00811",
+        "name": "4-Coumarate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 40353383.90626667,
+            "std_dev": 68737295.77201436,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 11263464.166666666,
+            "std_dev": 11970859.070644328,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 187228.78125,
+            "std_dev": 131530.39386252835,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 3807254.8333333335,
+            "std_dev": 1437427.044122095,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 921000.0,
+            "std_dev": 183893.9912014528,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "C01197": {
+        "node_type": "metabolite",
+        "color": "#2a9d8f",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 2133.333333333333,
+        "label_x": 200.0,
+        "label_y": 2133.333333333333,
+        "bigg_id": "C01197",
+        "name": "Caffeate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 43892.825520000006,
+            "std_dev": 8668.566974480746,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 37256.10937333333,
+            "std_dev": 3902.6301134911473,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 41504.322916666664,
+            "std_dev": 8379.877849054443,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 37354.41797,
+            "std_dev": 3622.1647079504883,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 182333.33333333334,
+            "std_dev": 23094.01076758503,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "C01494": {
+        "node_type": "metabolite",
+        "color": "#2a9d8f",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 3100.0,
+        "label_x": 200.0,
+        "label_y": 3100.0,
+        "bigg_id": "C01494",
+        "name": "Ferulate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 51053.67578,
+            "std_dev": 0.0,
+            "count": 1
+          },
+          "CtrTvAOT0-super": {
+            "average": 179000.0,
+            "std_dev": 0.0,
+            "count": 1
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "5": {
+        "node_type": "midpoint",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 1485.6666666666665,
+        "label_x": 200.0,
+        "label_y": 1485.6666666666665,
+        "bigg_id": "midpoint_5",
+        "name": "Midpoint_5",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      },
+      "6": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": true,
+        "x": 170.0,
+        "y": 1450.6666666666665,
+        "label_x": 170.0,
+        "label_y": 1450.6666666666665,
+        "bigg_id": "C00811",
+        "name": "4-Coumarate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 40353383.90626667,
+            "std_dev": 68737295.77201436,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 11263464.166666666,
+            "std_dev": 11970859.070644328,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 187228.78125,
+            "std_dev": 131530.39386252835,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 3807254.8333333335,
+            "std_dev": 1437427.044122095,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 921000.0,
+            "std_dev": 183893.9912014528,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "7": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": false,
+        "x": 170.0,
+        "y": 1535.6666666666665,
+        "label_x": 170.0,
+        "label_y": 1535.6666666666665,
+        "bigg_id": "C01197",
+        "name": "Caffeate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 43892.825520000006,
+            "std_dev": 8668.566974480746,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 37256.10937333333,
+            "std_dev": 3902.6301134911473,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 41504.322916666664,
+            "std_dev": 8379.877849054443,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 37354.41797,
+            "std_dev": 3622.1647079504883,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 182333.33333333334,
+            "std_dev": 23094.01076758503,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "8": {
+        "node_type": "midpoint",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 2452.333333333333,
+        "label_x": 200.0,
+        "label_y": 2452.333333333333,
+        "bigg_id": "midpoint_8",
+        "name": "Midpoint_8",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      },
+      "9": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": true,
+        "x": 170.0,
+        "y": 2417.333333333333,
+        "label_x": 170.0,
+        "label_y": 2417.333333333333,
+        "bigg_id": "C00019",
+        "name": "S-Adenosyl-L-methionine;",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      },
+      "10": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": true,
+        "x": 140.0,
+        "y": 2367.333333333333,
+        "label_x": 140.0,
+        "label_y": 2367.333333333333,
+        "bigg_id": "C01197",
+        "name": "Caffeate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 43892.825520000006,
+            "std_dev": 8668.566974480746,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 37256.10937333333,
+            "std_dev": 3902.6301134911473,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 41504.322916666664,
+            "std_dev": 8379.877849054443,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 37354.41797,
+            "std_dev": 3622.1647079504883,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 182333.33333333334,
+            "std_dev": 23094.01076758503,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "11": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": false,
+        "x": 170.0,
+        "y": 2502.333333333333,
+        "label_x": 170.0,
+        "label_y": 2502.333333333333,
+        "bigg_id": "C00021",
+        "name": "S-Adenosyl-L-homocysteine;",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      },
+      "12": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": false,
+        "x": 140.0,
+        "y": 2552.333333333333,
+        "label_x": 140.0,
+        "label_y": 2552.333333333333,
+        "bigg_id": "C01494",
+        "name": "Ferulate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 51053.67578,
+            "std_dev": 0.0,
+            "count": 1
+          },
+          "CtrTvAOT0-super": {
+            "average": 179000.0,
+            "std_dev": 0.0,
+            "count": 1
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "13": {
+        "node_type": "midpoint",
+        "cofactor": false,
+        "x": 200.0,
+        "y": 519.0,
+        "label_x": 200.0,
+        "label_y": 519.0,
+        "bigg_id": "midpoint_13",
+        "name": "Midpoint_13",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      },
+      "14": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": true,
+        "x": 170.0,
+        "y": 484.0,
+        "label_x": 170.0,
+        "label_y": 484.0,
+        "bigg_id": "C00082",
+        "name": "L-Tyrosine;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 6313365.333333333,
+            "std_dev": 2427871.596345518,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 1565941.2083333333,
+            "std_dev": 203388.52828562554,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 5209001.333333333,
+            "std_dev": 479266.82462286425,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 1445983.7916666667,
+            "std_dev": 343312.15812863765,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 210333.33333333334,
+            "std_dev": 26950.572040929546,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "15": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": false,
+        "x": 170.0,
+        "y": 569.0,
+        "label_x": 170.0,
+        "label_y": 569.0,
+        "bigg_id": "C00811",
+        "name": "4-Coumarate;",
+        "node_is_primary": false,
+        "graph_info": {
+          "AgitWAO": {
+            "average": 40353383.90626667,
+            "std_dev": 68737295.77201436,
+            "count": 3
+          },
+          "StatWOAO": {
+            "average": 11263464.166666666,
+            "std_dev": 11970859.070644328,
+            "count": 3
+          },
+          "AgitWOAO": {
+            "average": 187228.78125,
+            "std_dev": 131530.39386252835,
+            "count": 3
+          },
+          "StatWAO": {
+            "average": 3807254.8333333335,
+            "std_dev": 1437427.044122095,
+            "count": 3
+          },
+          "CtrTvAOT0-super": {
+            "average": 921000.0,
+            "std_dev": 183893.9912014528,
+            "count": 3
+          }
+        },
+        "data": null,
+        "data_string": ""
+      },
+      "16": {
+        "node_type": "coproduct",
+        "cofactor": true,
+        "is_cofactor": false,
+        "x": 140.0,
+        "y": 619.0,
+        "label_x": 140.0,
+        "label_y": 619.0,
+        "bigg_id": "C00014",
+        "name": "Ammonia;",
+        "node_is_primary": false,
+        "graph_info": {},
+        "data": null,
+        "data_string": ""
+      }
+    },
+    "reactions": {
+      "0": {
+        "name": "Combined Reactions",
+        "bigg_id": "",
+        "reversibility": false,
+        "label_x": 0.0,
+        "label_y": 0.0,
+        "gene_reaction_rule": "",
+        "genes": [],
+        "segments": {
+          "1": {
+            "from_node_id": "C01197",
+            "to_node_id": "5",
+            "reaction_name": "R07826",
+            "edge_type": "reactant_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "2": {
+            "from_node_id": "5",
+            "to_node_id": "C00811",
+            "reaction_name": "R07826",
+            "edge_type": "product_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "3": {
+            "from_node_id": "6",
+            "to_node_id": "5",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 1435.6666666666665
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 1435.6666666666665
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "4": {
+            "from_node_id": "5",
+            "to_node_id": "7",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 1535.6666666666665
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 1535.6666666666665
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "5": {
+            "from_node_id": "C01197",
+            "to_node_id": "8",
+            "reaction_name": "R03366",
+            "edge_type": "reactant_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "6": {
+            "from_node_id": "8",
+            "to_node_id": "C01494",
+            "reaction_name": "R03366",
+            "edge_type": "product_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "7": {
+            "from_node_id": "9",
+            "to_node_id": "8",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 2402.333333333333
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 2402.333333333333
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "8": {
+            "from_node_id": "10",
+            "to_node_id": "8",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 2352.333333333333
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 2352.333333333333
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "9": {
+            "from_node_id": "8",
+            "to_node_id": "11",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 2502.333333333333
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 2502.333333333333
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "10": {
+            "from_node_id": "8",
+            "to_node_id": "12",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 2552.333333333333
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 2552.333333333333
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "11": {
+            "from_node_id": "C00811",
+            "to_node_id": "13",
+            "reaction_name": "R00737",
+            "edge_type": "reactant_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "12": {
+            "from_node_id": "13",
+            "to_node_id": "C00082",
+            "reaction_name": "R00737",
+            "edge_type": "product_edge",
+            "b1": null,
+            "b2": null,
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "13": {
+            "from_node_id": "14",
+            "to_node_id": "13",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 469.0
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 469.0
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "14": {
+            "from_node_id": "13",
+            "to_node_id": "15",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 569.0
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 569.0
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          },
+          "15": {
+            "from_node_id": "13",
+            "to_node_id": "16",
+            "edge_type": "coproduct",
+            "b1": {
+              "x": 200.0,
+              "y": 619.0
+            },
+            "b2": {
+              "x": 200.0,
+              "y": 619.0
+            },
+            "graph_info": {},
+            "data": null,
+            "data_string": ""
+          }
+        },
+        "metabolites": []
+      }
+    },
+    "text_labels": {},
+    "canvas": {
+      "x": 0,
+      "y": 0,
+      "width": 900,
+      "height": 3300
+    }
+  }
+]
