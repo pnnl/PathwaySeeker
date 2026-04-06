@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pathwayseeker"
+version = "0.1.0"
+description = "Multi-omics pathway discovery with knowledge graphs and LLMs"
+requires-python = ">=3.10"
+license = {text = "BSD-2-Clause"}
+authors = [
+    {name = "Lummy M O Monteiro"},
+    {name = "Marjolein T Oostrom"},
+    {name = "Niaz Chowdhury"},
+    {name = "Sutanay Choudhury"},
+]
+readme = "README.md"
+keywords = ["multi-omics", "metabolic-pathways", "knowledge-graph", "proteomics", "metabolomics", "KEGG"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "pandas>=2.0",
+    "networkx>=3.0",
+    "numpy",
+    "requests",
+    "bioservices",
+    "pyvis",
+    "tqdm",
+    "openpyxl",
+    "openai>=1.0",
+    "flask",
+    "flask-wtf",
+    "scipy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyterlab", "ipykernel"]
+
+[project.scripts]
+pathwayseeker = "pathwayseeker.cli:main"
+
+[project.urls]
+Repository = "https://github.com/pnnl/PathwaySeeker"
+
+[tool.setuptools.packages.find]
+where = ["src"]
