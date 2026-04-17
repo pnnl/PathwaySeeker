@@ -1455,5 +1455,10 @@
   "C01087": "(R)-2-Hydroxyglutarate;",
   "C20864": "5'-Triphospho-[mRNA];",
   "C02100": "(5')ppPur-mRNA;",
-  "C21189": "Protein N(omega),N(omega)'-dimethyl-L-arginine;"
+  "C21189": "Protein N(omega),N(omega)'-dimethyl-L-arginine;",
+  "C00504": "Folate;",
+  "C00272": "Tetrahydrobiopterin;",
+  "C02953": "7,8-Dihydrobiopterin;",
+  "C22968": "C22968;",
+  "C21932": "Cerotoyl-CoA;"
 }

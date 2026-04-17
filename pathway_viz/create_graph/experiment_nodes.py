@@ -1,19 +1,22 @@
 """
 Escher Pathway Map Generator
-
 Converts a NetworkX graph into an Escher-compatible JSON map.
 
-Pipeline (see generate_escher_map_from_graph):
-  1. Layout  – compute node positions
-  2. Canvas  – size the drawing area
-  3. Nodes   – one Escher node per original graph node
-  4. Segments – one Escher segment per original graph edge
-  5. Midpoints & coproducts – split segments, add reaction detail
-  5b. Validate – confirm original nodes/edges are preserved
-  6. Omics   – attach metabolomics / proteomics data
-  7. Export  – write JSON
-"""
+Column naming convention (proteomics & metabolomics):
+    ConditionName_1, ConditionName_2, ConditionName_3, ...
+    Everything before the last underscore  = condition name
+    Everything after  the last underscore  = replicate number (integer)
 
+Pipeline (see generate_escher_map_from_graph):
+  1. Layout       – compute node positions
+  2. Canvas       – size the drawing area
+  3. Nodes        – one Escher node per original graph node
+  4. Segments     – one Escher segment per original graph edge
+  5. Midpoints & coproducts – split segments, add reaction detail
+  5b. Validate    – confirm original nodes/edges are preserved
+  6. Omics        – attach metabolomics / proteomics data
+  7. Export       – write JSON
+"""
 import networkx as nx
 import numpy as np
 import requests
@@ -22,7 +25,6 @@ import os
 import json
 import pickle
 import logging
-
 from networkx.drawing.nx_agraph import pygraphviz_layout
 import pandas as pd
 
@@ -38,7 +40,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import sys
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config as cfg
 
@@ -46,19 +47,14 @@ import config as cfg
 # =====================================================================
 #  1. GRAPH LOADING
 # =====================================================================
-
-
 def load_graph(path):
     """Load a NetworkX graph from a *.pickle / *.pkl / *.json file."""
     if not os.path.exists(path):
         raise FileNotFoundError(path)
-
     ext = os.path.splitext(path)[1].lower()
-
     if ext in (".pickle", ".pkl"):
         with open(path, "rb") as f:
             return pickle.load(f)
-
     if ext == ".json":
         with open(path) as f:
             data = json.load(f)
@@ -74,17 +70,13 @@ def load_graph(path):
                     e["title"] = e.pop("label")
                 G.add_edge(s, t, **e)
         return G
-
     raise ValueError(f"Unsupported format: {ext}")
 
 
 # =====================================================================
 #  2. KEGG NAME CACHE
 # =====================================================================
-
-
 def load_kegg_names(path):
-    """Load existing KEGG names from JSON file or return empty dict."""
     if os.path.exists(path):
         try:
             with open(path) as f:
@@ -95,7 +87,6 @@ def load_kegg_names(path):
 
 
 def save_kegg_names(names, path):
-    """Persist KEGG names dict to JSON."""
     try:
         with open(path, "w") as f:
             json.dump(names, f, indent=2)
@@ -104,7 +95,6 @@ def save_kegg_names(names, path):
 
 
 def get_kegg_name(kegg_id, cache, cache_path):
-    """Return a human-readable name, fetching from the KEGG API if needed."""
     if kegg_id in cache:
         return cache[kegg_id]
     name = f"Unknown_{kegg_id}"
@@ -126,10 +116,7 @@ def get_kegg_name(kegg_id, cache, cache_path):
 # =====================================================================
 #  3. LAYOUT / POSITIONING
 # =====================================================================
-
-
 def _get_bounds(positions):
-    """Min / max / range for x and y."""
     if not positions:
         return dict(min_x=0, max_x=0, min_y=0, max_y=0, x_range=1, y_range=1)
     xs = [p[0] for p in positions.values()]
@@ -137,17 +124,13 @@ def _get_bounds(positions):
     mn_x, mx_x = min(xs), max(xs)
     mn_y, mx_y = min(ys), max(ys)
     return dict(
-        min_x=mn_x,
-        max_x=mx_x,
-        min_y=mn_y,
-        max_y=mx_y,
+        min_x=mn_x, max_x=mx_x, min_y=mn_y, max_y=mx_y,
         x_range=max(mx_x - mn_x, 1),
         y_range=max(mx_y - mn_y, 1),
     )
 
 
 def _normalize(positions):
-    """Rescale positions into [0, 1]."""
     if not positions:
         return {}
     b = _get_bounds(positions)
@@ -160,16 +143,11 @@ def _normalize(positions):
     }
 
 
-# ── Linear-path helpers ──────────────────────────────────────────────
-
-
 def _is_linear(G):
-    """Every node has degree <= 2 (simple path or cycle)."""
     return all(G.degree(n) <= 2 for n in G.nodes())
 
 
 def _path_start(G):
-    """Pick the source end of a linear graph using edge-insertion order."""
     nodes = list(G.nodes())
     if len(nodes) <= 1:
         return nodes[0] if nodes else None
@@ -184,7 +162,6 @@ def _path_start(G):
 
 
 def _walk(G, start):
-    """Return an ordered node list by walking the linear path."""
     path, visited, cur = [], set(), start
     while cur is not None:
         path.append(cur)
@@ -194,29 +171,16 @@ def _walk(G, start):
 
 
 def _spring_layout(G):
-    """Spring layout using cfg-controlled parameters."""
     return nx.spring_layout(
         G, k=cfg.SPRING_LAYOUT_K, iterations=cfg.SPRING_LAYOUT_ITERATIONS
     )
 
 
-# ── Main layout entry point ──────────────────────────────────────────
-
-
 def _raw_layout(G, path_order=None):
-    """
-    Choose the best layout algorithm and return *raw* positions
-    (not yet normalised).
-    """
     n = G.number_of_nodes()
     if n == 0:
         return {}
-
-    vertical = (
-        cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
-    )
-
-    # Linear graphs -> straight line
+    vertical = cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
     if _is_linear(G):
         ordered = (
             [nd for nd in path_order if nd in G.nodes()]
@@ -227,8 +191,6 @@ def _raw_layout(G, path_order=None):
             node: ((0, i) if vertical else (i, 0))
             for i, node in enumerate(ordered)
         }
-
-    # Small branching graphs (threshold from cfg, not hardcoded 20)
     if n < cfg.NODE_THRESHOLD_SMALL:
         try:
             return pygraphviz_layout(
@@ -236,8 +198,6 @@ def _raw_layout(G, path_order=None):
             )
         except Exception:
             return _spring_layout(G)
-
-    # Large graphs
     try:
         return pygraphviz_layout(G, prog="dot")
     except Exception:
@@ -245,12 +205,6 @@ def _raw_layout(G, path_order=None):
 
 
 def compute_layout(G, path_order=None, full_graph=None):
-    """
-    Return normalised [0, 1] positions for every node in *G*.
-
-    If *full_graph* is given the layout is computed on the full graph
-    first so the sub-graph keeps its spatial context.
-    """
     if full_graph is not None:
         full_norm = _normalize(_raw_layout(full_graph))
         pos = {n: full_norm[n] for n in G.nodes() if n in full_norm}
@@ -258,23 +212,16 @@ def compute_layout(G, path_order=None, full_graph=None):
         if missing:
             pos.update(_normalize(_spring_layout(G.subgraph(missing))))
         return pos
-
     return _normalize(_raw_layout(G, path_order))
 
 
-# ── Canvas size ──────────────────────────────────────────────────────
-
-
 def _canvas_size(num_nodes):
-    """Return (width, height) from cfg, appropriate for the graph size."""
     if num_nodes < cfg.NODE_THRESHOLD_SMALL:
         w, h = cfg.SMALL_GRAPH_WIDTH, cfg.SMALL_GRAPH_HEIGHT
     elif num_nodes < cfg.NODE_THRESHOLD_MEDIUM:
         w, h = cfg.MEDIUM_GRAPH_WIDTH, cfg.MEDIUM_GRAPH_HEIGHT
     else:
         w, h = cfg.LARGE_GRAPH_WIDTH, cfg.LARGE_GRAPH_HEIGHT
-
-    # Clamp aspect ratio
     ratio = w / h
     if ratio > cfg.MAX_ASPECT_RATIO:
         h = int(w / cfg.MAX_ASPECT_RATIO)
@@ -286,13 +233,7 @@ def _canvas_size(num_nodes):
 # =====================================================================
 #  4. REACTION PARSING
 # =====================================================================
-
-
 def _parse_reaction(edge_data):
-    """
-    Parse an edge's *title* field  ("R12345 - A + B <=> C + D") and
-    return reaction name + coproduct lists, or None.
-    """
     title = edge_data.get("title", "")
     main = {edge_data.get("from_node", ""), edge_data.get("to_node", "")}
     m = re.search(r"(R\d+) - (.+?) <=> (.+)", title)
@@ -311,14 +252,9 @@ def _parse_reaction(edge_data):
 
 
 # =====================================================================
-#  5. ESCHER NODES  (from original graph nodes)
+#  5. ESCHER NODES
 # =====================================================================
-
-
 def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
-    """
-    One Escher node per *original graph node*, positioned on the canvas.
-    """
     b = _get_bounds(positions)
     margin = cfg.CANVAS_PADDING
     uw, uh = cw - 2 * margin, ch - 2 * margin
@@ -334,10 +270,7 @@ def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
             node_type="metabolite",
             color=color,
             cofactor=False,
-            x=x,
-            y=y,
-            label_x=x,
-            label_y=y,
+            x=x, y=y, label_x=x, label_y=y,
             bigg_id=str(nid),
             name=name,
             node_is_primary=False,
@@ -349,16 +282,9 @@ def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
 
 
 # =====================================================================
-#  6. ESCHER SEGMENTS  (from original graph edges)
+#  6. ESCHER SEGMENTS
 # =====================================================================
-
-
 def _make_escher_segments(G):
-    """
-    One Escher segment per *original graph edge*.
-    Each segment records the parsed reaction (if any) so that midpoints
-    and coproducts can be added later.
-    """
     segs = {}
     for i, (src, tgt, data) in enumerate(G.edges(data=True)):
         segs[str(i)] = dict(
@@ -366,8 +292,7 @@ def _make_escher_segments(G):
             to_node_id=str(tgt),
             reaction_dict=_parse_reaction(data),
             edge_type=None,
-            b1=None,
-            b2=None,
+            b1=None, b2=None,
             graph_info={},
             data=None,
             data_string="",
@@ -378,18 +303,13 @@ def _make_escher_segments(G):
 # =====================================================================
 #  7. MIDPOINTS & COPRODUCTS
 # =====================================================================
-
-
 def _coproduct_pos(start, end, idx, is_reactant):
-    """Calculate position for a coproduct node offset from the pathway."""
     dx, dy = end["x"] - start["x"], end["y"] - start["y"]
     length = max(np.hypot(dx, dy), 1e-9)
     ux, uy = dx / length, dy / length
     px, py = -uy, ux
-
     off = cfg.COPRODUCT_OFFSET * (idx + 1)
     rad = cfg.COPRODUCT_RADIUS * (idx + 1)
-
     base = (
         dict(x=end["x"] - ux * off, y=end["y"] - uy * off)
         if is_reactant
@@ -404,108 +324,68 @@ def _coproduct_pos(start, end, idx, is_reactant):
 
 
 def _next_id(d):
-    """Return a new string key = len(d)+1."""
     return str(len(d) + 1)
 
 
 def _add_midpoints_and_coproducts(
     segments, nodes, kegg_cache, cache_path, midpoint_fraction=0.5
 ):
-    """
-    Replace every original segment with:
-      - a midpoint node
-      - two sub-segments  (source -> mid, mid -> target)
-      - coproduct nodes + their segments
-
-    *nodes* is mutated in place.  Returns a **new** segments dict.
-    """
     _pos = lambda nid: dict(x=nodes[nid]["x"], y=nodes[nid]["y"])
     new_segs = {}
-
     for seg in segments.values():
         fid, tid = str(seg["from_node_id"]), str(seg["to_node_id"])
         rxn = seg.get("reaction_dict")
         fp, tp = _pos(fid), _pos(tid)
-
-        # ── midpoint ────────────────────────────────────────────────
         frac = midpoint_fraction
         if frac != 0.5 and fp["y"] > tp["y"]:
             frac = 1.0 - frac
-
         mx = fp["x"] + (tp["x"] - fp["x"]) * frac
         my = fp["y"] + (tp["y"] - fp["y"]) * frac
         mid_id = _next_id(nodes)
         nodes[mid_id] = dict(
-            node_type="midpoint",
-            cofactor=False,
-            x=mx,
-            y=my,
-            label_x=mx,
-            label_y=my,
+            node_type="midpoint", cofactor=False,
+            x=mx, y=my, label_x=mx, label_y=my,
             bigg_id=f"midpoint_{mid_id}",
             name=f"Midpoint_{mid_id}",
             node_is_primary=False,
-            graph_info={},
-            data=None,
-            data_string="",
+            graph_info={}, data=None, data_string="",
         )
-
         rxn_name = rxn["reaction_name"] if rxn else None
-
-        # ── two sub-segments replacing the original edge ────────────
         new_segs[_next_id(new_segs)] = dict(
-            from_node_id=fid,
-            to_node_id=mid_id,
+            from_node_id=fid, to_node_id=mid_id,
             reaction_name=rxn_name,
             edge_type="reactant_edge",
-            b1=None,
-            b2=None,
-            graph_info={},
-            data=None,
-            data_string="",
+            b1=None, b2=None,
+            graph_info={}, data=None, data_string="",
         )
         new_segs[_next_id(new_segs)] = dict(
-            from_node_id=mid_id,
-            to_node_id=tid,
+            from_node_id=mid_id, to_node_id=tid,
             reaction_name=rxn_name,
             edge_type="product_edge",
-            b1=None,
-            b2=None,
-            graph_info={},
-            data=None,
-            data_string="",
+            b1=None, b2=None,
+            graph_info={}, data=None, data_string="",
         )
-
-        # ── coproducts ──────────────────────────────────────────────
         if rxn:
             mid_pos = dict(x=mx, y=my)
-            # Normalise direction for consistent perpendicular offset
             ns, ne = (fp, tp) if fp["y"] <= tp["y"] else (tp, fp)
-
             for is_react, cpds in [
-                (True, rxn.get("reactant_coproducts", [])),
-                (False, rxn.get("product_coproducts", [])),
+                (True,  rxn.get("reactant_coproducts", [])),
+                (False, rxn.get("product_coproducts",  [])),
             ]:
-                rs = ns if is_react else mid_pos
-                re_ = mid_pos if is_react else ne
+                rs  = ns       if is_react else mid_pos
+                re_ = mid_pos  if is_react else ne
                 for i, cpd in enumerate(cpds):
                     name = get_kegg_name(cpd, kegg_cache, cache_path)
                     pos, bez = _coproduct_pos(rs, re_, i, is_react)
                     cid = _next_id(nodes)
                     nodes[cid] = dict(
-                        node_type="coproduct",
-                        cofactor=True,
+                        node_type="coproduct", cofactor=True,
                         is_cofactor=is_react,
-                        x=pos["x"],
-                        y=pos["y"],
-                        label_x=pos["x"],
-                        label_y=pos["y"],
-                        bigg_id=cpd,
-                        name=name,
+                        x=pos["x"], y=pos["y"],
+                        label_x=pos["x"], label_y=pos["y"],
+                        bigg_id=cpd, name=name,
                         node_is_primary=False,
-                        graph_info={},
-                        data=None,
-                        data_string="",
+                        graph_info={}, data=None, data_string="",
                     )
                     new_segs[_next_id(new_segs)] = dict(
                         from_node_id=cid if is_react else mid_id,
@@ -513,50 +393,28 @@ def _add_midpoints_and_coproducts(
                         edge_type="coproduct",
                         b1=dict(x=bez["x"], y=bez["y"]),
                         b2=dict(x=bez["x"], y=bez["y"]),
-                        graph_info={},
-                        data=None,
-                        data_string="",
+                        graph_info={}, data=None, data_string="",
                     )
-
     return new_segs
 
 
 # =====================================================================
 #  8. VALIDATION
 # =====================================================================
-
-
 def validate_against_graph(graph, nodes, segments):
-    """
-    Check that the Escher output faithfully represents the original graph.
-
-    Ignores coproduct nodes/segments.  Rejoins each
-    (source -> midpoint, midpoint -> target) segment pair back into a
-    single edge for comparison.
-
-    Raises AssertionError with a detailed message on any mismatch.
-    """
-    # ── 1. Node check ────────────────────────────────────────────────
     original_ids = {str(n) for n in graph.nodes()}
     metabolite_ids = {
-        nid
-        for nid, nd in nodes.items()
+        nid for nid, nd in nodes.items()
         if nd.get("node_type") == "metabolite"
     }
-
     missing_nodes = original_ids - metabolite_ids
-    extra_nodes = metabolite_ids - original_ids
+    extra_nodes   = metabolite_ids - original_ids
 
-    # ── 2. Edge check: rejoin split segments through midpoints ───────
     midpoint_ids = {
-        nid
-        for nid, nd in nodes.items()
+        nid for nid, nd in nodes.items()
         if nd.get("node_type") == "midpoint"
     }
-
-    incoming = {}  # mid_id -> original source
-    outgoing = {}  # mid_id -> original target
-
+    incoming, outgoing = {}, {}
     for seg in segments.values():
         etype = seg.get("edge_type")
         if etype == "coproduct":
@@ -571,45 +429,29 @@ def validate_against_graph(graph, nodes, segments):
         for mid in midpoint_ids
         if mid in incoming and mid in outgoing
     }
-
-    original_edges = {(str(u), str(v)) for u, v in graph.edges()}
-
-    missing_edges = original_edges - reconstructed
-    extra_edges = reconstructed - original_edges
-
-    # ── 3. Midpoint bookkeeping ──────────────────────────────────────
+    original_edges    = {(str(u), str(v)) for u, v in graph.edges()}
+    missing_edges     = original_edges - reconstructed
+    extra_edges       = reconstructed - original_edges
     dangling_midpoints = {
-        mid
-        for mid in midpoint_ids
+        mid for mid in midpoint_ids
         if mid not in incoming or mid not in outgoing
     }
 
-    # ── Report ───────────────────────────────────────────────────────
     errors = []
     if missing_nodes:
         errors.append(f"Graph nodes missing from Escher: {missing_nodes}")
     if extra_nodes:
-        errors.append(
-            f"Escher metabolite nodes not in graph: {extra_nodes}"
-        )
+        errors.append(f"Escher metabolite nodes not in graph: {extra_nodes}")
     if missing_edges:
-        errors.append(
-            f"Graph edges not reconstructable: {missing_edges}"
-        )
+        errors.append(f"Graph edges not reconstructable: {missing_edges}")
     if extra_edges:
-        errors.append(
-            f"Reconstructed edges not in graph: {extra_edges}"
-        )
+        errors.append(f"Reconstructed edges not in graph: {extra_edges}")
     if dangling_midpoints:
-        errors.append(
-            f"Midpoints without matching pair: {dangling_midpoints}"
-        )
-
+        errors.append(f"Midpoints without matching pair: {dangling_midpoints}")
     if errors:
         msg = "Escher map != original graph:\n  - " + "\n  - ".join(errors)
         logger.error(msg)
         raise AssertionError(msg)
-
     logger.info(
         f"Validation passed: {len(original_ids)} nodes, "
         f"{len(original_edges)} edges, "
@@ -621,38 +463,12 @@ def validate_against_graph(graph, nodes, segments):
 #  9. OMICS DATA INTEGRATION
 # =====================================================================
 
-
+# ── Long-format detection ─────────────────────────────────────────────
 def _is_long_format(df):
-    """Check if DataFrame has Experiment_Name and Experiment_Value columns."""
     return {"Experiment_Name", "Experiment_Value"} <= set(df.columns)
 
 
-def _data_columns(df, meta_cols):
-    """Identify experimental condition columns (everything except metadata)."""
-    meta = set(meta_cols) | {
-        c for c in df.columns if c.lower().startswith("remove")
-    }
-    return list({c.split(".")[0] for c in df.columns if c not in meta})
-
-
-def _wide_stats(row, condition, all_cols):
-    """Mean / std / count for replicate columns of one condition."""
-    cols = [c for c in all_cols if c.startswith(condition) and c != condition]
-    if not cols:
-        return None
-    vals = row[cols].dropna()
-    if vals.empty:
-        return None
-    s = float(vals.std()) if len(vals) > 1 else 0.0
-    return dict(
-        average=float(vals.mean()),
-        std_dev=s if not pd.isna(s) else 0.0,
-        count=len(vals),
-    )
-
-
 def _long_stats(df, key_col):
-    """Group long-format rows -> {key: {base_experiment: stats}}."""
     df = df.copy()
     df["_base"] = df["Experiment_Name"].str.split(".").str[0]
     g = (
@@ -664,70 +480,106 @@ def _long_stats(df, key_col):
     for _, r in g.iterrows():
         out.setdefault(r[key_col], {})[r["_base"]] = dict(
             average=float(r["mean"]) if not pd.isna(r["mean"]) else 0.0,
-            std_dev=float(r["std"]) if not pd.isna(r["std"]) else 0.0,
+            std_dev=float(r["std"])  if not pd.isna(r["std"])  else 0.0,
             count=int(r["count"]),
         )
     return out
 
-def _shorten_graph_info_keys_for(items, get_gi, set_gi):
+
+# ── Replicate column grouping ─────────────────────────────────────────
+def _group_replicate_columns(data_cols):
     """
-    Shorten graph_info condition keys for a collection of nodes or segments.
-    
-    Parameters
-    ----------
-    items    : iterable of node/segment dicts
-    get_gi   : callable(item) -> graph_info dict or {}
-    set_gi   : callable(item, new_graph_info) -> None
+    Group columns into conditions using the Name_N convention:
+        ConditionName_1, ConditionName_2, ConditionName_3
+        → {'ConditionName': ['ConditionName_1', 'ConditionName_2', 'ConditionName_3']}
+
+    The condition name is everything before the last underscore.
+    The replicate index is the integer after the last underscore.
+    Columns that do not match this pattern are treated as singleton conditions.
     """
-    # Collect all unique condition keys from this collection only
-    all_keys = set()
-    for item in items:
-        all_keys.update(get_gi(item).keys())
+    if not data_cols:
+        return {}
 
-    if not all_keys:
-        return
+    groups   = {}
+    ungrouped = []
 
-    all_keys = list(all_keys)
-    short_keys = _strip_common_tokens(all_keys)
-    key_map = {
-        raw: re.sub(r"_+", "_", short).strip("_")
-        for raw, short in zip(all_keys, short_keys)
-    }
+    for col in data_cols:
+        parts = col.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            condition = parts[0]
+            groups.setdefault(condition, []).append(col)
+        else:
+            ungrouped.append(col)
 
-    logger.info(f"Shortening graph_info keys: {key_map}")
+    # Sort each group by replicate number
+    for cond in groups:
+        groups[cond] = sorted(
+            groups[cond],
+            key=lambda c: int(c.rsplit("_", 1)[1]),
+        )
 
-    for item in items:
-        gi = get_gi(item)
-        if gi:
-            set_gi(item, {key_map.get(k, k): v for k, v in gi.items()})
+    # Singleton columns that had no numeric suffix
+    for col in ungrouped:
+        groups[col] = [col]
+
+    logger.info("Replicate grouping (Name_N convention):")
+    for cond, cols in sorted(groups.items()):
+        logger.info(f"  {cond}: {len(cols)} replicates → {cols}")
+
+    return groups
 
 
-def _shorten_metabolomics_keys(nodes):
-    """Shorten graph_info keys for metabolite nodes only."""
-    metabolite_nodes = [
-        nd for nd in nodes.values()
-        if nd.get("node_type") == "metabolite"
+def _infer_condition_groups(columns, meta_cols):
+    """Strip meta columns then delegate to _group_replicate_columns."""
+    meta = set(meta_cols) | {""}
+    data_cols = [
+        c for c in columns
+        if str(c).strip() and c not in meta
+        and not c.lower().startswith("remove")
     ]
-    _shorten_graph_info_keys_for(
-        metabolite_nodes,
-        get_gi=lambda nd: nd.get("graph_info", {}),
-        set_gi=lambda nd, gi: nd.update({"graph_info": gi}),
+    return _group_replicate_columns(data_cols)
+
+
+def _infer_metabolomics_condition_groups(columns, meta_cols):
+    return _infer_condition_groups(columns, meta_cols)
+
+
+# ── Per-row statistics ────────────────────────────────────────────────
+def _wide_stats_grouped(row, col_list):
+    """
+    Compute mean / std / count for col_list columns in row.
+    Returns dict with keys: average, std_dev, count, values
+    or None if all values are NaN.
+    """
+    vals = pd.to_numeric(row[col_list], errors="coerce").dropna()
+    if vals.empty:
+        return None
+    arr = vals.values.astype(float)
+    std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+    return dict(
+        average=float(np.mean(arr)),
+        std_dev=std if not np.isnan(std) else 0.0,
+        count=len(arr),
+        values=arr.tolist(),
     )
 
 
-def _shorten_proteomics_keys(segments):
-    """Shorten graph_info keys for reactant-edge segments only."""
-    reactant_segs = [
-        seg for seg in segments.values()
-        if seg.get("edge_type") == "reactant_edge"
-    ]
-    _shorten_graph_info_keys_for(
-        reactant_segs,
-        get_gi=lambda seg: seg.get("graph_info", {}),
-        set_gi=lambda seg, gi: seg.update({"graph_info": gi}),
-    )          
+def _strip_raw_values(stats_dict):
+    """Remove the 'values' key from every condition dict."""
+    return {
+        cond: {k: v for k, v in s.items() if k != "values"}
+        for cond, s in stats_dict.items()
+    }
+
+
+# ── Metabolomics integration ──────────────────────────────────────────
 def integrate_metabolomics(nodes, filepath):
-    """Attach metabolomics data to nodes by matching KEGG IDs."""
+    """
+    Attach metabolomics data to metabolite nodes by KEGG ID.
+    graph_info shape:
+        {condition_name: {average, std_dev, count}}
+    Multiple rows with the same KEGG ID are pooled.
+    """
     if not filepath or not os.path.exists(filepath):
         return
     try:
@@ -736,244 +588,134 @@ def integrate_metabolomics(nodes, filepath):
         logger.warning(f"Could not read metabolomics file: {e}")
         return
 
-    # Strip whitespace from column names (catches trailing comma/space issues)
     df.columns = [str(c).strip() for c in df.columns]
-    # Strip whitespace from KEGG ID values
     if "KEGG_C_number" not in df.columns:
         logger.warning(
             f"Metabolomics file missing 'KEGG_C_number' column. "
-            f"Found columns: {list(df.columns)}"
+            f"Found: {list(df.columns)}"
         )
         return
 
+    df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
     meta_cols = {"metabolite", "Tags", "KEGG_C_number"}
 
     if _is_long_format(df):
-        rxn_stats = _long_stats(df, "KEGG_C_number")
-        for nd in nodes.values():
-            info = rxn_stats.get(nd.get("bigg_id"))
-            if info:
-                nd["graph_info"] = info
+        kegg_lookup = _long_stats(df, "KEGG_C_number")
     else:
-        # Detect condition groups
-        groups = _infer_condition_groups(df.columns, meta_cols)
-        logger.info(f"Metabolomics condition groups detected: {list(groups.keys())}")
+        groups  = _infer_metabolomics_condition_groups(df.columns, meta_cols)
+        kegg_row_data = {}
+        skipped = 0
 
-        # Build lookup: kegg_id -> {group: stats}
-        kegg_lookup = {}
         for _, row in df.iterrows():
             kid = row.get("KEGG_C_number")
-            if pd.isna(kid) or not str(kid).strip():
+            if pd.isna(kid) or str(kid).strip() in ("", "nan"):
+                skipped += 1
                 continue
-            kid = str(kid).strip()
-            info = {}
-            for group_name, col_list in groups.items():
-                # Only use columns that exist in this row's dataframe
-                valid_cols = [c for c in col_list if c in df.columns]
-                if not valid_cols:
-                    continue
-                s = _wide_stats_grouped(row, valid_cols)
+            kid  = str(kid).strip()
+            name = row.get("metabolite", "")
+            row_stats = {}
+            for grp, cols in groups.items():
+                valid = [c for c in cols if c in df.columns]
+                s = _wide_stats_grouped(row, valid) if valid else None
                 if s:
-                    info[group_name] = s
-            if info:
-                kegg_lookup[kid] = info
+                    row_stats[grp] = s
+            if row_stats:
+                kegg_row_data.setdefault(kid, []).append(
+                    {"metabolite_name": name, "stats": row_stats}
+                )
 
-        logger.info(f"Metabolomics: {len(kegg_lookup)} KEGG IDs with data")
+        logger.info(
+            f"Metabolomics: "
+            f"{sum(len(v) for v in kegg_row_data.values())} data rows, "
+            f"{len(kegg_row_data)} unique KEGG IDs, "
+            f"{skipped} skipped (no KEGG ID)"
+        )
 
-        # Attach to nodes
+        kegg_lookup = {}
+        for kid, row_list in kegg_row_data.items():
+            if len(row_list) == 1:
+                kegg_lookup[kid] = _strip_raw_values(row_list[0]["stats"])
+            else:
+                kegg_lookup[kid] = _pool_metabolomics(row_list)
+
+        logger.info(
+            f"Metabolomics: final lookup has {len(kegg_lookup)} KEGG IDs"
+        )
+
         matched = 0
-        for nd in nodes.values():
+        metabolite_nodes = [
+            nd for nd in nodes.values()
+            if nd.get("node_type") == "metabolite"
+        ]
+        for nd in metabolite_nodes:
             bigg = nd.get("bigg_id", "")
             if bigg in kegg_lookup:
                 nd["graph_info"] = kegg_lookup[bigg]
                 matched += 1
 
-        logger.info(f"Metabolomics: matched {matched}/{len(nodes)} nodes")
+        logger.info(
+            f"Metabolomics: matched {matched}/{len(metabolite_nodes)} nodes"
+        )
+        node_ids  = {nd.get("bigg_id") for nd in metabolite_nodes}
+        unmatched = node_ids - set(kegg_lookup.keys()) - {""}
+        if unmatched:
+            logger.warning(
+                f"Metabolomics: {len(unmatched)} nodes have no data: "
+                f"{sorted(list(unmatched)[:10])}"
+                f"{'...' if len(unmatched) > 10 else ''}"
+            )
 
-def _infer_condition_groups(columns, meta_cols):
+
+def _pool_metabolomics(row_list):
     """
-    Given column names like:
-      GSPop_ProMet_P_07_LC_M_RP_POS
-      GSPop_ProMet_P_08_LC_M_RP_POS
-      GSPop_ProMet_P_09_LC_M_RP_POS
-    Try to group replicates by common prefix (removing the replicate number).
-    Falls back to treating each column as its own condition.
+    Pool raw replicate values across multiple rows sharing the same KEGG ID.
+    Returns {condition: {average, std_dev, count}} — no 'values' key.
     """
-    import re as _re
-    meta = set(meta_cols) | {''}
-    
-    # Strip unnamed columns
-    data_cols = [c for c in columns if str(c).strip() and c not in meta
-                 and not c.lower().startswith("remove")]
-    
-    # Try to detect numeric replicate token in column name
-    # Pattern: prefix + _NN_ + suffix  (where NN is 2-digit number)
-    groups = {}
-    ungrouped = []
-    pattern = _re.compile(r'^(.+?)_(\d{2})_(.+)$')
-    
-    for col in data_cols:
-        m = pattern.match(col)
-        if m:
-            # Group key = prefix + "_" + suffix (drop the replicate number)
-            group_key = f"{m.group(1)}_{m.group(3)}"
-            groups.setdefault(group_key, []).append(col)
-        else:
-            # Check dot-notation
-            base = col.split(".")[0]
-            groups.setdefault(base, []).append(col)
-    
-    return groups  # {group_name: [col1, col2, ...]}
-
-
-def _wide_stats_grouped(row, col_list):
-    """Stats for a list of replicate columns."""
-    vals = pd.to_numeric(row[col_list], errors='coerce').dropna()
-    if vals.empty:
-        return None
-    s = float(vals.std()) if len(vals) > 1 else 0.0
-    return dict(
-        average=float(vals.mean()),
-        std_dev=s if not pd.isna(s) else 0.0,
-        count=len(vals),
-    )
-
-import re
-from collections import Counter
-
-
-def _strip_common_tokens(names):
-    """
-    Given a list of strings, remove tokens that are identical across ALL of them.
-    Splits on underscore, finds tokens present at the same position in every name,
-    and drops them.
-    
-    Example:
-        ['GSPop_ProMet_P_07_LC_M_RP_POS',
-         'GSPop_ProMet_P_08_LC_M_RP_POS',
-         'Pop_ProMet_P_13_LC_M_RP_POS']
-        
-        Common tokens across all: 'ProMet', 'LC', 'M', 'RP', 'POS'
-        Result: ['GSPop_P_07', 'GSPop_P_08', 'Pop_P_13']
-    """
-    if not names:
-        return names
-    if len(names) == 1:
-        return names
-
-    # Split each name into tokens
-    split = [n.split("_") for n in names]
-
-    # Find tokens that appear in EVERY name (regardless of position)
-    # Use frequency: a token is "common" if it appears in all names
-    token_sets = [set(tokens) for tokens in split]
-    universal = token_sets[0].intersection(*token_sets[1:])
-
-    # Remove universal tokens from each name, preserve order
-    cleaned = []
-    for tokens in split:
-        kept = [t for t in tokens if t not in universal]
-        cleaned.append("_".join(kept) if kept else "_".join(tokens))
-
-    return cleaned
-
-
-def _make_readable_group_names(groups):
-    """
-    Takes the raw group name dict {raw_name: [col1, col2, ...]}
-    and returns {readable_name: [col1, col2, ...]} with shortened keys.
-
-    Strategy:
-      1. Strip tokens shared by ALL group names.
-      2. If result is still long (>20 chars), apply abbreviation rules.
-      3. Guarantee uniqueness by appending a suffix if needed.
-
-    Example input keys:
-      'GSPop_LC_M_RP_POS'  (after replicate number removed by _infer_condition_groups)
-      'Pop_LC_M_RP_POS'
-      'TVPop_LC_M_RP_POS'
-
-    Example output keys:
-      'GSPop_P'
-      'Pop_P'
-      'TVPop_P'
-    """
-    raw_names = list(groups.keys())
-    readable = _strip_common_tokens(raw_names)
-
-    # Build mapping, ensuring uniqueness
-    seen = {}
+    all_conditions = set()
+    for entry in row_list:
+        all_conditions.update(entry["stats"].keys())
     result = {}
-    for raw, short in zip(raw_names, readable):
-        # Further clean up: collapse multiple underscores, strip leading/trailing
-        short = re.sub(r"_+", "_", short).strip("_")
-        if not short:
-            short = raw  # fallback
-
-        # Ensure uniqueness
-        if short in seen and seen[short] != raw:
-            short = f"{short}_{list(groups[raw])[0].split('_')[-1]}"
-        seen[short] = raw
-        result[short] = groups[raw]
-
+    for condition in all_conditions:
+        pooled = []
+        for entry in row_list:
+            cond_stats = entry["stats"].get(condition)
+            if cond_stats and cond_stats.get("values"):
+                pooled.extend(cond_stats["values"])
+        if not pooled:
+            continue
+        arr = np.array(pooled, dtype=float)
+        std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        result[condition] = dict(
+            average=float(np.mean(arr)),
+            std_dev=std if not np.isnan(std) else 0.0,
+            count=len(arr),
+        )
     return result
 
 
-def readable_graph_info(graph_info):
-    """
-    Shorten the keys inside a node/segment graph_info dict.
-    
-    Input:  {'GSPop_LC_M_RP_POS': {...}, 'Pop_LC_M_RP_POS': {...}}
-    Output: {'GSPop': {...}, 'Pop': {...}}
-    
-    Call this after integrate_metabolomics / integrate_proteomics,
-    or inline when building the final map.
-    """
-    if not graph_info:
-        return graph_info
-    keys = list(graph_info.keys())
-    short_keys = _strip_common_tokens(keys)
-    return {
-        re.sub(r"_+", "_", s).strip("_"): graph_info[k]
-        for k, s in zip(keys, short_keys)
-    }
-
-
-def _infer_condition_groups(columns, meta_cols):
-    """
-    Given column names like:
-      GSPop_ProMet_P_07_LC_M_RP_POS
-      GSPop_ProMet_P_08_LC_M_RP_POS
-      Pop_ProMet_S_13_LC_M_RP_POS
-
-    Groups replicates by removing the numeric replicate token.
-    Returns {group_name: [col1, col2, ...]} with readable shortened keys.
-    """
-    meta = set(meta_cols) | {""}
-    data_cols = [
-        c for c in columns
-        if str(c).strip() and c not in meta and not c.lower().startswith("remove")
-    ]
-
-    # Pattern: something_NN_something where NN is 1-3 digits
-    pattern = re.compile(r"^(.+?)_(\d{1,3})(_.*)?$")
-    raw_groups = {}
-
-    for col in data_cols:
-        m = pattern.match(col)
-        if m:
-            prefix = m.group(1)
-            suffix = m.group(3) or ""
-            group_key = f"{prefix}{suffix}"
-        else:
-            group_key = col.split(".")[0]
-        raw_groups.setdefault(group_key, []).append(col)
-
-    # Shorten group names by removing tokens common to all of them
-    readable = _make_readable_group_names(raw_groups)
-    return readable
+# ── Proteomics integration ────────────────────────────────────────────
 def integrate_proteomics(segments, filepath):
-    """Attach proteomics data to reactant-edge segments by reaction name."""
+    """
+    Attach proteomics data to reactant-edge segments by reaction name.
+
+    graph_info is a LIST — one entry per protein that catalyses the reaction:
+        [
+          {
+            "protein_id": "jgi|Cersu1|100657|...",
+            "stats": {
+              "NoLt_28C": {"average": 27.78, "std_dev": 0.46, "count": 3},
+              "NatLt_28C": {"average": 27.38, "std_dev": 1.03, "count": 2},
+              ...
+            }
+          },
+          ...
+        ]
+
+    Semicolon-separated Reaction fields register the same protein under
+    every listed reaction ID:
+        Reaction = "R00774;R13626"
+        → both R00774 and R13626 receive this protein's data
+    """
     if not filepath or not os.path.exists(filepath):
         return
     try:
@@ -982,50 +724,103 @@ def integrate_proteomics(segments, filepath):
         logger.warning(f"Could not read proteomics file: {e}")
         return
 
-    # Strip whitespace from column names
     df.columns = [str(c).strip() for c in df.columns]
-
     if "Reaction" not in df.columns:
         logger.warning(
             f"Proteomics file missing 'Reaction' column. "
-            f"Found columns: {list(df.columns)}"
+            f"Found: {list(df.columns)}"
         )
         return
 
+    df["Reaction"] = df["Reaction"].astype(str).str.strip()
     meta_cols = {"proteinID", "KO", "description", "Reaction", "Tags"}
 
     if _is_long_format(df):
-        rxn_stats = _long_stats(df, "Reaction")
+        # Long format: one entry per reaction, wrap in list for consistency
+        rxn_lookup_flat = _long_stats(df, "Reaction")
+        rxn_lookup = {
+            rxn_id: [{"protein_id": rxn_id, "stats": stats}]
+            for rxn_id, stats in rxn_lookup_flat.items()
+        }
     else:
         groups = _infer_condition_groups(df.columns, meta_cols)
-        logger.info(f"Proteomics condition groups detected: {list(groups.keys())}")
+        logger.info(f"Proteomics condition groups: {list(groups.keys())}")
 
-        rxn_stats = {}
+        # {reaction_id: [{'protein_id': str, 'stats': {cond: {..., values}}}]}
+        rxn_protein_data = {}
+
         for _, row in df.iterrows():
-            rxn_name = row.get("Reaction")
-            if pd.isna(rxn_name) or not str(rxn_name).strip():
+            rxn_field = row.get("Reaction")
+            if pd.isna(rxn_field) or not str(rxn_field).strip():
                 continue
-            rxn_name = str(rxn_name).strip()
-            info = {}
-            for group_name, col_list in groups.items():
-                valid_cols = [c for c in col_list if c in df.columns]
-                if not valid_cols:
-                    continue
-                s = _wide_stats_grouped(row, valid_cols)
-                if s:
-                    info[group_name] = s
-            if info:
-                rxn_stats[rxn_name] = info
+            rxn_field  = str(rxn_field).strip()
+            protein_id = str(row.get("proteinID", "unknown"))
 
+            protein_stats = {}
+            for grp, cols in groups.items():
+                valid = [c for c in cols if c in df.columns]
+                s = _wide_stats_grouped(row, valid) if valid else None
+                if s:
+                    protein_stats[grp] = s
+
+            if not protein_stats:
+                continue
+
+            # Register under every reaction ID (semicolon-separated)
+            for rxn_id in rxn_field.split(";"):
+                rxn_id = rxn_id.strip()
+                if rxn_id:
+                    rxn_protein_data.setdefault(rxn_id, []).append(
+                        {"protein_id": protein_id, "stats": protein_stats}
+                    )
+
+        # Build final lookup: strip 'values' key, keep list of proteins
+        rxn_lookup = {}
+        for rxn_id, protein_list in rxn_protein_data.items():
+            rxn_lookup[rxn_id] = [
+                {
+                    "protein_id": p["protein_id"],
+                    "stats": _strip_raw_values(p["stats"]),
+                }
+                for p in protein_list
+            ]
+
+        logger.info(
+            f"Proteomics: built data for {len(rxn_lookup)} reaction IDs"
+        )
+
+    # Attach list to reactant-edge segments
+    matched  = 0
+    total_re = sum(
+        1 for seg in segments.values()
+        if seg.get("edge_type") == "reactant_edge"
+    )
     for seg in segments.values():
         rxn = seg.get("reaction_name")
         if rxn and seg.get("edge_type") == "reactant_edge":
-            for rid in (r.strip() for r in rxn.split(";")):
-                if rid in rxn_stats:
-                    seg["graph_info"] = rxn_stats[rid]
-                    break# =====================================================================
+            if rxn in rxn_lookup:
+                seg["graph_info"] = rxn_lookup[rxn]
+                matched += 1
+
+    logger.info(f"Proteomics: matched {matched}/{total_re} reactant edges")
+
+    seg_rxns  = {
+        seg.get("reaction_name")
+        for seg in segments.values()
+        if seg.get("reaction_name") and seg.get("edge_type") == "reactant_edge"
+    }
+    unmatched = seg_rxns - set(rxn_lookup.keys())
+    if unmatched:
+        logger.warning(
+            f"Proteomics: {len(unmatched)} reactions have no protein data: "
+            f"{sorted(list(unmatched)[:10])}"
+            f"{'...' if len(unmatched) > 10 else ''}"
+        )
 
 
+# =====================================================================
+#  10. MAIN MAP GENERATOR
+# =====================================================================
 def generate_escher_map_from_graph(
     graph,
     output_dir,
@@ -1033,45 +828,11 @@ def generate_escher_map_from_graph(
     json_output_file,
     metabolomics_file=None,
     proteomics_file=None,
-    config=None,  # accepted for backend compat; cfg module used directly
+    config=None,
     full_graph=None,
-    keep_positions=False,  # only use full_graph layout when True
+    keep_positions=False,
     path_order=None,
 ):
-    """
-    Build an Escher JSON map from *graph*.
-
-    Guarantees
-    ----------
-    - Every original graph **node** -> one Escher node
-      (plus generated midpoints / coproducts).
-    - Every original graph **edge** -> one Escher segment
-      (later split at its midpoint into a reactant-edge + product-edge pair).
-
-    Parameters
-    ----------
-    graph : nx.Graph
-        The graph to visualise.
-    output_dir : str
-        Directory for output files.
-    kegg_names_file : str
-        Path (absolute or relative to output_dir) for KEGG name cache.
-    json_output_file : str
-        Filename for the Escher JSON output.
-    metabolomics_file, proteomics_file : str, optional
-        Paths to omics CSV files.
-    config : dict, optional
-        Accepted for backend compatibility; runtime config is read from
-        the shared ``cfg`` module which the backend updates before calling.
-    full_graph : nx.Graph, optional
-        When *keep_positions* is True, layout is computed on this graph
-        first so the sub-graph retains spatial context.
-    keep_positions : bool
-        If True **and** full_graph is provided, reuse full-graph positions.
-    path_order : list, optional
-        Explicit node order for linear layouts (e.g. from shortest_path).
-    """
-    # ── resolve paths ────────────────────────────────────────────────
     cache_path = (
         kegg_names_file
         if os.path.dirname(kegg_names_file)
@@ -1090,50 +851,34 @@ def generate_escher_map_from_graph(
         path_order=path_order,
         full_graph=full_graph if keep_positions else None,
     )
-
     # 2  Canvas
     cw, ch = _canvas_size(n)
 
-    # 3  Nodes   – one per original graph node
-    nodes = _make_escher_nodes(
-        graph, positions, kegg_cache, cache_path, cw, ch
-    )
+    # 3  Nodes
+    nodes = _make_escher_nodes(graph, positions, kegg_cache, cache_path, cw, ch)
 
-    # 4  Segments – one per original graph edge
+    # 4  Segments
     segments = _make_escher_segments(graph)
 
     # 5  Midpoints & coproducts
-    is_vert = (
-        cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
-    )
+    is_vert  = cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
     segments = _add_midpoints_and_coproducts(
-        segments,
-        nodes,
-        kegg_cache,
-        cache_path,
+        segments, nodes, kegg_cache, cache_path,
         midpoint_fraction=(
             cfg.MIDPOINT_FRACTION_VERTICAL
-            if is_vert
-            else cfg.MIDPOINT_FRACTION_HORIZONTAL
+            if is_vert else cfg.MIDPOINT_FRACTION_HORIZONTAL
         ),
     )
 
-    # 5b Sanity-check: original nodes & edges still represented
+    # 5b Validate
     validate_against_graph(graph, nodes, segments)
 
-    # 6  Omics data
+    # 6  Omics
     integrate_metabolomics(nodes, metabolomics_file)
     integrate_proteomics(segments, proteomics_file)
 
-    # 6b Shorten graph_info condition keys globally for readable labels
-    # 6b Shorten condition keys separately so metabolomics and
-    #    proteomics labels are each stripped of their own repeated tokens
-    _shorten_metabolomics_keys(nodes)
-    _shorten_proteomics_keys(segments)
-
     # 7  Export
     save_kegg_names(kegg_cache, cache_path)
-
     escher_map = [
         dict(
             map_name="Metabolic Pathway Map",
@@ -1149,8 +894,7 @@ def generate_escher_map_from_graph(
                     name="Combined Reactions",
                     bigg_id="",
                     reversibility=False,
-                    label_x=0.0,
-                    label_y=0.0,
+                    label_x=0.0, label_y=0.0,
                     gene_reaction_rule="",
                     genes=[],
                     segments=segments,
@@ -1161,7 +905,6 @@ def generate_escher_map_from_graph(
             canvas=dict(x=0, y=0, width=cw, height=ch),
         ),
     ]
-
     with open(out_path, "w") as f:
         json.dump(escher_map, f, indent=2)
     return escher_map
@@ -1170,29 +913,21 @@ def generate_escher_map_from_graph(
 # =====================================================================
 #  CLI
 # =====================================================================
-
-
 def main():
-    graph_file = "metabolite_graph.json"
-    output_dir = "static/json_pathway"
-    kegg_names_file = "kegg_names.json"
+    graph_file       = "metabolite_graph.json"
+    output_dir       = "static/json_pathway"
+    kegg_names_file  = "kegg_names.json"
     json_output_file = (
         os.path.splitext(os.path.basename(graph_file))[0] + "_output.json"
     )
-
-    met = "metabolomics_with_C_numbers_curated.csv"
+    met  = "metabolomics_with_C_numbers_curated.csv"
     prot = "proteomics_with_ko_reactions.csv"
-
     graph = load_graph(graph_file)
     generate_escher_map_from_graph(
-        graph,
-        output_dir,
-        kegg_names_file,
-        json_output_file,
-        metabolomics_file=met if os.path.exists(met) else None,
-        proteomics_file=prot if os.path.exists(prot) else None,
+        graph, output_dir, kegg_names_file, json_output_file,
+        metabolomics_file=met  if os.path.exists(met)  else None,
+        proteomics_file=prot   if os.path.exists(prot) else None,
     )
-
 
 if __name__ == "__main__":
     main()
