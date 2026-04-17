@@ -418,17 +418,13 @@ def index():
             )
 
         if view_type == 'subgraph':
-            # Subgraphs are generated explicitly by user actions (find_path /
-            # create_multi_node_subgraph), so just load whatever was last saved.
             path = find_output_json(is_subgraph=True)
             if path:
                 with open(path) as f:
                     json_data = json.load(f)
             else:
                 json_data = load_or_generate_pathway_data()
-
         else:
-            # Regenerate whenever any input file is newer than the output JSON.
             if _output_is_stale(input_files):
                 json_data = load_or_generate_pathway_data()
                 download_structure_images()
@@ -441,16 +437,14 @@ def index():
         )
 
     except Exception as e:
-        files = get_input_files()
-        return f"""
-        <html><head><title>Error</title></head><body>
-        <h1>Error Loading Pathway Visualization</h1>
-        <p><strong>Error:</strong> {e}</p>
-        <p><strong>Graph file:</strong> {files.get('graph_pickle', 'not set')}</p>
-        <p><a href="/">Try again</a></p>
-        </body></html>
-        """, 500
-
+        # ── was: return raw HTML error page ──────────────────────────
+        # ── now: flash the error and render the page normally ────────
+        flash(f'Error: {e}', 'error')
+        return render_template(
+            'index.html',
+            **build_template_context(json_data=None, view_type='full')
+        )
+    
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory('static', filename)
@@ -516,38 +510,53 @@ def find_path():
     if not ensure_graph_loaded():
         flash('Graph file not found. Please upload files first.', 'error')
         return redirect(url_for('index'))
+
     graph          = get_current_graph()
     start_node     = form.start_node.data
     end_node       = form.end_node.data
     keep_positions = form.keep_positions.data
+
     for node, label in [(start_node, 'Start'), (end_node, 'End')]:
         if node not in graph.nodes():
             flash(f'{label} node "{node}" not found', 'error')
             return redirect(url_for('index'))
+
     try:
         path = nx.shortest_path(graph, start_node, end_node)
     except nx.NetworkXNoPath:
         flash(f'No path found between {start_node} and {end_node}', 'error')
         return redirect(url_for('index'))
-    try:
-        load_or_generate_pathway_data(
-            network_graph=graph,
-            subgraph_nodes=path,
-            keep_positions=keep_positions,
-            full_graph=graph,
-            path_order=path,
-        )
-        flash(f'Path found: {len(path) - 1} steps', 'success')
-        return redirect(url_for('index',
-            view='subgraph',
-            start=start_node,
-            end=end_node,
-            keep_pos='1' if keep_positions else '0',
-        ))
-    except Exception as e:
-        flash(f'Error creating subgraph: {e}', 'error')
-        return redirect(url_for('index'))
 
+    try:
+        if keep_positions:
+            # Keep full graph, just pass the path for highlighting
+            load_or_generate_pathway_data(network_graph=graph)
+            flash(f'Path found: {len(path) - 1} steps', 'success')
+            return redirect(url_for('index',
+                view='full',
+                highlight_path=','.join(path),
+                start=start_node,
+                end=end_node,
+            ))
+        else:
+            # Generate a true subgraph
+            load_or_generate_pathway_data(
+                network_graph=graph,
+                subgraph_nodes=path,
+                keep_positions=False,
+                full_graph=graph,
+                path_order=path,
+            )
+            flash(f'Path found: {len(path) - 1} steps', 'success')
+            return redirect(url_for('index',
+                view='subgraph',
+                start=start_node,
+                end=end_node,
+            ))
+    except Exception as e:
+        flash(f'Error creating path view: {e}', 'error')
+        return redirect(url_for('index'))
+    
 @app.route('/create_multi_node_subgraph', methods=['POST'])
 def create_multi_node_subgraph():
     form = MultiNodeSelectionForm()

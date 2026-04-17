@@ -50,7 +50,7 @@ class MultiNodeSelectionForm(FlaskForm):
     connection_distance = IntegerField('Connection Distance', default=2, validators=[
         NumberRange(min=1, max=5, message='Distance must be between 1 and 5')
     ])
-    keep_positions = BooleanField('Keep positions from full graph', default=True)
+    keep_positions = BooleanField('Keep positions from full graph', default=False)
     submit = SubmitField('Create Multi-Node Subgraph')
 
 
@@ -62,7 +62,7 @@ class RevertGraphForm(FlaskForm):
 class BackendConfigForm(FlaskForm):
     """
     Backend graph generation & layout configuration.
-    Hidden fields carry view state so redirect preserves context (Option B).
+    Hidden fields carry view state so redirect preserves context.
     """
     # --- View state (hidden) ---
     view_type           = HiddenField('View Type', default='full')
@@ -74,7 +74,7 @@ class BackendConfigForm(FlaskForm):
     keep_positions      = HiddenField('Keep Positions', default='1')
 
     # --- Layout orientation ---
-    small_graph_layout_vertical = BooleanField('Vertical layout for small graphs')
+    small_graph_layout_vertical = BooleanField('Vertical layout for small graphs', default=True)
 
     # --- Canvas dimensions ---
     small_graph_width = IntegerField('Small Graph Width', default=900, validators=[

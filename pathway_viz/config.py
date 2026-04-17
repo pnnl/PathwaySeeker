@@ -11,7 +11,7 @@ import os
 # BACKEND CONFIGURATION
 # =============================================================================
 
-SMALL_GRAPH_LAYOUT_VERTICAL = False  # True = top-to-bottom, False = left-to-right
+SMALL_GRAPH_LAYOUT_VERTICAL = True  # True = top-to-bottom, False = left-to-right
 
 SHARED_KEGG_NAMES_FILE = os.path.join('static', 'kegg_names.json')
 
@@ -20,11 +20,11 @@ SMALL_GRAPH_WIDTH   = 900
 SMALL_GRAPH_HEIGHT  = 3500
 MEDIUM_GRAPH_WIDTH  = 30000
 MEDIUM_GRAPH_HEIGHT = 4000
-LARGE_GRAPH_WIDTH   = 70000
+LARGE_GRAPH_WIDTH   = 200000
 LARGE_GRAPH_HEIGHT  = 3000
 
 # Node count thresholds
-NODE_THRESHOLD_SMALL  = 10
+NODE_THRESHOLD_SMALL  = 20
 NODE_THRESHOLD_MEDIUM = 50
 
 # Aspect ratio constraints
@@ -82,25 +82,31 @@ ALLOWED_CSV_EXTENSIONS   = {'.csv', '.xlsx', '.xls'}
 NODE_RADIUS          = 10
 METABOLITE_RADIUS    = 10
 REACTION_RADIUS      = 8
-STRUCTURE_IMAGE_SIZE = 400
+STRUCTURE_IMAGE_SIZE = 300
 
 LABEL_OFFSET_Y           = 30
 COPRODUCT_LABEL_OFFSET_Y = -18
 BAR_CHART_OFFSET_Y       = 120
 
-METABOLITE_LABEL_FONT_SIZE = 40
+METABOLITE_LABEL_FONT_SIZE  = 15
 COPRODUCT_LABEL_FONT_SIZE  = 15
 CHART_TITLE_FONT_SIZE      = 18
 CHART_LABEL_FONT_SIZE      = 18
 
-BAR_CHART_WIDTH        = 180
+BAR_CHART_WIDTH        = 200
 BAR_CHART_HEIGHT       = 100
 BAR_HEIGHT             = 15
 BAR_CHART_AXIS_PADDING = 20
 BAR_CHART_TITLE        = ""
 BAR_CHART_X_LABEL      = "Abundance"
 BAR_CHART_Y_LABEL      = ""
-
+# Origin colours for metabolite nodes
+ORIGIN_COLOURS = {
+    "metabolomics": "#2a9d8f",
+    "proteomics":   "#e76f51",
+    "both":         "#9b5de5",
+    "unknown":      "#aaaaaa",
+}
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
@@ -124,6 +130,7 @@ def get_frontend_config():
         'metaboliteRadius': METABOLITE_RADIUS,
         'reactionRadius':   REACTION_RADIUS,
         'imageSize':        STRUCTURE_IMAGE_SIZE,
+         "originColours": ORIGIN_COLOURS,
         # Labels
         'labelOffsetY':              LABEL_OFFSET_Y,
         'coproductLabelOffsetY':     COPRODUCT_LABEL_OFFSET_Y,
