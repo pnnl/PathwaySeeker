@@ -95,11 +95,11 @@
                     {{ revert_form.submit(class="btn btn-secondary") }}
                 </form>
             </div>
-            <!-- Path highlight status (keep_positions mode) -->
+            <!-- Path highlight status -->
             <div id="path-highlight-container" style="display:none;">
                 <p id="path-highlight-label">Path highlighted</p>
                 <button type="button" class="btn btn-secondary"
-                        onclick="EscherVisualizer.clearPathHighlight();">
+                        onclick="window.pathwayApp.clearPathHighlight();">
                     Clear Highlight
                 </button>
             </div>
@@ -196,8 +196,7 @@
             ════════════════════════════════════════════ -->
             <h3>Graph Layout Settings</h3>
             <div class="instructions-box">
-                <p><strong>Note:</strong> Changes here regenerate the graph.
-                   This may take a moment.</p>
+                <p><strong>Note:</strong> Changes here regenerate the graph.</p>
             </div>
             <form method="POST" action="{{ url_for('regenerate_graph') }}"
                   id="backend-config-form">
@@ -312,7 +311,8 @@
                     <label for="nodeRadius">Node Radius (px):</label>
                     <input type="number" id="nodeRadius"
                            class="form-control frontend-config-input"
-                           min="1" max="200"
+                           min="{{ config_ranges.nodeRadius[0] }}"
+                           max="{{ config_ranges.nodeRadius[1] }}"
                            value="{{ frontend_config.nodeRadius }}">
                     <small class="form-text">Default: 10px</small>
                 </div>
@@ -320,7 +320,8 @@
                     <label for="metaboliteRadius">Metabolite Radius (px):</label>
                     <input type="number" id="metaboliteRadius"
                            class="form-control frontend-config-input"
-                           min="1" max="200"
+                           min="{{ config_ranges.metaboliteRadius[0] }}"
+                           max="{{ config_ranges.metaboliteRadius[1] }}"
                            value="{{ frontend_config.metaboliteRadius }}">
                     <small class="form-text">Default: 10px</small>
                 </div>
@@ -328,7 +329,8 @@
                     <label for="reactionRadius">Reaction Radius (px):</label>
                     <input type="number" id="reactionRadius"
                            class="form-control frontend-config-input"
-                           min="1" max="200"
+                           min="{{ config_ranges.reactionRadius[0] }}"
+                           max="{{ config_ranges.reactionRadius[1] }}"
                            value="{{ frontend_config.reactionRadius }}">
                     <small class="form-text">Default: 8px</small>
                 </div>
@@ -339,7 +341,8 @@
                     <label for="labelOffsetY">Label Vertical Offset (px):</label>
                     <input type="number" id="labelOffsetY"
                            class="form-control frontend-config-input"
-                           min="-500" max="500"
+                           min="{{ config_ranges.labelOffsetY[0] }}"
+                           max="{{ config_ranges.labelOffsetY[1] }}"
                            value="{{ frontend_config.labelOffsetY }}">
                     <small class="form-text">Default: 35px</small>
                 </div>
@@ -347,7 +350,8 @@
                     <label for="metaboliteLabelFontSize">Metabolite Font Size (px):</label>
                     <input type="number" id="metaboliteLabelFontSize"
                            class="form-control frontend-config-input"
-                           min="4" max="72"
+                           min="{{ config_ranges.metaboliteLabelFontSize[0] }}"
+                           max="{{ config_ranges.metaboliteLabelFontSize[1] }}"
                            value="{{ frontend_config.metaboliteLabelFontSize }}">
                     <small class="form-text">Default: 14px</small>
                 </div>
@@ -355,7 +359,8 @@
                     <label for="coproductLabelOffsetY">Coproduct Label Offset (px):</label>
                     <input type="number" id="coproductLabelOffsetY"
                            class="form-control frontend-config-input"
-                           min="-500" max="500"
+                           min="{{ config_ranges.coproductLabelOffsetY[0] }}"
+                           max="{{ config_ranges.coproductLabelOffsetY[1] }}"
                            value="{{ frontend_config.coproductLabelOffsetY }}">
                     <small class="form-text">Default: 25px</small>
                 </div>
@@ -363,7 +368,8 @@
                     <label for="coproductLabelFontSize">Coproduct Font Size (px):</label>
                     <input type="number" id="coproductLabelFontSize"
                            class="form-control frontend-config-input"
-                           min="4" max="72"
+                           min="{{ config_ranges.coproductLabelFontSize[0] }}"
+                           max="{{ config_ranges.coproductLabelFontSize[1] }}"
                            value="{{ frontend_config.coproductLabelFontSize }}">
                     <small class="form-text">Default: 10px</small>
                 </div>
@@ -374,15 +380,17 @@
                     <label for="barChartWidth">Width (px):</label>
                     <input type="number" id="barChartWidth"
                            class="form-control frontend-config-input"
-                           min="10" max="2000"
+                           min="{{ config_ranges.barChartWidth[0] }}"
+                           max="{{ config_ranges.barChartWidth[1] }}"
                            value="{{ frontend_config.barChartWidth }}">
-                    <small class="form-text">Default: 100px</small>
+                    <small class="form-text">Default: 180px</small>
                 </div>
                 <div class="form-group">
                     <label for="barChartHeight">Height (px):</label>
                     <input type="number" id="barChartHeight"
                            class="form-control frontend-config-input"
-                           min="10" max="2000"
+                           min="{{ config_ranges.barChartHeight[0] }}"
+                           max="{{ config_ranges.barChartHeight[1] }}"
                            value="{{ frontend_config.barChartHeight }}">
                     <small class="form-text">Default: 100px</small>
                 </div>
@@ -390,15 +398,17 @@
                     <label for="barHeight">Bar Height Per Bar (px):</label>
                     <input type="number" id="barHeight"
                            class="form-control frontend-config-input"
-                           min="2" max="200"
+                           min="{{ config_ranges.barHeight[0] }}"
+                           max="{{ config_ranges.barHeight[1] }}"
                            value="{{ frontend_config.barHeight }}">
-                    <small class="form-text">Default: 15px</small>
+                    <small class="form-text">Default: 12px</small>
                 </div>
                 <div class="form-group">
                     <label for="barChartOffsetY">Vertical Offset (px):</label>
                     <input type="number" id="barChartOffsetY"
                            class="form-control frontend-config-input"
-                           min="-500" max="500"
+                           min="{{ config_ranges.barChartOffsetY[0] }}"
+                           max="{{ config_ranges.barChartOffsetY[1] }}"
                            value="{{ frontend_config.barChartOffsetY }}">
                     <small class="form-text">Default: 60px</small>
                 </div>
@@ -406,25 +416,28 @@
                     <label for="barChartAxisPadding">Axis Padding (px):</label>
                     <input type="number" id="barChartAxisPadding"
                            class="form-control frontend-config-input"
-                           min="-200" max="500"
+                           min="{{ config_ranges.barChartAxisPadding[0] }}"
+                           max="{{ config_ranges.barChartAxisPadding[1] }}"
                            value="{{ frontend_config.barChartAxisPadding }}">
-                    <small class="form-text">Default: 20px</small>
+                    <small class="form-text">Default: 55px</small>
                 </div>
                 <div class="form-group">
                     <label for="chartTitleFontSize">Title Font Size (px):</label>
                     <input type="number" id="chartTitleFontSize"
                            class="form-control frontend-config-input"
-                           min="4" max="72"
+                           min="{{ config_ranges.chartTitleFontSize[0] }}"
+                           max="{{ config_ranges.chartTitleFontSize[1] }}"
                            value="{{ frontend_config.chartTitleFontSize }}">
-                    <small class="form-text">Default: 14px</small>
+                    <small class="form-text">Default: 10px</small>
                 </div>
                 <div class="form-group">
                     <label for="chartLabelFontSize">Label Font Size (px):</label>
                     <input type="number" id="chartLabelFontSize"
                            class="form-control frontend-config-input"
-                           min="4" max="72"
+                           min="{{ config_ranges.chartLabelFontSize[0] }}"
+                           max="{{ config_ranges.chartLabelFontSize[1] }}"
                            value="{{ frontend_config.chartLabelFontSize }}">
-                    <small class="form-text">Default: 14px</small>
+                    <small class="form-text">Default: 9px</small>
                 </div>
                 <div class="form-group">
                     <label for="barChartTitle">Chart Title:</label>
@@ -451,7 +464,8 @@
                     <label for="imageSize">Structure Image Size (px):</label>
                     <input type="number" id="imageSize"
                            class="form-control frontend-config-input"
-                           min="10" max="5000"
+                           min="{{ config_ranges.imageSize[0] }}"
+                           max="{{ config_ranges.imageSize[1] }}"
                            value="{{ frontend_config.imageSize }}">
                     <small class="form-text">Default: 200px</small>
                 </div>
@@ -467,10 +481,13 @@
     </div>
     <div id="map_container"></div>
     <script>
-        window.initialJsonData = {{ json_data|tojson|safe if json_data else 'null' }};
-        window.CONFIG          = {{ frontend_config|tojson|safe }};
-        window.HIGHLIGHT_PATH  = {{ request.args.get('highlight_path', '') | tojson }};
-        window.VIEW_TYPE       = {{ request.args.get('view', 'full') | tojson }};
+        // Single namespace — read once at boot by app.js
+        window.PathwayApp = {
+            initialJsonData: {{ json_data|tojson|safe if json_data else 'null' }},
+            CONFIG:          {{ frontend_config|tojson|safe }},
+            HIGHLIGHT_PATH:  {{ request.args.get('highlight_path', '') | tojson }},
+            VIEW_TYPE:       {{ request.args.get('view', 'full') | tojson }},
+        };
     </script>
     <script src="static/visualizer.js?v={{ range(0,999999)|random }}"></script>
     <script src="static/app.js?v={{ range(0,999999)|random }}"></script>

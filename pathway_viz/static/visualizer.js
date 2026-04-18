@@ -1,128 +1,132 @@
+// visualizer.js
 /**
  * EscherVisualizer
- * Reads config from window.CONFIG (set by Flask template).
  *
- * Node colouring:
- *   Metabolite nodes are coloured by their 'origin' field:
- *     metabolomics → teal    (#2a9d8f)
- *     proteomics   → orange  (#e76f51)
- *     both         → purple  (#9b5de5)
- *     unknown      → grey    (#aaaaaa)
+ * Instantiated once per map load by PathwayApp.
+ * Receives (jsonData, config) explicitly — reads nothing from window.
  *
- * Path highlighting (keep_positions=true):
- *   Nodes on the path get a thick coloured ring.
- *   Segments on the path get a thick solid coloured stroke.
- *   The rest of the graph is dimmed.
- *
- * Proteomics graph_info: [{protein_id, stats:{condition:{average,std_dev,count}}}]
- * Metabolomics graph_info: {condition:{average,std_dev,count}}
+ * Lifecycle:
+ *   const viz = new EscherVisualizer('map_container');
+ *   viz.initializeStructures(jsonData, config);
+ *   viz.destroy();   // before rebuilding
  */
 class EscherVisualizer {
+    /**
+     * @param {string} containerId  - id of the SVG container element
+     */
+    constructor(containerId) {
+        this.containerId = containerId;
+        this.container   = document.getElementById(containerId);
 
-    // =========================================================================
-    //  CONFIG
-    // =========================================================================
-    static get CONFIG() {
-        const C = window.CONFIG || {};
-        return {
-            imageSize:               C.imageSize               ?? 200,
-            defaultToBiggId:         false,
-            nodeRadius:              C.nodeRadius              ?? 15,
-            metaboliteRadius:        C.metaboliteRadius        ?? 10,
-            reactionRadius:          C.reactionRadius          ?? 8,
-            labelOffsetY:            C.labelOffsetY            ?? 20,
-            coproductLabelOffsetY:   C.coproductLabelOffsetY   ?? 25,
-            barChartOffsetY:         C.barChartOffsetY         ?? 60,
-            metaboliteLabelFontSize: C.metaboliteLabelFontSize ?? 12,
-            coproductLabelFontSize:  C.coproductLabelFontSize  ?? 11,
-            chartTitleFontSize:      C.chartTitleFontSize      ?? 10,
-            chartLabelFontSize:      C.chartLabelFontSize      ?? 9,
-            barChartXLabel:          C.barChartXLabel          ?? '',
-            originColours: Object.assign({
-                metabolomics: '#2a9d8f',
-                proteomics:   '#e76f51',
-                both:         '#9b5de5',
-                unknown:      '#aaaaaa',
-            }, C.originColours || {}),
-            // Path highlight style
-            pathHighlight: {
-                nodeStrokeWidth:    5,
-                nodeStrokeColour:   '#f4d03f',
-                segmentStrokeWidth: 6,
-                segmentColour:      '#f4d03f',
-                dimOpacity:         0.25,
-            },
-            barChart: {
-                width:       C.barChartWidth       ?? 180,
-                axisPadding: C.barChartAxisPadding ?? 55,
-                barHeight:   C.barHeight           ?? 12,
-                gapBetween:  C.barChartGap         ?? 18,
-            },
-        };
+        this._observerRegistry   = [];
+        this._radiusObserver     = null;
+        this._radiusObserverActive = false;
+        this._nanLabelInterval   = null;
+
+        console.log('[EscherVisualizer] Instance created for:', containerId);
     }
 
     // =========================================================================
-    //  COLOUR HELPERS
+    //  OBSERVER REGISTRY
     // =========================================================================
-    static _originColour(origin) {
-        const map = EscherVisualizer.CONFIG.originColours;
-        return map[origin] || map.unknown;
+    _registerObserver(obs) {
+        this._observerRegistry.push(obs);
+        return obs;
     }
 
-    static _proteinColours(n) {
-        const palette = [
-            '#2a9d8f', '#e76f51', '#264653', '#e9c46a',
-            '#a8dadc', '#f4a261', '#457b9d', '#e63946',
-            '#06d6a0', '#118ab2',
-        ];
-        return Array.from({ length: n }, (_, i) => palette[i % palette.length]);
+    disconnectAllObservers() {
+        this._observerRegistry.forEach(o => o.disconnect());
+        this._observerRegistry     = [];
+        this._radiusObserver       = null;
+        this._radiusObserverActive = false;
+        console.log('[EscherVisualizer] All observers disconnected');
     }
 
-    // =========================================================================
-    //  ENTRY POINT
-    // =========================================================================
-    static initializeStructures(jsonData) {
-        this.clearBarCharts();
-        this._removeTooltip();
-        this.stylePathwayElements();
-        this.equalizeNodeRadii();
-        this.colourNodesByOrigin();
-        this.loadStructureImages(jsonData);
-        this.createNodeBarCharts(jsonData);
-        this.createSegmentBarCharts(jsonData[1].nodes, jsonData[1].reactions);
-        this.initializeLabels(jsonData);
-        this._attachTooltipListeners(jsonData);
-
-        // Apply path highlight if the URL carries one
-        const rawPath = (window.HIGHLIGHT_PATH || '').trim();
-        if (rawPath) {
-            const pathNodes = rawPath.split(',').map(s => s.trim()).filter(Boolean);
-            if (pathNodes.length) {
-                this.highlightPathInPlace(pathNodes, jsonData[1]);
-            }
+    disconnectRadiusObserver() {
+        if (this._radiusObserver) {
+            this._radiusObserver.disconnect();
+            this._observerRegistry = this._observerRegistry
+                .filter(o => o !== this._radiusObserver);
+            this._radiusObserver       = null;
+            this._radiusObserverActive = false;
         }
     }
 
-    static setupNaNLabelRemoval() {
-        setInterval(() => this.removeStoichiometryLabels(), 500);
+    /** Full teardown — call before destroying the DOM */
+    destroy() {
+        this.disconnectAllObservers();
+        this.stopNaNLabelRemoval();
+        console.log('[EscherVisualizer] Destroyed');
     }
 
-    static removeStoichiometryLabels() {
+    // =========================================================================
+    //  NaN LABEL REMOVAL
+    // =========================================================================
+    setupNaNLabelRemoval() {
+        this.stopNaNLabelRemoval();  // clear any previous interval
+        this._nanLabelInterval = setInterval(
+            () => this.removeStoichiometryLabels(), 500
+        );
+    }
+
+    stopNaNLabelRemoval() {
+        if (this._nanLabelInterval) {
+            clearInterval(this._nanLabelInterval);
+            this._nanLabelInterval = null;
+        }
+    }
+
+    removeStoichiometryLabels() {
         d3.selectAll('.stoichiometry-label').filter(function () {
             return d3.select(this).text() === 'NaN';
         }).remove();
     }
 
     // =========================================================================
-    //  NODE COLOURING BY ORIGIN
+    //  ENTRY POINT
     // =========================================================================
-    static colourNodesByOrigin() {
-        d3.select('#map_container')
+    initializeStructures(jsonData, config) {
+        console.log('[EscherVisualizer] Initializing structures');
+        this.clearBarCharts();
+        this._removeTooltip();
+        this.stylePathwayElements();
+        this.equalizeNodeRadii(config);
+        this.colourNodesByOrigin(config);
+        this.loadStructureImages(jsonData, config);
+        this.createNodeBarCharts(jsonData, config);
+        this.createSegmentBarCharts(jsonData[1].nodes, jsonData[1].reactions, config);
+        this.initializeLabels(jsonData, config);
+        this.attachTooltipListeners(jsonData, config);
+        console.log('[EscherVisualizer] Structures initialized');
+    }
+
+    // =========================================================================
+    //  COLOUR HELPERS
+    // =========================================================================
+    _originColour(origin, config) {
+        const map = config.originColours;
+        return map[origin] || map.unknown;
+    }
+
+    _proteinColours(n) {
+        const palette = [
+            '#2a9d8f','#e76f51','#264653','#e9c46a',
+            '#a8dadc','#f4a261','#457b9d','#e63946',
+            '#06d6a0','#118ab2',
+        ];
+        return Array.from({ length: n }, (_, i) => palette[i % palette.length]);
+    }
+
+    // =========================================================================
+    //  NODE COLOURING
+    // =========================================================================
+    colourNodesByOrigin(config) {
+        d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
-            .each(function (d) {
+            .each((d, i, nodes) => {
                 if (!d) return;
-                const colour = EscherVisualizer._originColour(d.origin || 'unknown');
-                d3.select(this)
+                const colour = this._originColour(d.origin || 'unknown', config);
+                d3.select(nodes[i])
                     .style('fill',         colour)
                     .style('fill-opacity',  0.85)
                     .style('stroke',       d3.color(colour).darker(0.6).toString())
@@ -131,115 +135,85 @@ class EscherVisualizer {
     }
 
     // =========================================================================
-    //  PATH HIGHLIGHTING IN PLACE  (keep_positions=true)
-    //
-    //  - Dims everything not on the path.
-    //  - Draws a thick bright ring around path nodes.
-    //  - Draws a thick solid line along path segments.
-    //  - Does NOT create a subgraph.
+    //  PATH HIGHLIGHTING
     // =========================================================================
-    static highlightPathInPlace(pathNodeIds, mapData) {
-        const C    = EscherVisualizer.CONFIG;
-        const ph   = C.pathHighlight;
+    highlightPathInPlace(pathNodeIds, mapData, config) {
+        console.log('[EscherVisualizer] Highlighting path —',
+            pathNodeIds.length, 'nodes');
+
+        const ph    = config.pathHighlight;
         const idSet = new Set(pathNodeIds);
-
-        // Build set of segment IDs that connect consecutive path nodes
-        // We need to match (from_node_id -> midpoint -> to_node_id)
-        const nodes    = mapData.nodes    || {};
-        const segments = {};
-        Object.values(mapData.reactions || {}).forEach(rxn => {
-            Object.values(rxn.segments || {}).forEach(seg => {
-                segments[seg.from_node_id + '_' + seg.to_node_id] = seg;
-            });
-        });
-
-        // For each consecutive pair in the path, find the midpoint(s)
-        // between them and mark all segments in that chain.
+        const nodes = mapData.nodes || {};
+        const _key  = (a, b) => `${a}:${b}`;
         const pathSegKeys = new Set();
 
-        // Walk nodes dict to find midpoints that connect path pairs
         Object.entries(nodes).forEach(([nid, nd]) => {
             if (nd.node_type !== 'midpoint') return;
             const fid = nd.from_node_id;
             const tid = nd.to_node_id;
             if (!fid || !tid) return;
-            // This midpoint is on the path if both endpoints are in pathNodeIds
-            // AND they are consecutive in the path array
             for (let i = 0; i < pathNodeIds.length - 1; i++) {
                 const a = pathNodeIds[i];
                 const b = pathNodeIds[i + 1];
                 if ((fid === a && tid === b) || (fid === b && tid === a)) {
-                    // Mark the two sub-segments
-                    pathSegKeys.add(fid + '_' + nid);
-                    pathSegKeys.add(nid + '_' + tid);
-                    pathSegKeys.add(b   + '_' + nid);
-                    pathSegKeys.add(nid + '_' + a);
+                    pathSegKeys.add(_key(fid, nid));
+                    pathSegKeys.add(_key(nid, tid));
+                    pathSegKeys.add(_key(b, nid));
+                    pathSegKeys.add(_key(nid, a));
                 }
             }
         });
 
-        // ── Dim / highlight nodes ─────────────────────────────────────
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
-            .each(function (d) {
+            .each((d, i, nodes) => {
                 if (!d) return;
                 const onPath = idSet.has(d.bigg_id);
-                const el     = d3.select(this);
-                const colour = EscherVisualizer._originColour(d.origin || 'unknown');
-
+                const el     = d3.select(nodes[i]);
+                const colour = this._originColour(d.origin || 'unknown', config);
                 if (onPath) {
-                    el
-                        .style('fill',         colour)
-                        .style('fill-opacity',  1.0)
-                        .style('stroke',        ph.nodeStrokeColour)
-                        .style('stroke-width',  ph.nodeStrokeWidth + 'px');
+                    el.style('fill',         colour)
+                      .style('fill-opacity',  1.0)
+                      .style('stroke',        ph.nodeStrokeColour)
+                      .style('stroke-width',  ph.nodeStrokeWidth + 'px');
                 } else {
-                    el
-                        .style('fill',         colour)
-                        .style('fill-opacity',  ph.dimOpacity)
-                        .style('stroke',        d3.color(colour).darker(0.6).toString())
-                        .style('stroke-width',  '1.5px');
+                    el.style('fill',         colour)
+                      .style('fill-opacity',  ph.dimOpacity)
+                      .style('stroke',       d3.color(colour).darker(0.6).toString())
+                      .style('stroke-width', '1.5px');
                 }
             });
 
-        // ── Dim / highlight segments ──────────────────────────────────
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .selectAll('path.segment')
-            .each(function (d) {
+            .each((d, i, segs) => {
                 if (!d) return;
-                const key    = (d.from_node_id || '') + '_' + (d.to_node_id || '');
+                const key    = _key(d.from_node_id || '', d.to_node_id || '');
                 const onPath = pathSegKeys.has(key);
-                const el     = d3.select(this);
-
+                const el     = d3.select(segs[i]);
                 if (onPath) {
-                    el
-                        .style('stroke',            ph.segmentColour)
-                        .style('stroke-width',       ph.segmentStrokeWidth + 'px')
-                        .style('stroke-dasharray',  'none')
-                        .style('opacity',            1.0);
+                    el.style('stroke',           ph.segmentColour)
+                      .style('stroke-width',      ph.segmentStrokeWidth + 'px')
+                      .style('stroke-dasharray', 'none')
+                      .style('opacity',           1.0);
                 } else {
-                    el
-                        .style('stroke',           'black')
-                        .style('stroke-width',     '1px')
-                        .style('stroke-dasharray', '5,5')
-                        .style('opacity',           ph.dimOpacity);
+                    el.style('stroke',           'black')
+                      .style('stroke-width',     '1px')
+                      .style('stroke-dasharray', '5,5')
+                      .style('opacity',           ph.dimOpacity);
                 }
             });
 
-        // ── Add a CSS class so it can be cleared later ────────────────
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .classed('path-highlight-active', true);
     }
 
-    static clearPathHighlight() {
-        d3.select('#map_container')
+    clearPathHighlight(config) {
+        console.log('[EscherVisualizer] Clearing path highlight');
+        d3.select('#' + this.containerId)
             .classed('path-highlight-active', false);
-
-        // Restore origin colours
-        EscherVisualizer.colourNodesByOrigin();
-
-        // Restore default segment style
-        d3.select('#map_container')
+        this.colourNodesByOrigin(config);
+        d3.select('#' + this.containerId)
             .selectAll('path.segment')
             .style('stroke',           'black')
             .style('stroke-width',     '3px')
@@ -250,7 +224,7 @@ class EscherVisualizer {
     // =========================================================================
     //  TOOLTIP
     // =========================================================================
-    static _getTooltipDiv() {
+    _getTooltipDiv() {
         let div = document.getElementById('escher-tooltip');
         if (!div) {
             div = document.createElement('div');
@@ -280,12 +254,12 @@ class EscherVisualizer {
         return div;
     }
 
-    static _removeTooltip() {
+    _removeTooltip() {
         const div = document.getElementById('escher-tooltip');
         if (div) div.style.display = 'none';
     }
 
-    static _positionTooltip(div, evt) {
+    _positionTooltip(div, evt) {
         const margin = 14;
         const vpW    = window.innerWidth;
         const vpH    = window.innerHeight;
@@ -300,8 +274,8 @@ class EscherVisualizer {
         div.style.display = 'block';
     }
 
-    // ── Formatters ───────────────────────────────────────────────────
-    static _fmt(v) {
+    // ── Formatters ────────────────────────────────────────────────────────
+    _fmt(v) {
         if (v === null || v === undefined) return '—';
         const n = Number(v);
         if (isNaN(n)) return String(v);
@@ -311,7 +285,7 @@ class EscherVisualizer {
             : n.toPrecision(5);
     }
 
-    static _tr(label, value) {
+    _tr(label, value) {
         return `<tr>
           <td style="padding:2px 10px 2px 0;color:#666;
               white-space:nowrap;vertical-align:top">${label}</td>
@@ -320,41 +294,39 @@ class EscherVisualizer {
         </tr>`;
     }
 
-    static _replicateTable(replicates) {
+    _replicateTable(replicates) {
         if (!replicates || !replicates.length) return '—';
         const cells = replicates.map(v =>
             `<td style="padding:1px 4px;border:1px solid #e0e0e0;
                 background:#f8f8f8;color:#333;font-size:10px;
-                white-space:nowrap">${EscherVisualizer._fmt(v)}</td>`
+                white-space:nowrap">${this._fmt(v)}</td>`
         ).join('');
         return `<table style="border-collapse:collapse;
             display:inline-table"><tr>${cells}</tr></table>`;
     }
 
-    static _conditionBlock(entry) {
+    _conditionBlock(entry) {
         return `
           <tr><td colspan="2" style="padding-top:5px;padding-bottom:1px;
               font-weight:bold;color:#2a6496;font-size:11px">
             ${entry.name}
           </td></tr>
-          ${EscherVisualizer._tr('Mean&nbsp;±&nbsp;SD',
-              `${EscherVisualizer._fmt(entry.mean)}&nbsp;±&nbsp;`
-              + `${EscherVisualizer._fmt(entry.std_dev)}`)}
-          ${EscherVisualizer._tr('n', entry.count)}
-          ${EscherVisualizer._tr('Replicates',
-              EscherVisualizer._replicateTable(entry.replicates))}`;
+          ${this._tr('Mean&nbsp;±&nbsp;SD',
+              `${this._fmt(entry.mean)}&nbsp;±&nbsp;${this._fmt(entry.std_dev)}`)}
+          ${this._tr('n', entry.count)}
+          ${this._tr('Replicates', this._replicateTable(entry.replicates))}`;
     }
 
-    static _divRow() {
+    _divRow() {
         return `<tr><td colspan="2">
           <hr style="margin:3px 0;border:none;border-top:1px solid #eee">
         </td></tr>`;
     }
 
-    static _metaboliteTooltipHTML(tt) {
-        const origin  = tt.origin || 'unknown';
-        const colour  = EscherVisualizer._originColour(origin);
-        const header  = `
+    _metaboliteTooltipHTML(tt, config) {
+        const origin = tt.origin || 'unknown';
+        const colour = this._originColour(origin, config);
+        const header = `
           <div style="border-bottom:2px solid ${colour};
               margin-bottom:6px;padding-bottom:5px;
               display:flex;align-items:baseline;gap:8px">
@@ -362,91 +334,74 @@ class EscherVisualizer {
                 color:${colour};flex:1;word-break:break-word">
               ${tt.name || tt.id}
             </span>
-            <span style="font-size:10px;color:#888;
-                white-space:nowrap">${tt.id}</span>
-            <span style="font-size:10px;background:#f0f0f0;
-                border-radius:3px;padding:1px 5px;
-                color:${colour};white-space:nowrap">${origin}</span>
+            <span style="font-size:10px;color:#888;white-space:nowrap">${tt.id}</span>
+            <span style="font-size:10px;background:#f0f0f0;border-radius:3px;
+                padding:1px 5px;color:${colour};white-space:nowrap">${origin}</span>
           </div>`;
+
         if (!tt.conditions || !tt.conditions.length) {
-            return header
-                + '<div style="color:#999;font-style:italic">'
-                + 'No abundance data</div>';
+            return header + '<div style="color:#999;font-style:italic">No abundance data</div>';
         }
         const rows = tt.conditions.map((c, i) =>
-            (i > 0 ? EscherVisualizer._divRow() : '')
-            + EscherVisualizer._conditionBlock(c)
+            (i > 0 ? this._divRow() : '') + this._conditionBlock(c)
         ).join('');
         return header
-            + `<table style="border-collapse:collapse;width:100%;
-               font-size:11px">${rows}</table>`;
+            + `<table style="border-collapse:collapse;width:100%;font-size:11px">${rows}</table>`;
     }
 
-    static _reactionTooltipHTML(tt) {
+    _reactionTooltipHTML(tt) {
         const rxnId    = tt.reaction_id || 'unknown';
         const fromName = tt.from_node?.name || tt.from_node?.id || '?';
         const toName   = tt.to_node?.name   || tt.to_node?.id   || '?';
         const fromId   = tt.from_node?.id   || '';
         const toId     = tt.to_node?.id     || '';
-        const header   = `
+        const header = `
           <div style="border-bottom:2px solid #e76f51;
               margin-bottom:6px;padding-bottom:5px">
-            <span style="font-size:13px;font-weight:bold;
-                color:#e76f51">${rxnId}</span>
+            <span style="font-size:13px;font-weight:bold;color:#e76f51">${rxnId}</span>
           </div>
           <table style="border-collapse:collapse;width:100%;
               font-size:11px;margin-bottom:6px">
-            ${EscherVisualizer._tr('From',
+            ${this._tr('From',
                 `<strong>${fromName}</strong>
-                 <span style="color:#aaa;font-size:10px">
-                 &nbsp;(${fromId})</span>`)}
-            ${EscherVisualizer._tr('To',
+                 <span style="color:#aaa;font-size:10px">&nbsp;(${fromId})</span>`)}
+            ${this._tr('To',
                 `<strong>${toName}</strong>
-                 <span style="color:#aaa;font-size:10px">
-                 &nbsp;(${toId})</span>`)}
+                 <span style="color:#aaa;font-size:10px">&nbsp;(${toId})</span>`)}
           </table>`;
+
         if (!tt.proteins || !tt.proteins.length) {
-            return header
-                + '<div style="color:#999;font-style:italic">'
-                + 'No proteomics data</div>';
+            return header + '<div style="color:#999;font-style:italic">No proteomics data</div>';
         }
-        const nP      = tt.proteins.length;
-        const colours = EscherVisualizer._proteinColours(nP);
+        const colours = this._proteinColours(tt.proteins.length);
         const blocks  = tt.proteins.map((prot, pi) => {
             const colour  = colours[pi];
             const shortId = prot.protein_id.length > 45
                 ? prot.protein_id.slice(0, 43) + '…'
                 : prot.protein_id;
             const condRows = (prot.conditions || []).map((c, i) =>
-                (i > 0 ? EscherVisualizer._divRow() : '')
-                + EscherVisualizer._conditionBlock(c)
+                (i > 0 ? this._divRow() : '') + this._conditionBlock(c)
             ).join('');
             return `
-              <div style="margin-top:8px;border-left:3px solid ${colour};
-                  padding-left:8px">
+              <div style="margin-top:8px;border-left:3px solid ${colour};padding-left:8px">
                 <div title="${prot.protein_id}"
-                    style="font-size:11px;font-weight:bold;
-                    color:${colour};margin-bottom:3px;
-                    word-break:break-all">${shortId}</div>
-                <table style="border-collapse:collapse;
-                    width:100%;font-size:11px">${condRows}</table>
+                    style="font-size:11px;font-weight:bold;color:${colour};
+                    margin-bottom:3px;word-break:break-all">${shortId}</div>
+                <table style="border-collapse:collapse;width:100%;
+                    font-size:11px">${condRows}</table>
               </div>`;
         }).join('');
         return header + blocks;
     }
 
-    // ── Core hover helper ────────────────────────────────────────────
-    static _attachHover(el, getHTML) {
-        const self = EscherVisualizer;
-        const div  = self._getTooltipDiv();
+    _attachHover(el, getHTML) {
+        const div = this._getTooltipDiv();
         el.addEventListener('mouseenter', evt => {
             div.innerHTML = getHTML();
-            self._positionTooltip(div, evt);
+            this._positionTooltip(div, evt);
         });
         el.addEventListener('mousemove', evt => {
-            if (div.style.display !== 'none') {
-                self._positionTooltip(div, evt);
-            }
+            if (div.style.display !== 'none') this._positionTooltip(div, evt);
         });
         el.addEventListener('mouseleave', evt => {
             const related = evt.relatedTarget;
@@ -455,9 +410,7 @@ class EscherVisualizer {
         });
     }
 
-    static _attachTooltipListeners(jsonData) {
-        const self = EscherVisualizer;
-
+    attachTooltipListeners(jsonData, config) {
         const nodeTooltips = {};
         Object.entries(jsonData[1]?.nodes || {}).forEach(([nid, nd]) => {
             if (nd.tooltip) nodeTooltips[nid] = nd.tooltip;
@@ -468,88 +421,79 @@ class EscherVisualizer {
             Object.values(rxn.segments || {}).forEach(seg => {
                 if (seg.tooltip && seg.edge_type === 'reactant_edge') {
                     segTooltips[
-                        (seg.from_node_id || '') + '_' + (seg.to_node_id || '')
+                        (seg.from_node_id || '') + ':' + (seg.to_node_id || '')
                     ] = seg.tooltip;
                 }
             });
         });
 
-        // Metabolite node circles
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
-            .each(function (d) {
+            .each((d, i, nodes) => {
                 if (!d?.tooltip) return;
                 const tt = d.tooltip;
-                self._attachHover(this,
-                    () => self._metaboliteTooltipHTML(tt));
+                this._attachHover(nodes[i],
+                    () => this._metaboliteTooltipHTML(tt, config));
             });
 
-        // Midpoint node circles
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .selectAll('.node-circle')
-            .each(function (d) {
+            .each((d, i, nodes) => {
                 if (!d?.tooltip || d.node_type !== 'midpoint') return;
                 const tt = d.tooltip;
-                self._attachHover(this,
-                    () => self._reactionTooltipHTML(tt));
+                this._attachHover(nodes[i], () => this._reactionTooltipHTML(tt));
             });
 
-        // Segment paths
-        d3.select('#map_container')
+        d3.select('#' + this.containerId)
             .selectAll('path.segment')
-            .each(function (d) {
+            .each((d, i, segs) => {
                 if (!d) return;
-                const key = (d.from_node_id || '')
-                    + '_' + (d.to_node_id || '');
+                const key = (d.from_node_id || '') + ':' + (d.to_node_id || '');
+                const tt  = segTooltips[key];
+                if (!tt) return;
+                this._attachHover(segs[i], () => this._reactionTooltipHTML(tt));
+            });
+
+        // Bar chart tooltips — attached after render, no rAF needed
+        // (charts are created synchronously before this runs)
+        d3.select('#' + this.containerId)
+            .selectAll('.metabolite-bar-chart')
+            .each((d, i, charts) => {
+                const biggId = charts[i].dataset?.biggId;
+                if (!biggId) return;
+                const tt = nodeTooltips[biggId];
+                if (!tt) return;
+                this._attachHover(charts[i],
+                    () => this._metaboliteTooltipHTML(tt, config));
+            });
+
+        d3.select('#' + this.containerId)
+            .selectAll('.proteomics-bar-chart')
+            .each((d, i, charts) => {
+                const key = charts[i].dataset?.segKey;
+                if (!key) return;
                 const tt = segTooltips[key];
                 if (!tt) return;
-                self._attachHover(this,
-                    () => self._reactionTooltipHTML(tt));
+                this._attachHover(charts[i], () => this._reactionTooltipHTML(tt));
             });
-
-        // Bar chart groups (after render)
-        requestAnimationFrame(() => {
-            d3.select('#map_container')
-                .selectAll('.metabolite-bar-chart')
-                .each(function () {
-                    const biggId = this.dataset?.biggId;
-                    if (!biggId) return;
-                    const tt = nodeTooltips[biggId];
-                    if (!tt) return;
-                    self._attachHover(this,
-                        () => self._metaboliteTooltipHTML(tt));
-                });
-
-            d3.select('#map_container')
-                .selectAll('.proteomics-bar-chart')
-                .each(function () {
-                    const key = this.dataset?.segKey;
-                    if (!key) return;
-                    const tt = segTooltips[key];
-                    if (!tt) return;
-                    self._attachHover(this,
-                        () => self._reactionTooltipHTML(tt));
-                });
-        });
     }
 
     // =========================================================================
     //  LABELS
     // =========================================================================
-    static addMetaboliteLabels() {
-        d3.selectAll('g.node').each(function () {
-            const circle = d3.select(this)
-                .select('.node-circle.metabolite-circle');
+    addMetaboliteLabels(config) {
+        d3.selectAll('g.node').each((d, i, nodes) => {
+            const group  = d3.select(nodes[i]);
+            const circle = group.select('.node-circle.metabolite-circle');
             if (circle.empty()) return;
             const data = circle.data()[0];
             if (!data) return;
 
-            const parentNode = d3.select(this);
-            parentNode.selectAll('.label').style('display', 'none');
+            group.selectAll('.label').style('display', 'none');
 
-            let label = parentNode.select('.node-label.metabolite-name');
+            let label = group.select('.node-label.metabolite-name');
             if (label.empty()) {
-                label = parentNode.append('text')
+                label = group.append('text')
                     .attr('class',           'node-label metabolite-name')
                     .style('font-family',    'Arial, sans-serif')
                     .style('font-weight',    'bold')
@@ -559,35 +503,33 @@ class EscherVisualizer {
             }
 
             const update = () => {
-                const C = EscherVisualizer.CONFIG;
                 label
-                    .style('font-size', C.metaboliteLabelFontSize + 'px')
-                    .text((data.name || data.bigg_id || 'Unknown')
-                          .replace(/;\s*$/, ''));
+                    .style('font-size', config.metaboliteLabelFontSize + 'px')
+                    .text((data.name || data.bigg_id || 'Unknown').replace(/;\s*$/, ''));
                 const transform = circle.attr('transform');
                 if (transform) {
                     const m = transform.match(/translate\(([^,]+),([^)]+)\)/);
                     if (m) {
                         label.attr('transform',
-                            `translate(${m[1]},`
-                            + `${parseFloat(m[2]) + C.labelOffsetY})`);
+                            `translate(${m[1]},${parseFloat(m[2]) + config.labelOffsetY})`);
                     }
                 }
             };
+
             update();
-            new MutationObserver(update).observe(circle.node(), {
-                attributes: true, attributeFilter: ['transform'],
-            });
+            this._registerObserver(
+                new MutationObserver(update)
+            ).observe(circle.node(), { attributes: true, attributeFilter: ['transform'] });
         });
     }
 
-    static addCoproductLabels() {
-        d3.selectAll('.coproduct-circle').each(function () {
-            const circle = d3.select(this);
-            const data   = circle.data()[0];
+    addCoproductLabels(config) {
+        d3.selectAll('.coproduct-circle').each((d, i, circles) => {
+            const circle     = d3.select(circles[i]);
+            const data       = circle.data()[0];
             if (!data) return;
+            const parentNode = d3.select(circles[i].parentNode);
 
-            const parentNode = d3.select(this.parentNode);
             parentNode.selectAll('.label').style('display', 'none');
 
             let label = parentNode.select('.node-label.coproduct-name');
@@ -601,51 +543,47 @@ class EscherVisualizer {
             }
 
             const update = () => {
-                const C    = EscherVisualizer.CONFIG;
-                const text = (C.defaultToBiggId
+                const text = (config.defaultToBiggId
                     ? (data.bigg_id || data.name || 'Coproduct')
                     : (data.name    || data.bigg_id || 'Coproduct')
                 ).replace(/;\s*$/, '');
-                label
-                    .style('font-size', C.coproductLabelFontSize + 'px')
-                    .text(text);
+                label.style('font-size', config.coproductLabelFontSize + 'px').text(text);
                 const transform = circle.attr('transform');
                 if (transform) {
                     const m = transform.match(/translate\(([^,]+),([^)]+)\)/);
                     if (m) {
                         label.attr('transform',
-                            `translate(${m[1]},`
-                            + `${parseFloat(m[2]) - C.coproductLabelOffsetY})`);
+                            `translate(${m[1]},${parseFloat(m[2]) - config.coproductLabelOffsetY})`);
                     }
                 }
             };
+
             update();
-            new MutationObserver(update).observe(circle.node(), {
-                attributes: true, attributeFilter: ['transform'],
-            });
+            this._registerObserver(
+                new MutationObserver(update)
+            ).observe(circles[i], { attributes: true, attributeFilter: ['transform'] });
         });
     }
 
-    static initializeLabels(jsonData) {
+    initializeLabels(jsonData, config) {
         this.removeStoichiometryLabels();
-        this.addMetaboliteLabels();
-        this.addCoproductLabels();
+        this.addMetaboliteLabels(config);
+        this.addCoproductLabels(config);
     }
 
     // =========================================================================
     //  STRUCTURE IMAGES
     // =========================================================================
-    static loadStructureImages(jsonData) {
-        const C              = EscherVisualizer.CONFIG;
-        const maxDisplaySize = C.imageSize;
-        const isVertical     = window.CONFIG?.smallGraphLayoutVertical ?? true;
-        const nodeThreshold  = window.CONFIG?.nodeThresholdSmall ?? 10;
+    loadStructureImages(jsonData, config) {
+        const maxDisplaySize = config.imageSize;
+        const isVertical     = config.smallGraphLayoutVertical ?? true;
+        const nodeThreshold  = config.nodeThresholdSmall ?? 10;
 
         fetch('static/structure_imgs/image_dimensions.json')
             .then(r => r.ok ? r.json() : {})
             .catch(() => ({}))
             .then(dimensions => {
-                const circles  = d3.select('#map_container')
+                const circles  = d3.select('#' + this.containerId)
                     .selectAll('.metabolite-circle');
                 const numNodes = circles.size();
                 const useLeft  = isVertical && numNodes < nodeThreshold;
@@ -655,15 +593,20 @@ class EscherVisualizer {
                 if (maxNatW === 0) maxNatW = 1;
                 const scale = maxDisplaySize / maxNatW;
 
-                circles.each(function (data) {
-                    const circle     = d3.select(this);
-                    const parentNode = d3.select(circle.node().parentNode);
+                console.log('[EscherVisualizer] Loading structure images —',
+                    numNodes, 'nodes, useLeft:', useLeft);
+
+                circles.each((data, i, nodes) => {
+                    const circle     = d3.select(nodes[i]);
+                    const parentNode = d3.select(nodes[i].parentNode);
+
                     if (data.highlight) circle.classed('highlighted', true);
 
-                    const imgPath   = `static/structure_imgs/${data.bigg_id}.png`;
-                    const dim       = dimensions[data.bigg_id];
-                    const dispW     = dim ? dim.w * scale : maxDisplaySize;
-                    const dispH     = dim ? dim.h * scale : maxDisplaySize;
+                    const imgPath = `static/structure_imgs/${data.bigg_id}.png`;
+                    const dim     = dimensions[data.bigg_id];
+                    const dispW   = dim ? dim.w * scale : maxDisplaySize;
+                    const dispH   = dim ? dim.h * scale : maxDisplaySize;
+
                     const getOffset = () => useLeft
                         ? { x: -dispW - 10, y: -dispH }
                         : { x: -dispW / 2,  y: -dispH - 10 };
@@ -679,7 +622,7 @@ class EscherVisualizer {
                             .attr('height', dispH)
                             .attr('xlink:href', imgPath);
                     };
-                    img.onerror = () => {};
+                    img.onerror = () => {};  // missing images silently ignored
                     img.src = imgPath;
 
                     const updatePos = () => {
@@ -690,9 +633,10 @@ class EscherVisualizer {
                             `${transform} translate(${o.x},${o.y})`);
                     };
                     updatePos();
-                    new MutationObserver(updatePos).observe(circle.node(), {
-                        attributes: true, attributeFilter: ['transform'],
-                    });
+
+                    this._registerObserver(
+                        new MutationObserver(updatePos)
+                    ).observe(nodes[i], { attributes: true, attributeFilter: ['transform'] });
                 });
             });
     }
@@ -700,14 +644,13 @@ class EscherVisualizer {
     // =========================================================================
     //  BAR CHARTS – METABOLOMICS
     // =========================================================================
-    static _renderMetaboliteBarChart(parentNode, element, data, options = {}) {
-        const C  = EscherVisualizer.CONFIG;
-        const bc = C.barChart;
+    _renderMetaboliteBarChart(parentNode, element, data, config, options = {}) {
+        const bc = config.barChart;
         const cfg = Object.assign({
             chartWidth:  bc.width,
             barHeight:   bc.barHeight,
             axisPadding: bc.axisPadding,
-            barColor:    EscherVisualizer._originColour(data.origin || 'unknown'),
+            barColor:    this._originColour(data.origin || 'unknown', config),
             hoverColor:  '#1f7a67',
             getPosition: null,
         }, options);
@@ -724,15 +667,11 @@ class EscherVisualizer {
         const maxVal = Math.max(...values, 1e-9);
         const chartH = cfg.barHeight * conditions.length;
         const drawW  = cfg.chartWidth - cfg.axisPadding;
-
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
 
         const pos = cfg.getPosition
             ? cfg.getPosition(data, cfg)
-            : {
-                x: (data.x || 0) - cfg.chartWidth,
-                y: (data.y || 0) - chartH / 2,
-            };
+            : { x: (data.x || 0) - cfg.chartWidth, y: (data.y || 0) - chartH / 2 };
 
         const group = parentNode.append('g')
             .attr('class',     'bar-chart metabolite-bar-chart')
@@ -747,12 +686,12 @@ class EscherVisualizer {
             };
             group.attr('transform', `translate(${np.x},${np.y})`);
         };
-        new MutationObserver(updatePos).observe(element.node(), {
-            attributes: true, attributeFilter: ['transform'],
-        });
+
+        this._registerObserver(
+            new MutationObserver(updatePos)
+        ).observe(element.node(), { attributes: true, attributeFilter: ['transform'] });
 
         group.insert('rect', ':first-child')
-            .attr('class',   'chart-bg')
             .attr('x',      -cfg.axisPadding - 4)
             .attr('y',      -8)
             .attr('width',   cfg.chartWidth + 8)
@@ -768,7 +707,7 @@ class EscherVisualizer {
                 .attr('y',   i * cfg.barHeight + cfg.barHeight / 2)
                 .attr('dy', '0.35em')
                 .style('text-anchor', 'end')
-                .style('font-size',   C.chartLabelFontSize + 'px')
+                .style('font-size',   config.chartLabelFontSize + 'px')
                 .style('fill',        '#555')
                 .text(cond);
         });
@@ -778,7 +717,7 @@ class EscherVisualizer {
             .attr('transform', `translate(0,${chartH})`)
             .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
             .selectAll('text')
-            .style('font-size', C.chartLabelFontSize + 'px')
+            .style('font-size', config.chartLabelFontSize + 'px')
             .style('fill',      '#555');
 
         conditions.forEach((cond, i) => {
@@ -799,7 +738,7 @@ class EscherVisualizer {
                         .attr('x',  barW + 3)
                         .attr('y',  i * cfg.barHeight + cfg.barHeight / 2)
                         .attr('dy', '0.35em')
-                        .style('font-size',   C.chartLabelFontSize + 'px')
+                        .style('font-size',   config.chartLabelFontSize + 'px')
                         .style('fill',        '#111')
                         .style('font-weight', 'bold')
                         .text(`${d3.format('.1e')(avg)} ± ${d3.format('.1e')(std)}`);
@@ -812,20 +751,18 @@ class EscherVisualizer {
     }
 
     // =========================================================================
-    //  BAR CHARTS – PROTEOMICS  (one chart per protein, stacked)
+    //  BAR CHARTS – PROTEOMICS
     // =========================================================================
-    static _renderProteomicsBarCharts(parentNode, segData, nodeData) {
-        const C  = EscherVisualizer.CONFIG;
-        const bc = C.barChart;
-
+    _renderProteomicsBarCharts(parentNode, segData, nodeData, config) {
+        const bc = config.barChart;
         const proteinList = segData.graph_info;
-        if (!Array.isArray(proteinList) || proteinList.length === 0) return;
+        if (!Array.isArray(proteinList) || !proteinList.length) return;
 
         const conditions = Object.keys(proteinList[0]?.stats || {});
         if (!conditions.length) return;
 
         const nProteins = proteinList.length;
-        const colours   = EscherVisualizer._proteinColours(nProteins);
+        const colours   = this._proteinColours(nProteins);
         const barH      = bc.barHeight;
         const axisPad   = bc.axisPadding;
         const chartW    = bc.width;
@@ -847,19 +784,14 @@ class EscherVisualizer {
         const anchorY  = (fromNode?.y ?? 0)
             - (nProteins * singleH + (nProteins - 1) * gap) / 2;
 
-        const segKey = (segData.from_node_id || '')
-            + '_' + (segData.to_node_id || '');
-
+        const segKey     = (segData.from_node_id || '') + ':' + (segData.to_node_id || '');
         const outerGroup = parentNode.append('g')
             .attr('class',     'bar-chart proteomics-bar-chart')
             .attr('transform', `translate(${anchorX},${anchorY})`);
-
         outerGroup.node().dataset.segKey = segKey;
 
         const totalH = nProteins * singleH + (nProteins - 1) * gap;
-
         outerGroup.insert('rect', ':first-child')
-            .attr('class',   'chart-bg')
             .attr('x',      -axisPad - 4)
             .attr('y',      -8)
             .attr('width',   chartW + 8)
@@ -872,18 +804,18 @@ class EscherVisualizer {
         proteinList.forEach((prot, pi) => {
             const colour  = colours[pi];
             const offsetY = pi * (singleH + gap);
-
-            const pGroup = outerGroup.append('g')
+            const pGroup  = outerGroup.append('g')
                 .attr('transform', `translate(0,${offsetY})`);
 
             const shortId = prot.protein_id.length > 28
                 ? prot.protein_id.slice(0, 26) + '…'
                 : prot.protein_id;
+
             pGroup.append('text')
                 .attr('x',  drawW / 2)
                 .attr('y',  -4)
                 .style('text-anchor', 'middle')
-                .style('font-size',   C.chartTitleFontSize + 'px')
+                .style('font-size',   config.chartTitleFontSize + 'px')
                 .style('font-weight', 'bold')
                 .style('fill',        colour)
                 .text(shortId)
@@ -891,12 +823,10 @@ class EscherVisualizer {
 
             if (pi > 0) {
                 pGroup.append('line')
-                    .attr('x1', -axisPad)
-                    .attr('x2',  chartW - axisPad + 4)
+                    .attr('x1', -axisPad).attr('x2', chartW - axisPad + 4)
                     .attr('y1', -gap / 2 - singleH)
                     .attr('y2', -gap / 2 - singleH)
-                    .attr('stroke',       '#ddd')
-                    .attr('stroke-width',  1);
+                    .attr('stroke', '#ddd').attr('stroke-width', 1);
             }
 
             conditions.forEach((cond, ci) => {
@@ -905,7 +835,7 @@ class EscherVisualizer {
                     .attr('y',   ci * barH + barH / 2)
                     .attr('dy', '0.35em')
                     .style('text-anchor', 'end')
-                    .style('font-size',   C.chartLabelFontSize + 'px')
+                    .style('font-size',   config.chartLabelFontSize + 'px')
                     .style('fill',        '#555')
                     .text(cond);
             });
@@ -914,21 +844,19 @@ class EscherVisualizer {
                 pGroup.append('g')
                     .attr('class',     'x-axis')
                     .attr('transform', `translate(0,${singleH})`)
-                    .call(
-                        d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e'))
-                    )
+                    .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
                     .selectAll('text')
-                    .style('font-size', C.chartLabelFontSize + 'px')
+                    .style('font-size', config.chartLabelFontSize + 'px')
                     .style('fill',      '#555');
 
-                if (C.barChartXLabel) {
+                if (config.barChartXLabel) {
                     pGroup.append('text')
                         .attr('x',  drawW / 2)
                         .attr('y',  singleH + 28)
                         .style('text-anchor', 'middle')
-                        .style('font-size',   C.chartLabelFontSize + 'px')
+                        .style('font-size',   config.chartLabelFontSize + 'px')
                         .style('fill',        '#666')
-                        .text(C.barChartXLabel);
+                        .text(config.barChartXLabel);
                 }
             }
 
@@ -937,8 +865,8 @@ class EscherVisualizer {
                 const std = prot.stats?.[cond]?.std_dev ?? 0;
                 if (avg === null) return;
                 const barW = xScale(avg);
+
                 pGroup.append('rect')
-                    .attr('class',  'bar')
                     .attr('x',       0)
                     .attr('y',       ci * barH)
                     .attr('width',   Math.max(barW, 0))
@@ -950,7 +878,7 @@ class EscherVisualizer {
                             .attr('x',  barW + 3)
                             .attr('y',  ci * barH + barH / 2)
                             .attr('dy', '0.35em')
-                            .style('font-size',   C.chartLabelFontSize + 'px')
+                            .style('font-size',   config.chartLabelFontSize + 'px')
                             .style('fill',        '#111')
                             .style('font-weight', 'bold')
                             .text(`${d3.format('.1e')(avg)} ± ${d3.format('.1e')(std)}`);
@@ -964,38 +892,39 @@ class EscherVisualizer {
     }
 
     // =========================================================================
-    //  NODE BAR CHARTS  (metabolomics)
+    //  NODE BAR CHARTS
     // =========================================================================
-    static createNodeBarCharts(jsonData) {
-        const C         = EscherVisualizer.CONFIG;
-        const isVert    = window.CONFIG?.smallGraphLayoutVertical ?? true;
-        const threshold = window.CONFIG?.nodeThresholdSmall ?? 10;
-        const numNodes  = d3.select('#map_container')
+    createNodeBarCharts(jsonData, config) {
+        const isVert    = config.smallGraphLayoutVertical ?? true;
+        const threshold = config.nodeThresholdSmall ?? 10;
+        const numNodes  = d3.select('#' + this.containerId)
             .selectAll('.metabolite-circle').size();
         const useLeft   = isVert && numNodes < threshold;
 
-        d3.select('#map_container')
+        console.log('[EscherVisualizer] Creating node bar charts — useLeft:', useLeft);
+
+        d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
-            .each(function (data) {
+            .each((data, i, nodes) => {
                 if (!data?.graph_info || Array.isArray(data.graph_info)) return;
-                const element    = d3.select(this);
-                const parentNode = d3.select(element.node().parentNode);
-                EscherVisualizer._renderMetaboliteBarChart(
-                    parentNode, element, data, {
+                const element    = d3.select(nodes[i]);
+                const parentNode = d3.select(nodes[i].parentNode);
+                this._renderMetaboliteBarChart(
+                    parentNode, element, data, config, {
                         getPosition: (d, cfg) => useLeft
-                            ? { x: d.x + C.barChartOffsetY,
+                            ? { x: d.x + config.barChartOffsetY,
                                 y: d.y - cfg.chartWidth }
-                            : { x: d.x - C.barChart.width / 2,
-                                y: d.y + C.barChartOffsetY },
+                            : { x: d.x - config.barChart.width / 2,
+                                y: d.y + config.barChartOffsetY },
                     }
                 );
             });
     }
 
     // =========================================================================
-    //  SEGMENT BAR CHARTS  (proteomics – stacked per protein)
+    //  SEGMENT BAR CHARTS
     // =========================================================================
-    static createSegmentBarCharts(nodeData, reactions) {
+    createSegmentBarCharts(nodeData, reactions, config) {
         const segments = {};
         Object.values(reactions || {}).forEach(rxn => {
             Object.values(rxn.segments || {}).forEach(seg => {
@@ -1005,74 +934,76 @@ class EscherVisualizer {
                     seg.graph_info.length > 0
                 ) {
                     segments[
-                        (seg.from_node_id || '') + '_' + (seg.to_node_id || '')
+                        (seg.from_node_id || '') + ':' + (seg.to_node_id || '')
                     ] = seg;
                 }
             });
         });
 
-        d3.select('#map_container').selectAll('.segment')
-            .each(function (data) {
+        console.log('[EscherVisualizer] Creating segment bar charts —',
+            Object.keys(segments).length, 'proteomics segments');
+
+        d3.select('#' + this.containerId)
+            .selectAll('.segment')
+            .each((data, i, segs) => {
                 if (!data) return;
-                const key = (data.from_node_id || '')
-                    + '_' + (data.to_node_id || '');
+                const key = (data.from_node_id || '') + ':' + (data.to_node_id || '');
                 const seg = segments[key];
                 if (!seg) return;
-                const parentNode = d3.select(
-                    d3.select(this).node().parentNode
-                );
-                EscherVisualizer._renderProteomicsBarCharts(
-                    parentNode, seg, nodeData
-                );
+                const parentNode = d3.select(segs[i].parentNode);
+                this._renderProteomicsBarCharts(parentNode, seg, nodeData, config);
             });
     }
 
     // =========================================================================
     //  NODE STYLING
     // =========================================================================
-    static stylePathwayElements() {
+    stylePathwayElements() {
         d3.selectAll('.segment')
             .style('stroke',           'black')
             .style('stroke-width',     '3px')
             .style('stroke-dasharray', '5,5');
     }
 
-    static equalizeNodeRadii() {
-        const C     = EscherVisualizer.CONFIG;
-        const metR  = C.metaboliteRadius ?? C.nodeRadius;
-        const reacR = C.reactionRadius   ?? C.nodeRadius;
+    equalizeNodeRadii(config) {
+        const metR  = config.metaboliteRadius ?? config.nodeRadius;
+        const reacR = config.reactionRadius   ?? config.nodeRadius;
+
         const update = () => {
             d3.selectAll('circle.node-circle.metabolite-circle')
                 .each(function () { this.setAttribute('r', metR); });
             d3.selectAll('circle.coproduct-circle')
                 .each(function () { this.setAttribute('r', reacR); });
         };
+
         update();
-        const container = document.getElementById('map_container');
-        if (container && !this._radiusObserverActive) {
-            new MutationObserver(() => {
+
+        if (this.container && !this._radiusObserverActive) {
+            const obs = new MutationObserver(() => {
                 let needs = false;
                 d3.selectAll('circle.node-circle.metabolite-circle')
                     .each(function () {
-                        if (parseFloat(this.getAttribute('r')) !== metR)
-                            needs = true;
+                        if (parseFloat(this.getAttribute('r')) !== metR) needs = true;
                     });
                 if (needs) update();
-            }).observe(container, {
+            });
+            obs.observe(this.container, {
                 subtree: true, attributes: true, attributeFilter: ['r'],
             });
+            this._radiusObserver       = obs;
             this._radiusObserverActive = true;
+            this._registerObserver(obs);
         }
     }
 
-    static clearBarCharts() {
+    clearBarCharts() {
         d3.selectAll('.bar-chart').remove();
     }
 
     // =========================================================================
-    //  LEGACY HIGHLIGHTING  (subgraph mode — kept for compatibility)
+    //  LEGACY HIGHLIGHTING
     // =========================================================================
-    static highlightPath(pathNodes) {
+    highlightPath(pathNodes) {
         d3.selectAll('circle.node-circle.metabolite-circle')
             .classed('highlighted-path', function () {
                 const d = d3.select(this).data()[0];
@@ -1085,7 +1016,7 @@ class EscherVisualizer {
             });
     }
 
-    static highlightMultiNodes(selectedNodeIds) {
+    highlightMultiNodes(selectedNodeIds) {
         d3.selectAll('circle.node-circle.metabolite-circle')
             .classed('highlighted-multi', function () {
                 const d = d3.select(this).data()[0];
