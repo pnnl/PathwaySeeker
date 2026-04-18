@@ -1,15 +1,14 @@
+// app.js
 /**
  * PathwayApp - Sidebar, node selection, Escher init,
  * frontend config auto-apply, view-state injection, SVG export.
  */
-
 const DEBUG = false;
 const log = (...args) => DEBUG && console.log('[APP]', ...args);
 
 // =============================================================================
 // UTILITIES
 // =============================================================================
-
 function showStatus(elementId, message, type = 'info', autoDismissMs = 3000) {
     const el = document.getElementById(elementId);
     if (!el) return;
@@ -32,13 +31,45 @@ function debounce(fn, delay) {
 // =============================================================================
 // APP
 // =============================================================================
-
 class PathwayApp {
     constructor() {
         this.escherBuilder  = null;
         this.availableNodes = [];
+
+        // AbortController for in-flight config AJAX requests.
+        // Cancelled and replaced each time a new request is made so that
+        // rapid slider changes never pile up on the server.
+        this._configAbort = null;
+
+        // All MutationObservers created by this instance, keyed by a label
+        // so they can be disconnected cleanly before a rebuild.
+        this._observers = new Map();
+
+        // Cache DOM references that are accessed repeatedly.
+        this._els = {};
     }
 
+    // ── DOM element cache ─────────────────────────────────────────────────
+    _el(id) {
+        if (!this._els[id]) this._els[id] = document.getElementById(id);
+        return this._els[id];
+    }
+
+    // ── Observer registry ─────────────────────────────────────────────────
+    _addObserver(label, observer) {
+        // Disconnect any previous observer registered under the same label
+        if (this._observers.has(label)) {
+            this._observers.get(label).disconnect();
+        }
+        this._observers.set(label, observer);
+    }
+
+    _disconnectAllObservers() {
+        this._observers.forEach(obs => obs.disconnect());
+        this._observers.clear();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     initialize() {
         this.setupSidebarToggle();
         this.setupKeyboardIsolation();
@@ -46,7 +77,6 @@ class PathwayApp {
         this.setupMultiNodeSelector();
         this.setupFrontendConfigAutoApply();
         this.setupBackendConfigViewState();
-
         if (window.initialJsonData) {
             this.initializeEscher();
         } else {
@@ -57,15 +87,14 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // SIDEBAR
     // ─────────────────────────────────────────────────────────────────────────
-
     setupSidebarToggle() {
-        const btn  = document.getElementById('sidebar-toggle');
-        const side = document.getElementById('sidebar');
+        const btn  = this._el('sidebar-toggle');
+        const side = this._el('sidebar');
         if (btn && side) btn.addEventListener('click', () => side.classList.toggle('open'));
     }
 
     setupKeyboardIsolation() {
-        const sidebar = document.getElementById('sidebar');
+        const sidebar = this._el('sidebar');
         if (!sidebar) return;
         ['keydown', 'keyup', 'keypress'].forEach(type => {
             sidebar.addEventListener(type, e => {
@@ -78,10 +107,12 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // NODE SELECTIONS
     // ─────────────────────────────────────────────────────────────────────────
-
     populateNodeSelections() {
         fetch('/api/nodes')
-            .then(r => r.json())
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
             .then(nodes => {
                 this.availableNodes = nodes;
                 this._fillSelect('start-node', nodes, '-- Select start node --');
@@ -93,7 +124,7 @@ class PathwayApp {
     }
 
     _fillSelect(id, nodes, placeholder) {
-        const el = document.getElementById(id);
+        const el = this._el(id);
         if (!el) return;
         el.innerHTML = `<option value="">${placeholder}</option>`;
         nodes.forEach(n => {
@@ -106,7 +137,7 @@ class PathwayApp {
     }
 
     _fillMultiSelect(nodes) {
-        const el = document.getElementById('node-multiselect');
+        const el = this._el('node-multiselect');
         if (!el) return;
         el.innerHTML = '<option value="" disabled>-- Select nodes --</option>';
         nodes.forEach(n => {
@@ -122,7 +153,7 @@ class PathwayApp {
         const p = new URLSearchParams(window.location.search);
 
         const setVal = (id, val) => {
-            const el = document.getElementById(id);
+            const el = this._el(id);
             if (el && val) el.value = val;
         };
 
@@ -138,13 +169,13 @@ class PathwayApp {
         const selected = p.get('selected');
         if (selected) {
             const ids   = selected.split(',').filter(Boolean);
-            const multi = document.getElementById('node-multiselect');
+            const multi = this._el('node-multiselect');
             if (multi) {
                 Array.from(multi.options).forEach(o => {
                     o.selected = ids.includes(o.value);
                 });
             }
-            const hidden = document.getElementById('selected_nodes');
+            const hidden = this._el('selected_nodes');
             if (hidden) hidden.value = ids.join(',');
         }
 
@@ -153,14 +184,16 @@ class PathwayApp {
     }
 
     setupMultiNodeSelector() {
-        const multi  = document.getElementById('node-multiselect');
-        const hidden = document.getElementById('selected_nodes');
-        const search = document.getElementById('node-search-input');
+        const multi  = this._el('node-multiselect');
+        const hidden = this._el('selected_nodes');
+        const search = this._el('node-search-input');
         if (!multi || !hidden) return;
 
         const syncHidden = () => {
-            hidden.value = Array.from(multi.selectedOptions).map(o => o.value).join(',');
+            hidden.value = Array.from(multi.selectedOptions)
+                .map(o => o.value).join(',');
         };
+
         multi.addEventListener('change', syncHidden);
 
         if (search) {
@@ -180,9 +213,8 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // BACKEND CONFIG – inject view-state into hidden fields before submit
     // ─────────────────────────────────────────────────────────────────────────
-
     setupBackendConfigViewState() {
-        const form = document.getElementById('backend-config-form');
+        const form = this._el('backend-config-form');
         if (!form) return;
 
         // Yellow highlight on changed-but-not-submitted inputs
@@ -196,13 +228,18 @@ class PathwayApp {
             const p          = new URLSearchParams(window.location.search);
             const isSubgraph = p.get('view') === 'subgraph';
 
-            document.getElementById('hidden-view-type').value          = isSubgraph ? 'subgraph' : 'full';
-            document.getElementById('hidden-start-node').value         = p.get('start')    || '';
-            document.getElementById('hidden-end-node').value           = p.get('end')      || '';
-            document.getElementById('hidden-path-nodes').value         = p.get('nodes')    || '';
-            document.getElementById('hidden-selected-nodes').value     = p.get('selected') || '';
-            document.getElementById('hidden-connection-distance').value = p.get('dist')    || '';
-            document.getElementById('hidden-keep-positions').value     = p.get('keep_pos') || '1';
+            const set = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = val;
+            };
+
+            set('hidden-view-type',            isSubgraph ? 'subgraph' : 'full');
+            set('hidden-start-node',           p.get('start')    || '');
+            set('hidden-end-node',             p.get('end')      || '');
+            set('hidden-path-nodes',           p.get('nodes')    || '');
+            set('hidden-selected-nodes',       p.get('selected') || '');
+            set('hidden-connection-distance',  p.get('dist')     || '');
+            set('hidden-keep-positions',       p.get('keep_pos') || '1');
 
             log('Backend form submitting with view state:', {
                 view:  isSubgraph ? 'subgraph' : 'full',
@@ -215,7 +252,6 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // FRONTEND CONFIG – auto-apply on change (debounced, no page reload)
     // ─────────────────────────────────────────────────────────────────────────
-
     setupFrontendConfigAutoApply() {
         const inputs = document.querySelectorAll('.frontend-config-input');
         if (!inputs.length) return;
@@ -233,61 +269,78 @@ class PathwayApp {
     }
 
     _collectFrontendConfig() {
-    const num = (id, fallback) => {
-        const el = document.getElementById(id);
-        return el ? (parseInt(el.value, 10) || fallback) : fallback;
-    };
-    const txt = (id, fallback = '') => {
-        const el = document.getElementById(id);
-        return el ? el.value : fallback;
-    };
-    return {
-        nodeRadius:              num('nodeRadius', 10),
-        metaboliteRadius:        num('metaboliteRadius', 10),
-        reactionRadius:          num('reactionRadius', 8),
-        imageSize:               num('imageSize', 400),          // ← ADD THIS
-        labelOffsetY:            num('labelOffsetY', 35),
-        coproductLabelOffsetY:   num('coproductLabelOffsetY', 25),
-        metaboliteLabelFontSize: num('metaboliteLabelFontSize', 14),
-        coproductLabelFontSize:  num('coproductLabelFontSize', 10),
-        barChartWidth:           num('barChartWidth', 100),
-        barChartHeight:          num('barChartHeight', 100),
-        barHeight:               num('barHeight', 15),
-        barChartOffsetY:         num('barChartOffsetY', 60),
-        barChartAxisPadding:     num('barChartAxisPadding', 20),
-        chartTitleFontSize:      num('chartTitleFontSize', 14),
-        chartLabelFontSize:      num('chartLabelFontSize', 14),
-        barChartTitle:           txt('barChartTitle'),
-        barChartXLabel:          txt('barChartXLabel', 'Abundance'),
-        barChartYLabel:          txt('barChartYLabel'),
-    };
-}
+        const num = (id, fallback) => {
+            const el = this._el(id);
+            return el ? (parseInt(el.value, 10) || fallback) : fallback;
+        };
+        const txt = (id, fallback = '') => {
+            const el = this._el(id);
+            return el ? el.value : fallback;
+        };
+
+        return {
+            nodeRadius:              num('nodeRadius', 10),
+            metaboliteRadius:        num('metaboliteRadius', 10),
+            reactionRadius:          num('reactionRadius', 8),
+            imageSize:               num('imageSize', 400),
+            labelOffsetY:            num('labelOffsetY', 35),
+            coproductLabelOffsetY:   num('coproductLabelOffsetY', 25),
+            metaboliteLabelFontSize: num('metaboliteLabelFontSize', 14),
+            coproductLabelFontSize:  num('coproductLabelFontSize', 10),
+            barChartWidth:           num('barChartWidth', 100),
+            barChartHeight:          num('barChartHeight', 100),
+            barHeight:               num('barHeight', 15),
+            barChartOffsetY:         num('barChartOffsetY', 60),
+            barChartAxisPadding:     num('barChartAxisPadding', 20),
+            chartTitleFontSize:      num('chartTitleFontSize', 14),
+            chartLabelFontSize:      num('chartLabelFontSize', 14),
+            barChartTitle:           txt('barChartTitle'),
+            barChartXLabel:          txt('barChartXLabel', 'Abundance'),
+            barChartYLabel:          txt('barChartYLabel'),
+        };
+    }
 
     async _sendFrontendConfig(config) {
+        // Cancel any in-flight request before starting a new one
+        if (this._configAbort) {
+            this._configAbort.abort();
+        }
+        this._configAbort = new AbortController();
+
         try {
             const res = await fetch('/api/update-config', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify(config),
+                signal:  this._configAbort.signal,
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                const detail = body.details
+                    ? body.details.join('; ')
+                    : (body.error || `HTTP ${res.status}`);
+                throw new Error(detail);
+            }
 
             Object.assign(window.CONFIG, config);
             this._applyConfigToVisualizer(config);
             this._redrawVisualization();
             showStatus('frontend-config-status', '✓ Settings applied', 'success');
-
         } catch (err) {
+            if (err.name === 'AbortError') {
+                // Superseded by a newer request — silent ignore
+                return;
+            }
             console.error('[APP] Config update error:', err);
-            showStatus('frontend-config-status', `✗ Error: ${err.message}`, 'error', 5000);
+            showStatus('frontend-config-status', `✗ ${err.message}`, 'error', 6000);
         }
     }
 
     _applyConfigToVisualizer(config) {
         if (typeof EscherVisualizer === 'undefined') return;
-        // CONFIG is a getter reading window.CONFIG directly,
-        // so updating window.CONFIG above is sufficient.
-        // We still explicitly update barChart sub-object for clarity.
+        // window.CONFIG has already been updated via Object.assign above.
+        // This explicit sync keeps barChart sub-values in step for clarity.
         window.CONFIG.barChartWidth       = config.barChartWidth;
         window.CONFIG.barChartHeight      = config.barChartHeight;
         window.CONFIG.barHeight           = config.barHeight;
@@ -324,7 +377,6 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // ESCHER
     // ─────────────────────────────────────────────────────────────────────────
-
     initializeEscher() {
         this.escherBuilder = escher.Builder(
             window.initialJsonData,
@@ -349,21 +401,29 @@ class PathwayApp {
     }
 
     rebuildEscher(newJsonData) {
+        // Tear down all observers registered by previous Escher/visualizer calls
+        this._disconnectAllObservers();
+        EscherVisualizer.disconnectAllObservers();
+
         window.initialJsonData = newJsonData;
-        const container = document.getElementById('map_container');
+
+        const container = this._el('map_container');
         if (container) container.innerHTML = '';
+
         d3.selectAll('.bar-chart').remove();
         d3.selectAll('.metabolite-name').remove();
         d3.selectAll('.coproduct-name').remove();
+
         this.escherBuilder = null;
         this.initializeEscher();
         this.updateSubgraphStatus();
     }
 
     updateSubgraphStatus() {
-        const el = document.getElementById('subgraph-status-container');
+        const el = this._el('subgraph-status-container');
         if (el) {
-            const isSubgraph = new URLSearchParams(window.location.search).get('view') === 'subgraph';
+            const isSubgraph = new URLSearchParams(window.location.search)
+                .get('view') === 'subgraph';
             el.style.display = isSubgraph ? 'block' : 'none';
         }
     }
@@ -371,9 +431,8 @@ class PathwayApp {
     // ─────────────────────────────────────────────────────────────────────────
     // EXPORT
     // ─────────────────────────────────────────────────────────────────────────
-
     setupExportButton() {
-        const btn = document.getElementById('export-svg-btn');
+        const btn = this._el('export-svg-btn');
         if (btn) btn.addEventListener('click', () => this.exportMapAsSVG());
     }
 
@@ -404,9 +463,12 @@ class PathwayApp {
                     );
                     this._exportSvgAsPng(svgString, clonedSvg, baseName + '.png');
                 })
-                .catch(err => alert('Export error: ' + err.message));
-
+                .catch(err => {
+                    console.error('[APP] Export error:', err);
+                    alert('Export error: ' + err.message);
+                });
         } catch (err) {
+            console.error('[APP] Export error:', err);
             alert('Export error: ' + err.message);
         }
     }
@@ -421,9 +483,10 @@ class PathwayApp {
                 imgElement.removeAttribute('href');
                 resolve();
             };
+
             const img = new Image();
             img.onload = () => {
-                const canvas = document.createElement('canvas');
+                const canvas  = document.createElement('canvas');
                 canvas.width  = img.width  || 200;
                 canvas.height = img.height || 200;
                 canvas.getContext('2d').drawImage(img, 0, 0);
@@ -444,32 +507,37 @@ class PathwayApp {
     }
 
     _applyComputedStyles(origSvg, clonedSvg) {
-    const origEls   = origSvg.querySelectorAll('*');
-    const clonedEls = clonedSvg.querySelectorAll('*');
-    const props = [
-        'display','visibility','fill','stroke','stroke-width','stroke-dasharray',
-        'stroke-linecap','stroke-linejoin','opacity','fill-opacity','stroke-opacity',
-        'font-size','font-family','font-weight','text-anchor','dominant-baseline',
-        'font-style','filter','marker-end','marker-start',
-    ];
-    // Properties where 'none' is a meaningful value that must be preserved
-    const preserveNone = new Set(['fill', 'stroke', 'display', 'visibility', 'marker-end', 'marker-start']);
+        const origEls   = origSvg.querySelectorAll('*');
+        const clonedEls = clonedSvg.querySelectorAll('*');
 
-    origEls.forEach((orig, i) => {
-        const clone = clonedEls[i];
-        if (!clone) return;
-        const computed = window.getComputedStyle(orig);
-        const parts    = [];
-        props.forEach(p => {
-            const v = computed.getPropertyValue(p);
-            if (!v || v === 'initial') return;
-            // Only skip 'none' for properties where it truly means "nothing applied"
-            if (v === 'none' && !preserveNone.has(p)) return;
-            parts.push(`${p}: ${v}`);
+        const props = [
+            'display','visibility','fill','stroke','stroke-width','stroke-dasharray',
+            'stroke-linecap','stroke-linejoin','opacity','fill-opacity','stroke-opacity',
+            'font-size','font-family','font-weight','text-anchor','dominant-baseline',
+            'font-style','filter','marker-end','marker-start',
+        ];
+
+        const preserveNone = new Set([
+            'fill', 'stroke', 'display', 'visibility', 'marker-end', 'marker-start',
+        ]);
+
+        origEls.forEach((orig, i) => {
+            const clone = clonedEls[i];
+            if (!clone) return;
+
+            const computed = window.getComputedStyle(orig);
+            const parts    = [];
+
+            props.forEach(p => {
+                const v = computed.getPropertyValue(p);
+                if (!v || v === 'initial') return;
+                if (v === 'none' && !preserveNone.has(p)) return;
+                parts.push(`${p}: ${v}`);
+            });
+
+            if (parts.length) clone.setAttribute('style', parts.join('; '));
         });
-        if (parts.length) clone.setAttribute('style', parts.join('; '));
-    });
-}
+    }
 
     _cleanupEscherUI(clonedSvg) {
         clonedSvg.querySelectorAll('.node-label.label')
@@ -480,26 +548,25 @@ class PathwayApp {
     }
 
     _injectExportStyles(clonedSvg) {
-    const style = document.createElement('style');
-    style.innerHTML = `
-        text { font-family: Arial, sans-serif; }
-        .node-label.label { display: none !important; }
-        .node-label.metabolite-name, .node-label.coproduct-name {
-            font-size: 12px; font-weight: bold;
-        }
-        /* Explicit segment styles so Python re-processing doesn't lose them */
-        path.segment, .segment {
-            fill: none !important;
-            stroke: grey !important;
-            stroke-width: 3px !important;
-            stroke-dasharray: 5,5 !important;
-            opacity: 0.3 !important;
-        }
-        .node-circle { fill-opacity: 0.8; }
-        .menu-bar, .button-panel { display: none !important; }
-        rect#canvas, rect#mouse-node { display: none !important; }
-    `;
-    clonedSvg.insertBefore(style, clonedSvg.firstChild);
+        const style = document.createElement('style');
+        style.innerHTML = `
+            text { font-family: Arial, sans-serif; }
+            .node-label.label { display: none !important; }
+            .node-label.metabolite-name, .node-label.coproduct-name {
+                font-size: 12px; font-weight: bold;
+            }
+            path.segment, .segment {
+                fill: none !important;
+                stroke: grey !important;
+                stroke-width: 3px !important;
+                stroke-dasharray: 5,5 !important;
+                opacity: 0.3 !important;
+            }
+            .node-circle { fill-opacity: 0.8; }
+            .menu-bar, .button-panel { display: none !important; }
+            rect#canvas, rect#mouse-node { display: none !important; }
+        `;
+        clonedSvg.insertBefore(style, clonedSvg.firstChild);
     }
 
     _downloadBlob(blob, filename) {
@@ -523,16 +590,19 @@ class PathwayApp {
             w = parseFloat(clonedSvg.getAttribute('width'))  || 1920;
             h = parseFloat(clonedSvg.getAttribute('height')) || 1080;
         }
+
         const scale  = 2;
         const canvas = document.createElement('canvas');
         canvas.width  = w * scale;
         canvas.height = h * scale;
+
         const ctx = canvas.getContext('2d');
         ctx.scale(scale, scale);
 
         const svgUrl = URL.createObjectURL(
             new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
         );
+
         const img = new Image();
         img.onload = () => {
             ctx.fillStyle = '#ffffff';
@@ -543,14 +613,16 @@ class PathwayApp {
                 if (blob) this._downloadBlob(blob, filename);
             }, 'image/png');
         };
-        img.onerror = () => URL.revokeObjectURL(svgUrl);
+        img.onerror = () => {
+            console.error('[APP] PNG conversion failed');
+            URL.revokeObjectURL(svgUrl);
+        };
         img.src = svgUrl;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // FILENAME HELPERS
     // ─────────────────────────────────────────────────────────────────────────
-
     _nodeName(id) {
         const n = this.availableNodes.find(x => x.id === id);
         return (n && n.name && n.name !== id) ? n.name : id;
@@ -574,11 +646,13 @@ class PathwayApp {
         const selected   = p.get('selected') || '';
 
         if (isSubgraph && start && end) {
-            return `pathway_${this._sanitize(this._nodeName(start))}-${this._sanitize(this._nodeName(end))}_${orient}_${date}`;
+            return `pathway_${this._sanitize(this._nodeName(start))}`
+                 + `-${this._sanitize(this._nodeName(end))}_${orient}_${date}`;
         }
         if (isSubgraph && selected) {
-            const names = selected.split(',').map(n => this._sanitize(this._nodeName(n.trim())));
-            const str   = names.length <= 3
+            const names = selected.split(',')
+                .map(n => this._sanitize(this._nodeName(n.trim())));
+            const str = names.length <= 3
                 ? names.join('-')
                 : names.slice(0, 3).join('-') + `_plus${names.length - 3}`;
             return `pathway_multi_${str}_${orient}_${date}`;
@@ -591,7 +665,6 @@ class PathwayApp {
 // =============================================================================
 // BOOT
 // =============================================================================
-
 document.addEventListener('DOMContentLoaded', () => {
     const app = new PathwayApp();
     app.initialize();

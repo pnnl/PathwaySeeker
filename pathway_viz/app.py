@@ -1,3 +1,4 @@
+# app.py
 """
 Flask Application for Pathway Visualization.
 Multi-user: each session gets its own isolated directory and graph cache.
@@ -14,6 +15,7 @@ import time
 import shutil
 import networkx as nx
 from threading import Timer
+
 sys.path.append(os.path.join(os.path.dirname(__file__), 'create_graph'))
 from create_graph.experiment_nodes import generate_escher_map_from_graph, load_graph
 from create_graph.download_structures_keggs import download_structures
@@ -37,20 +39,42 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB upload limit
 
+# Generated once per process start — changes every time the server restarts.
+# Stored in app.config so it survives hot-reloads in debug mode (the reloader
+# forks a child process; the child re-imports this module and gets a new id,
+# which is exactly the behaviour we want).
+app.config['SERVER_INSTANCE_ID'] = str(uuid.uuid4())
+
 # In-memory graph cache: { user_id: nx.Graph }
 _graph_cache: dict = {}
+
+# Simple per-user node-list cache: { user_id: [{'id':..,'name':..}, ...] }
+_node_list_cache: dict = {}
 
 # =============================================================================
 # SESSION / USER ISOLATION
 # =============================================================================
 @app.before_request
 def ensure_session_id():
-    """Give every browser session a unique ID on first visit."""
+    """
+    Give every browser session a unique user_id.
+    If the server has restarted since the session was created we clear the old
+    session so the user starts fresh (new user_id, no stale file paths, etc.).
+    """
+    current_instance = app.config['SERVER_INSTANCE_ID']
+
+    # If the session carries a stale server-instance id, wipe everything.
+    if session.get('server_instance_id') != current_instance:
+        session.clear()
+        session['server_instance_id'] = current_instance
+
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4())
 
+
 def get_user_id() -> str:
     return session['user_id']
+
 
 def get_user_dir() -> str:
     """Root directory for this user's data."""
@@ -58,20 +82,24 @@ def get_user_dir() -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
+
 def get_upload_folder() -> str:
     path = os.path.join(get_user_dir(), 'uploads')
     os.makedirs(path, exist_ok=True)
     return path
+
 
 def get_json_dir() -> str:
     path = os.path.join(get_user_dir(), OUTPUT_PATHS['json_dir'])
     os.makedirs(path, exist_ok=True)
     return path
 
+
 def get_images_dir() -> str:
     """Structure images are shared globally (same molecules for all users)."""
     os.makedirs(GLOBAL_IMAGES_DIR, exist_ok=True)
     return GLOBAL_IMAGES_DIR
+
 
 # =============================================================================
 # PER-USER STATE  (stored in Flask session)
@@ -84,28 +112,42 @@ def get_input_files() -> dict:
         'proteomics_csv':   '',
     })
 
+
 def set_input_files(files: dict):
     session['input_files'] = files
+
 
 def get_input_filename() -> str:
     """Base name (no extension) of the uploaded graph file."""
     return session.get('current_input_filename', '')
 
+
 def set_input_filename(name: str):
     session['current_input_filename'] = name
+
 
 def get_current_graph():
     return _graph_cache.get(get_user_id())
 
+
 def set_current_graph(graph):
-    _graph_cache[get_user_id()] = graph
+    uid = get_user_id()
+    _graph_cache[uid] = graph
+    # Invalidate node-list cache whenever the graph changes
+    _node_list_cache.pop(uid, None)
+
 
 # =============================================================================
 # CLEANUP  (runs hourly, removes stale user directories)
 # =============================================================================
 def cleanup_old_user_data():
+    """
+    Remove user directories that haven't been touched in SESSION_LIFETIME
+    seconds.  Runs in a background daemon thread so it never blocks a request.
+    """
     if not os.path.exists(BASE_DATA_DIR):
         return
+
     now = time.time()
     for user_id in os.listdir(BASE_DATA_DIR):
         user_dir = os.path.join(BASE_DATA_DIR, user_id)
@@ -113,15 +155,24 @@ def cleanup_old_user_data():
             continue
         age = now - os.path.getmtime(user_dir)
         if age > SESSION_LIFETIME:
-            shutil.rmtree(user_dir, ignore_errors=True)
-            _graph_cache.pop(user_id, None)
-            print(f'[CLEANUP] Removed stale user data: {user_id}')
+            try:
+                shutil.rmtree(user_dir, ignore_errors=True)
+                _graph_cache.pop(user_id, None)
+                _node_list_cache.pop(user_id, None)
+                print(f'[CLEANUP] Removed stale user data: {user_id}')
+            except Exception as e:
+                print(f'[CLEANUP] Error removing {user_id}: {e}')
+
 
 def _schedule_cleanup():
     cleanup_old_user_data()
-    Timer(3600, _schedule_cleanup).start()
+    t = Timer(3600, _schedule_cleanup)
+    t.daemon = True   # won't block process exit
+    t.start()
+
 
 _schedule_cleanup()
+
 
 # =============================================================================
 # FILE CONVERSION UTILITIES
@@ -144,6 +195,7 @@ def convert_excel_to_csv(excel_path: str, csv_path: str) -> str:
     print(f'[CONVERT] {excel_path} → {csv_path}')
     return csv_path
 
+
 def save_uploaded_file(file_storage, label: str) -> str | None:
     """
     Save an uploaded file into the user's upload folder.
@@ -153,17 +205,21 @@ def save_uploaded_file(file_storage, label: str) -> str | None:
     """
     if not file_storage or not file_storage.filename:
         return None
-    folder = get_upload_folder()
+
+    folder   = get_upload_folder()
     original = file_storage.filename
-    ext  = os.path.splitext(original)[1].lower()
-    stem = os.path.splitext(original)[0]
+    ext      = os.path.splitext(original)[1].lower()
+    stem     = os.path.splitext(original)[0]
+
     safe_stem = ''.join(
         c if c.isalnum() or c in '-_.' else '_' for c in stem
     ).strip('._')
+
     raw_name = f"{safe_stem}{ext}"
     raw_path = os.path.join(folder, raw_name)
     file_storage.save(raw_path)
     print(f'[UPLOAD] {label}: {raw_path}')
+
     if ext in {'.xlsx', '.xls'}:
         csv_path = os.path.join(folder, f"{safe_stem}.csv")
         try:
@@ -171,7 +227,9 @@ def save_uploaded_file(file_storage, label: str) -> str | None:
         except Exception as e:
             flash(f'Warning: could not convert {original} to CSV: {e}', 'warning')
             return raw_path
+
     return raw_path
+
 
 # =============================================================================
 # OUTPUT FILE UTILITIES
@@ -186,6 +244,7 @@ def get_output_filename(is_subgraph=False) -> str:
     suffix = '_subgraph' if is_subgraph else '_output'
     return f"{name}{suffix}.json"
 
+
 def find_output_json(is_subgraph=False) -> str | None:
     """
     Find the correct output JSON for this user.
@@ -196,18 +255,22 @@ def find_output_json(is_subgraph=False) -> str | None:
     """
     suffix   = '_subgraph.json' if is_subgraph else '_output.json'
     json_dir = get_json_dir()
+
     if get_input_filename():
         candidate = os.path.join(json_dir, get_output_filename(is_subgraph))
         if os.path.exists(candidate):
             return candidate
+
     if not os.path.exists(json_dir):
         return None
+
     matches = [
         f for f in os.listdir(json_dir)
         if f.endswith(suffix) and not f.startswith('.')
     ]
     if not matches:
         return None
+
     matches.sort(
         key=lambda f: os.path.getmtime(os.path.join(json_dir, f)),
         reverse=True
@@ -218,16 +281,17 @@ def find_output_json(is_subgraph=False) -> str | None:
     print(f'[FIND] Located output JSON via scan: {full_path}')
     return full_path
 
+
 def _output_is_stale(input_files: dict, is_subgraph=False) -> bool:
     """
     Return True if any input file is newer than the output JSON,
     or if the output JSON does not exist yet.
-    This ensures the map is always regenerated when new files are uploaded.
     """
     existing = find_output_json(is_subgraph=is_subgraph)
     if not existing or not os.path.exists(existing):
         print('[STALE] No output JSON found → will generate')
         return True
+
     output_mtime = os.path.getmtime(existing)
     for key, path in input_files.items():
         if path and os.path.exists(path):
@@ -237,8 +301,10 @@ def _output_is_stale(input_files: dict, is_subgraph=False) -> bool:
                     f'is newer than output JSON → will regenerate'
                 )
                 return True
+
     print(f'[CACHE] Output JSON is up to date: {os.path.basename(existing)}')
     return False
+
 
 # =============================================================================
 # UTILITIES
@@ -250,6 +316,7 @@ def validate_input_files(files: dict) -> tuple[bool, list, dict]:
     """
     missing = []
     valid   = {}
+
     for key, path in files.items():
         if not path:
             continue
@@ -264,8 +331,10 @@ def validate_input_files(files: dict) -> tuple[bool, list, dict]:
             missing.append(f'{key}: error accessing - {e}')
             continue
         valid[key] = path
+
     all_valid = 'graph_pickle' in valid
     return all_valid, missing, valid
+
 
 def download_structure_images():
     """Download structure images using the current user's output JSON."""
@@ -281,6 +350,7 @@ def download_structure_images():
     except Exception as e:
         print(f'[IMAGES] Structure download failed: {e}')
         return False
+
 
 def load_or_generate_pathway_data(
     network_graph=None,
@@ -335,14 +405,17 @@ def load_or_generate_pathway_data(
         path_order=path_order,
     )
 
+
 def find_nodes_within_distance(graph, selected_nodes, distance) -> list:
     """BFS expansion from selected_nodes up to `distance` hops."""
     result   = set()
     valid    = [n for n in selected_nodes if n in graph.nodes()]
     if not valid:
         raise ValueError('No valid selected nodes found in graph')
+
     result.update(valid)
     frontier = set(valid)
+
     for _ in range(distance):
         nxt = set()
         for node in frontier:
@@ -352,7 +425,9 @@ def find_nodes_within_distance(graph, selected_nodes, distance) -> list:
         frontier  = new_nodes
         if not frontier:
             break
+
     return list(result)
+
 
 def ensure_graph_loaded() -> bool:
     """Load this user's graph from file if not already cached."""
@@ -367,6 +442,7 @@ def ensure_graph_loaded() -> bool:
     except Exception as e:
         print(f'[GRAPH] Could not load: {e}')
         return False
+
 
 def build_template_context(json_data, view_type='full') -> dict:
     backend_form = BackendConfigForm(
@@ -400,6 +476,93 @@ def build_template_context(json_data, view_type='full') -> dict:
         'backend_config_form': backend_form,
         'frontend_config':     get_frontend_config(),
     }
+
+
+# =============================================================================
+# CONFIG VALIDATION HELPERS
+# =============================================================================
+# Defines allowed ranges for each frontend config key.
+# Format: key → (min, max, type)  — type is int or float or str
+_CONFIG_VALIDATORS: dict = {
+    'nodeRadius':              (1,    200,   int),
+    'metaboliteRadius':        (1,    200,   int),
+    'reactionRadius':          (1,    200,   int),
+    'imageSize':               (10,   5000,  int),
+    'labelOffsetY':            (-500, 500,   int),   # can be negative to go above node
+    'coproductLabelOffsetY':   (-500, 500,   int),   # same
+    'barChartOffsetY':         (-500, 500,   int),   # same
+    'metaboliteLabelFontSize': (4,    72,    int),
+    'coproductLabelFontSize':  (4,    72,    int),
+    'chartTitleFontSize':      (4,    72,    int),
+    'chartLabelFontSize':      (4,    72,    int),
+    'barChartWidth':           (10,   2000,  int),
+    'barChartHeight':          (10,   2000,  int),
+    'barHeight':               (2,    200,   int),
+    'barChartAxisPadding':     (-200, 500,   int),
+    'barChartTitle':           (None, None,  str),
+    'barChartXLabel':          (None, None,  str),
+    'barChartYLabel':          (None, None,  str),
+}
+
+_PY_CONFIG_MAP: dict = {
+    'nodeRadius':              'NODE_RADIUS',
+    'metaboliteRadius':        'METABOLITE_RADIUS',
+    'reactionRadius':          'REACTION_RADIUS',
+    'imageSize':               'STRUCTURE_IMAGE_SIZE',
+    'labelOffsetY':            'LABEL_OFFSET_Y',
+    'coproductLabelOffsetY':   'COPRODUCT_LABEL_OFFSET_Y',
+    'barChartOffsetY':         'BAR_CHART_OFFSET_Y',
+    'metaboliteLabelFontSize': 'METABOLITE_LABEL_FONT_SIZE',
+    'coproductLabelFontSize':  'COPRODUCT_LABEL_FONT_SIZE',
+    'chartTitleFontSize':      'CHART_TITLE_FONT_SIZE',
+    'chartLabelFontSize':      'CHART_LABEL_FONT_SIZE',
+    'barChartWidth':           'BAR_CHART_WIDTH',
+    'barChartHeight':          'BAR_CHART_HEIGHT',
+    'barHeight':               'BAR_HEIGHT',
+    'barChartAxisPadding':     'BAR_CHART_AXIS_PADDING',
+    'barChartTitle':           'BAR_CHART_TITLE',
+    'barChartXLabel':          'BAR_CHART_X_LABEL',
+    'barChartYLabel':          'BAR_CHART_Y_LABEL',
+}
+
+
+def _validate_frontend_config(data: dict) -> tuple[dict, list]:
+    """
+    Validate and coerce frontend config values.
+    Returns (cleaned_dict, list_of_error_strings).
+    Unknown keys are silently ignored.
+    """
+    cleaned = {}
+    errors  = []
+
+    for key, raw_val in data.items():
+        if key not in _CONFIG_VALIDATORS:
+            continue  # ignore unknown keys
+
+        lo, hi, typ = _CONFIG_VALIDATORS[key]
+
+        if typ is str:
+            cleaned[key] = str(raw_val)
+            continue
+
+        # Numeric validation
+        try:
+            val = typ(raw_val)
+        except (TypeError, ValueError):
+            errors.append(f'{key}: expected {typ.__name__}, got {raw_val!r}')
+            continue
+
+        if lo is not None and val < lo:
+            errors.append(f'{key}: {val} is below minimum {lo}')
+            continue
+        if hi is not None and val > hi:
+            errors.append(f'{key}: {val} is above maximum {hi}')
+            continue
+
+        cleaned[key] = val
+
+    return cleaned, errors
+
 
 # =============================================================================
 # ROUTES
@@ -436,18 +599,26 @@ def index():
             'index.html', **build_template_context(json_data, view_type)
         )
 
+    except FileNotFoundError as e:
+        flash(f'File not found: {e}', 'error')
+    except ValueError as e:
+        flash(f'Data error: {e}', 'error')
+    except json.JSONDecodeError as e:
+        flash(f'Corrupt output file — please re-upload your data. ({e})', 'error')
     except Exception as e:
-        # ── was: return raw HTML error page ──────────────────────────
-        # ── now: flash the error and render the page normally ────────
-        flash(f'Error: {e}', 'error')
-        return render_template(
-            'index.html',
-            **build_template_context(json_data=None, view_type='full')
-        )
-    
+        logging.exception('[INDEX] Unexpected error')
+        flash(f'Unexpected error: {e}', 'error')
+
+    return render_template(
+        'index.html',
+        **build_template_context(json_data=None, view_type='full')
+    )
+
+
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory('static', filename)
+
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -501,12 +672,14 @@ def upload_files():
 
     return redirect(url_for('index'))
 
+
 @app.route('/find_path', methods=['POST'])
 def find_path():
     form = PathSelectionForm()
     if not form.validate_on_submit():
         flash('Form validation failed', 'error')
         return redirect(url_for('index'))
+
     if not ensure_graph_loaded():
         flash('Graph file not found. Please upload files first.', 'error')
         return redirect(url_for('index'))
@@ -526,10 +699,12 @@ def find_path():
     except nx.NetworkXNoPath:
         flash(f'No path found between {start_node} and {end_node}', 'error')
         return redirect(url_for('index'))
+    except nx.NodeNotFound as e:
+        flash(f'Node not found in graph: {e}', 'error')
+        return redirect(url_for('index'))
 
     try:
         if keep_positions:
-            # Keep full graph, just pass the path for highlighting
             load_or_generate_pathway_data(network_graph=graph)
             flash(f'Path found: {len(path) - 1} steps', 'success')
             return redirect(url_for('index',
@@ -539,7 +714,6 @@ def find_path():
                 end=end_node,
             ))
         else:
-            # Generate a true subgraph
             load_or_generate_pathway_data(
                 network_graph=graph,
                 subgraph_nodes=path,
@@ -553,30 +727,40 @@ def find_path():
                 start=start_node,
                 end=end_node,
             ))
+    except ValueError as e:
+        flash(f'Path view error: {e}', 'error')
+        return redirect(url_for('index'))
     except Exception as e:
+        logging.exception('[FIND_PATH] Unexpected error')
         flash(f'Error creating path view: {e}', 'error')
         return redirect(url_for('index'))
-    
+
+
 @app.route('/create_multi_node_subgraph', methods=['POST'])
 def create_multi_node_subgraph():
     form = MultiNodeSelectionForm()
     if not form.validate_on_submit():
         flash('Form validation failed', 'error')
         return redirect(url_for('index'))
+
     if not ensure_graph_loaded():
         flash('Graph file not found. Please upload files first.', 'error')
         return redirect(url_for('index'))
+
     graph               = get_current_graph()
     selected_nodes      = [n.strip() for n in form.selected_nodes.data.split(',') if n.strip()]
     connection_distance = form.connection_distance.data
     keep_positions      = form.keep_positions.data
+
     if not selected_nodes:
         flash('Please select at least one node', 'error')
         return redirect(url_for('index'))
+
     invalid = [n for n in selected_nodes if n not in graph.nodes()]
     if invalid:
-        flash(f'Nodes not found: {", ".join(invalid)}', 'error')
+        flash(f'Nodes not found in graph: {", ".join(invalid)}', 'error')
         return redirect(url_for('index'))
+
     try:
         subgraph_nodes = find_nodes_within_distance(graph, selected_nodes, connection_distance)
         load_or_generate_pathway_data(
@@ -593,9 +777,14 @@ def create_multi_node_subgraph():
             dist=connection_distance,
             keep_pos='1' if keep_positions else '0',
         ))
+    except ValueError as e:
+        flash(f'Subgraph error: {e}', 'error')
+        return redirect(url_for('index'))
     except Exception as e:
+        logging.exception('[MULTI_NODE] Unexpected error')
         flash(f'Error creating subgraph: {e}', 'error')
         return redirect(url_for('index'))
+
 
 @app.route('/regenerate_graph', methods=['POST'])
 def regenerate_graph():
@@ -603,6 +792,8 @@ def regenerate_graph():
     if not form.validate_on_submit():
         flash('Configuration form validation failed', 'error')
         return redirect(url_for('index'))
+
+    # Apply backend config to global cfg module
     cfg.SMALL_GRAPH_LAYOUT_VERTICAL = form.small_graph_layout_vertical.data
     cfg.SMALL_GRAPH_WIDTH           = form.small_graph_width.data
     cfg.SMALL_GRAPH_HEIGHT          = form.small_graph_height.data
@@ -616,9 +807,11 @@ def regenerate_graph():
     cfg.COPRODUCT_OFFSET            = form.coproduct_offset.data
     cfg.MAX_ASPECT_RATIO            = form.max_aspect_ratio.data
     cfg.MIN_ASPECT_RATIO            = form.min_aspect_ratio.data
+
     if not ensure_graph_loaded():
         flash('Graph file not found. Please upload files first.', 'error')
         return redirect(url_for('index'))
+
     graph               = get_current_graph()
     view_type           = form.view_type.data or 'full'
     start_node          = form.start_node.data
@@ -627,6 +820,7 @@ def regenerate_graph():
     selected_nodes_str  = form.selected_nodes.data
     connection_distance = form.connection_distance.data
     keep_positions      = form.keep_positions.data == '1'
+
     try:
         if view_type == 'subgraph':
             if selected_nodes_str and connection_distance:
@@ -643,11 +837,15 @@ def regenerate_graph():
                     selected=selected_nodes_str, dist=dist,
                     keep_pos='1' if keep_positions else '0',
                 ))
+
             elif start_node and end_node:
                 try:
                     path = nx.shortest_path(graph, start_node, end_node)
                 except nx.NetworkXNoPath:
                     flash(f'No path found between {start_node} and {end_node}', 'error')
+                    return redirect(url_for('index'))
+                except nx.NodeNotFound as e:
+                    flash(f'Node not found: {e}', 'error')
                     return redirect(url_for('index'))
                 load_or_generate_pathway_data(
                     network_graph=graph, subgraph_nodes=path,
@@ -658,6 +856,7 @@ def regenerate_graph():
                     view='subgraph', start=start_node, end=end_node,
                     keep_pos='1' if keep_positions else '0',
                 ))
+
             elif path_nodes_str:
                 path_nodes = [n.strip() for n in path_nodes_str.split(',') if n.strip()]
                 load_or_generate_pathway_data(
@@ -669,36 +868,56 @@ def regenerate_graph():
                     view='subgraph', nodes=path_nodes_str,
                     keep_pos='1' if keep_positions else '0',
                 ))
+
             else:
                 flash('Could not reconstruct subgraph; showing full graph.', 'warning')
+
         load_or_generate_pathway_data(network_graph=graph)
         download_structure_images()
         flash('Graph regenerated successfully!', 'success')
         return redirect(url_for('index'))
+
+    except ValueError as e:
+        flash(f'Regeneration error: {e}', 'error')
+        return redirect(url_for('index'))
     except Exception as e:
+        logging.exception('[REGENERATE] Unexpected error')
         flash(f'Error regenerating graph: {e}', 'error')
         return redirect(url_for('index'))
+
 
 @app.route('/revert_to_full_graph', methods=['POST'])
 def revert_to_full_graph():
     flash('Reverted to full graph view', 'success')
     return redirect(url_for('index'))
 
+
 @app.route('/api/nodes')
 def get_available_nodes():
-    """Return node list for dropdown. Reads from user's output JSON."""
+    """
+    Return node list for dropdowns.
+    Result is cached in memory per user until the graph changes.
+    """
+    uid = get_user_id()
+
+    if uid in _node_list_cache:
+        return jsonify(_node_list_cache[uid])
+
+    nodes = []
+
     json_path = find_output_json(is_subgraph=False)
     if json_path:
         try:
             with open(json_path) as f:
                 json_data = json.load(f)
+
             nodes_dict = next(
                 (item['nodes'] for item in json_data
                  if isinstance(item, dict) and 'nodes' in item),
                 None
             )
+
             if nodes_dict:
-                nodes = []
                 for node_id, info in nodes_dict.items():
                     if info.get('node_type') != 'metabolite':
                         continue
@@ -706,54 +925,50 @@ def get_available_nodes():
                         info.get('name') or info.get('bigg_id') or node_id
                     ).strip().rstrip(';')
                     nodes.append({'id': node_id, 'name': name})
-                nodes.sort(key=lambda x: (x['name'] or x['id']).lower())
-                return jsonify(nodes)
+
+        except json.JSONDecodeError as e:
+            print(f'[NODES] Corrupt JSON at {json_path}: {e}')
         except Exception as e:
             print(f'[NODES] Could not read {json_path}: {e}')
-    if not ensure_graph_loaded():
-        return jsonify([])
-    graph = get_current_graph()
-    nodes = []
-    for node_id in sorted(graph.nodes()):
-        data = graph.nodes[node_id]
-        name = str(
-            data.get('name') or data.get('label') or
-            data.get('bigg_id') or node_id
-        ).strip().rstrip(';')
-        nodes.append({'id': node_id, 'name': name})
+
+    # Fall back to the raw graph when the JSON is unavailable
+    if not nodes and ensure_graph_loaded():
+        graph = get_current_graph()
+        for node_id in sorted(graph.nodes()):
+            data = graph.nodes[node_id]
+            name = str(
+                data.get('name') or data.get('label') or
+                data.get('bigg_id') or node_id
+            ).strip().rstrip(';')
+            nodes.append({'id': node_id, 'name': name})
+
     nodes.sort(key=lambda x: (x['name'] or x['id']).lower())
+    _node_list_cache[uid] = nodes
     return jsonify(nodes)
+
 
 @app.route('/api/update-config', methods=['POST'])
 def update_frontend_config():
-    """Persist frontend-only config changes. No graph regeneration needed."""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    mapping = {
-        'nodeRadius':              'NODE_RADIUS',
-        'metaboliteRadius':        'METABOLITE_RADIUS',
-        'reactionRadius':          'REACTION_RADIUS',
-        'imageSize':               'STRUCTURE_IMAGE_SIZE',
-        'labelOffsetY':            'LABEL_OFFSET_Y',
-        'coproductLabelOffsetY':   'COPRODUCT_LABEL_OFFSET_Y',
-        'barChartOffsetY':         'BAR_CHART_OFFSET_Y',
-        'metaboliteLabelFontSize': 'METABOLITE_LABEL_FONT_SIZE',
-        'coproductLabelFontSize':  'COPRODUCT_LABEL_FONT_SIZE',
-        'chartTitleFontSize':      'CHART_TITLE_FONT_SIZE',
-        'chartLabelFontSize':      'CHART_LABEL_FONT_SIZE',
-        'barChartWidth':           'BAR_CHART_WIDTH',
-        'barChartHeight':          'BAR_CHART_HEIGHT',
-        'barHeight':               'BAR_HEIGHT',
-        'barChartAxisPadding':     'BAR_CHART_AXIS_PADDING',
-        'barChartTitle':           'BAR_CHART_TITLE',
-        'barChartXLabel':          'BAR_CHART_X_LABEL',
-        'barChartYLabel':          'BAR_CHART_Y_LABEL',
-    }
-    for js_key, py_attr in mapping.items():
-        if js_key in data:
-            setattr(cfg, py_attr, data[js_key])
+    """
+    Persist frontend-only config changes.
+    Validates every value before applying it.
+    No graph regeneration is needed.
+    """
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({'error': 'No valid JSON body provided'}), 400
+
+    cleaned, errors = _validate_frontend_config(data)
+
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 422
+
+    for js_key, py_attr in _PY_CONFIG_MAP.items():
+        if js_key in cleaned:
+            setattr(cfg, py_attr, cleaned[js_key])
+
     return jsonify({'success': True, 'updatedConfig': get_frontend_config()}), 200
+
 
 @app.route('/health')
 def health_check():
@@ -770,6 +985,7 @@ def health_check():
         },
         'detected_output_json': find_output_json(is_subgraph=False),
     })
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
