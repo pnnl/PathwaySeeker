@@ -45,6 +45,7 @@ from create_graph.experiment_nodes import (
     integrate_proteomics,
     load_graph,
     validate_against_graph,
+    get_kegg_name,
 )
 
 
