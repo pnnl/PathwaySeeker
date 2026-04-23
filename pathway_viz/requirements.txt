@@ -2,14 +2,20 @@
 flask==3.1.1
 flask-wtf==1.2.1
 
+# Flask ecosystem
+Werkzeug
+Jinja2==3.1.3
+flask-caching==2.1.0
+python-dotenv==1.0.1
+
 # Graph processing
 networkx==3.2.1
-pygraphviz
+pygraphviz==1.11
 
 # Data processing
 pandas==2.3.1
 openpyxl          # Excel .xlsx support
-xlrd              # Excel .xls support
+xlrd==2.0.1       # Excel .xls support
 
 # Scientific computing
 numpy
@@ -24,3 +30,9 @@ requests==2.32.4
 
 # Escher map format reference
 escher==1.8.1
+
+# Dev & deployment
+pytest==8.2.0
+gunicorn==21.2.0
+setuptools==70.0.0
+typing-extensions==4.11.0
