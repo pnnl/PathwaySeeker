@@ -579,8 +579,13 @@ def _validate_tooltip_self_consistency(items, item_type):
 def _validate_metabolomics_stats(nodes, metabolomics_file):
     """
     Re-read the metabolomics CSV and verify that every metabolite node's
-    graph_info AND tooltip match what we compute directly from the raw file.
+    graph_info (list of row-dicts) AND tooltip match the raw file.
     Returns a list of error strings.
+
+    graph_info format (new):
+        list of {metabolite_name, conditions: {cond: {average, std_dev, count}}}
+    tooltip format (new):
+        {type, id, name, origin, rows: [{metabolite_name, conditions: [...]}]}
     """
     if not metabolomics_file or not os.path.exists(metabolomics_file):
         return []
@@ -598,55 +603,67 @@ def _validate_metabolomics_stats(nodes, metabolomics_file):
     groups    = _infer_metabolomics_condition_groups(
         df.columns.tolist(), meta_cols
     )
-    errors    = []
+    errors = []
 
     for nid, nd in nodes.items():
         if nd.get("node_type") != "metabolite":
             continue
         gi = nd.get("graph_info")
-        if not gi or not isinstance(gi, dict):
+        # New format: list of row-dicts
+        if not gi or not isinstance(gi, list):
             continue
 
-        kegg        = nd.get("bigg_id", "")
-        raw_by_cond = _raw_values_for_kegg(df, kegg, groups)
-        if not raw_by_cond:
+        kegg     = nd.get("bigg_id", "")
+        raw_rows = _raw_values_for_kegg(df, kegg, groups)  # list of {cond: [vals]}
+        if not raw_rows:
             continue
 
-        # ── Check graph_info ─────────────────────────────────────────
-        for cond, vals in raw_by_cond.items():
-            if cond not in gi:
-                errors.append(
-                    f"Node {kegg}: condition '{cond}' in CSV "
-                    f"but missing from graph_info"
-                )
-                continue
-            arr          = np.array(vals, dtype=float)
-            expected_avg = float(np.mean(arr))
-            expected_std = (
-                float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        if len(gi) != len(raw_rows):
+            errors.append(
+                f"Node {kegg}: graph_info has {len(gi)} row entries "
+                f"but CSV has {len(raw_rows)} rows for this KEGG ID"
             )
-            expected_cnt = len(arr)
-            stored       = gi[cond]
 
-            if abs(stored["average"] - expected_avg) > 1e-3:
-                errors.append(
-                    f"Node {kegg}/{cond}: graph_info average mismatch "
-                    f"(stored={stored['average']:.6f}, "
-                    f"expected={expected_avg:.6f})"
+        for row_i, (gi_row, raw_row) in enumerate(zip(gi, raw_rows)):
+            row_conditions = gi_row.get("conditions", {})
+            for cond, vals in raw_row.items():
+                if cond not in row_conditions:
+                    errors.append(
+                        f"Node {kegg} row {row_i}: condition '{cond}' in CSV "
+                        f"but missing from graph_info"
+                    )
+                    continue
+                arr          = np.array(vals, dtype=float)
+                expected_avg = float(np.mean(arr))
+                expected_std = (
+                    float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
                 )
-            if abs(stored["std_dev"] - expected_std) > 1e-3:
-                errors.append(
-                    f"Node {kegg}/{cond}: graph_info std_dev mismatch "
-                    f"(stored={stored['std_dev']:.6f}, "
-                    f"expected={expected_std:.6f})"
-                )
-            if stored["count"] != expected_cnt:
-                errors.append(
-                    f"Node {kegg}/{cond}: graph_info count mismatch "
-                    f"(stored={stored['count']}, expected={expected_cnt})"
-                )
+                expected_cnt = len(arr)
+                stored       = row_conditions[cond]
 
-        # ── Check tooltip exists and has correct structure ────────────
+                if abs(stored["average"] - expected_avg) > 1e-3:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info average mismatch "
+                        f"(stored={stored['average']:.6f}, "
+                        f"expected={expected_avg:.6f})"
+                    )
+                if abs(stored["std_dev"] - expected_std) > 1e-3:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info std_dev mismatch "
+                        f"(stored={stored['std_dev']:.6f}, "
+                        f"expected={expected_std:.6f})"
+                    )
+                if stored["count"] != expected_cnt:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info count mismatch "
+                        f"(stored={stored['count']}, "
+                        f"expected={expected_cnt})"
+                    )
+
+        # ── Check tooltip ─────────────────────────────────────────────
         tooltip = nd.get("tooltip")
         if tooltip is None:
             errors.append(
@@ -660,44 +677,51 @@ def _validate_metabolomics_stats(nodes, metabolomics_file):
                 f"got '{tooltip.get('type')}'"
             )
 
-        tooltip_conds = {e["name"] for e in tooltip.get("conditions", [])}
-        gi_conds      = set(gi.keys())
-        missing_in_tt = gi_conds - tooltip_conds
-        if missing_in_tt:
+        tt_rows = tooltip.get("rows", [])
+        if len(tt_rows) != len(gi):
             errors.append(
-                f"Node {kegg}: conditions in graph_info missing from "
-                f"tooltip: {missing_in_tt}"
+                f"Node {kegg}: tooltip has {len(tt_rows)} row(s) "
+                f"but graph_info has {len(gi)}"
             )
 
-        # Check tooltip replicates reproduce graph_info stats
-        for cond_entry in tooltip.get("conditions", []):
-            cond = cond_entry.get("name", "")
-            reps = cond_entry.get("replicates", [])
-            if not reps:
-                errors.append(
-                    f"Node {kegg}/{cond}: tooltip has no replicates"
+        # Check tooltip replicates reproduce graph_info stats per row
+        for row_i, tt_row in enumerate(tt_rows):
+            if row_i >= len(gi):
+                break
+            gi_row         = gi[row_i]
+            row_conditions = gi_row.get("conditions", {})
+            for cond_entry in tt_row.get("conditions", []):
+                cond = cond_entry.get("name", "")
+                reps = cond_entry.get("replicates", [])
+                if not reps:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"tooltip has no replicates"
+                    )
+                    continue
+                arr          = np.array(reps, dtype=float)
+                expected_avg = float(np.mean(arr))
+                expected_std = (
+                    float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
                 )
-                continue
-            arr          = np.array(reps, dtype=float)
-            expected_avg = float(np.mean(arr))
-            expected_std = (
-                float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
-            )
-            if cond in gi:
-                if abs(gi[cond]["average"] - expected_avg) > 1e-3:
-                    errors.append(
-                        f"Node {kegg}/{cond}: tooltip replicates do not "
-                        f"reproduce graph_info average "
-                        f"(from reps={expected_avg:.6f}, "
-                        f"graph_info={gi[cond]['average']:.6f})"
-                    )
-                if abs(gi[cond]["std_dev"] - expected_std) > 1e-3:
-                    errors.append(
-                        f"Node {kegg}/{cond}: tooltip replicates do not "
-                        f"reproduce graph_info std_dev "
-                        f"(from reps={expected_std:.6f}, "
-                        f"graph_info={gi[cond]['std_dev']:.6f})"
-                    )
+                if cond in row_conditions:
+                    stored = row_conditions[cond]
+                    if abs(stored["average"] - expected_avg) > 1e-3:
+                        errors.append(
+                            f"Node {kegg} row {row_i}/{cond}: "
+                            f"tooltip replicates do not reproduce "
+                            f"graph_info average "
+                            f"(from reps={expected_avg:.6f}, "
+                            f"graph_info={stored['average']:.6f})"
+                        )
+                    if abs(stored["std_dev"] - expected_std) > 1e-3:
+                        errors.append(
+                            f"Node {kegg} row {row_i}/{cond}: "
+                            f"tooltip replicates do not reproduce "
+                            f"graph_info std_dev "
+                            f"(from reps={expected_std:.6f}, "
+                            f"graph_info={stored['std_dev']:.6f})"
+                        )
 
     return errors
 
@@ -1137,18 +1161,22 @@ def _strip_raw_values(stats_dict):
 # ── Raw-value helpers ─────────────────────────────────────────────────
 def _raw_values_for_kegg(df, kegg_id, groups):
     """
-    Return {condition: [float, ...]} for all rows whose KEGG_C_number
-    matches kegg_id, pooled across rows.
+    Return [{condition: [float, ...]}] — one dict per CSV row whose
+    KEGG_C_number matches kegg_id.  Each dict only contains conditions
+    that have at least one finite value.  NaN-only conditions are omitted.
     """
     rows   = df[df["KEGG_C_number"] == kegg_id]
-    pooled = {}
+    result = []
     for _, row in rows.iterrows():
+        row_vals = {}
         for cond, cols in groups.items():
             valid = [c for c in cols if c in df.columns]
             vals  = pd.to_numeric(row[valid], errors="coerce").dropna().tolist()
             if vals:
-                pooled.setdefault(cond, []).extend(vals)
-    return pooled
+                row_vals[cond] = vals
+        if row_vals:
+            result.append(row_vals)
+    return result
 
 
 def _raw_values_for_protein(row, groups, df_columns):
@@ -1197,13 +1225,15 @@ def integrate_metabolomics(nodes, filepath):
     Attach metabolomics data to metabolite nodes by matching KEGG IDs.
 
     Sets two fields on each matched node:
-        graph_info : {condition: {average, std_dev, count}}
-            Used by the bar chart renderer.
-        tooltip    : {type, id, name, origin, conditions: [...]}
-            Used by the D3 tooltip.  Each condition entry contains
-            mean, std_dev, count, AND the raw replicate values.
-
-    Multiple rows with the same KEGG ID are pooled.
+        graph_info : list of {metabolite_name, conditions: {cond: {average, std_dev, count}}}
+            One entry per CSV row with a valid KEGG ID.
+            Duplicate KEGG IDs produce SEPARATE entries (not pooled).
+            NaN-only conditions are omitted from each entry.
+            Used by the bar chart renderer (renders one chart panel per entry).
+        tooltip    : {type, id, name, origin, rows: [...]}
+            Used by the D3 tooltip.  Each row entry contains the metabolite
+            name and condition entries with mean, std_dev, count, AND raw
+            replicate values.
     """
     if not filepath or not os.path.exists(filepath):
         return
@@ -1232,22 +1262,25 @@ def integrate_metabolomics(nodes, filepath):
                 continue
             bigg = nd.get("bigg_id", "")
             if bigg in kegg_lookup:
-                nd["graph_info"] = kegg_lookup[bigg]
+                # Wrap legacy dict in list for uniform renderer interface
+                nd["graph_info"] = [{"metabolite_name": bigg,
+                                     "conditions": kegg_lookup[bigg]}]
                 matched += 1
         logger.info(f"Metabolomics (long format): matched {matched} nodes")
         return
 
-    groups        = _infer_metabolomics_condition_groups(df.columns, meta_cols)
-    kegg_row_data = {}
-    skipped       = 0
+    groups  = _infer_metabolomics_condition_groups(df.columns, meta_cols)
+    skipped = 0
 
+    # kegg_rows[kid] = list of {metabolite_name, stats (with 'values' key)}
+    kegg_rows: dict = {}
     for _, row in df.iterrows():
         kid = row.get("KEGG_C_number")
         if pd.isna(kid) or str(kid).strip() in ("", "nan"):
             skipped += 1
             continue
         kid  = str(kid).strip()
-        name = row.get("metabolite", "")
+        name = str(row.get("metabolite", kid)).strip()
         row_stats = {}
         for grp, cols in groups.items():
             valid = [c for c in cols if c in df.columns]
@@ -1255,35 +1288,40 @@ def integrate_metabolomics(nodes, filepath):
             if s:
                 row_stats[grp] = s
         if row_stats:
-            kegg_row_data.setdefault(kid, []).append(
+            kegg_rows.setdefault(kid, []).append(
                 {"metabolite_name": name, "stats": row_stats}
             )
 
     logger.info(
         f"Metabolomics: "
-        f"{sum(len(v) for v in kegg_row_data.values())} data rows, "
-        f"{len(kegg_row_data)} unique KEGG IDs, "
+        f"{sum(len(v) for v in kegg_rows.values())} data rows, "
+        f"{len(kegg_rows)} unique KEGG IDs, "
         f"{skipped} skipped"
     )
 
-    # Build graph_info lookup and raw-value lookup simultaneously
+    # Count duplicates for logging
+    dup_kids = [k for k, v in kegg_rows.items() if len(v) > 1]
+    if dup_kids:
+        logger.info(
+            f"Metabolomics: {len(dup_kids)} KEGG ID(s) appear on multiple "
+            f"rows – each row will produce a SEPARATE chart: {dup_kids[:10]}"
+            f"{'...' if len(dup_kids) > 10 else ''}"
+        )
+
+    # Build per-KEGG lookup:
+    #   kegg_lookup[kid]     = list of {metabolite_name, conditions (no 'values')}
+    #   kegg_raw_lookup[kid] = list of {cond: [float, ...]} (one per row)
     kegg_lookup     = {}
-    kegg_raw_lookup = {}   # {kegg_id: {condition: [float, ...]}}
+    kegg_raw_lookup = _raw_values_for_kegg_all(df, groups)
 
-    for kid, row_list in kegg_row_data.items():
-        if len(row_list) == 1:
-            kegg_lookup[kid] = _strip_raw_values(row_list[0]["stats"])
-        else:
-            kegg_lookup[kid] = _pool_metabolomics(row_list)
-        kegg_raw_lookup[kid] = _raw_values_for_kegg(df, kid, groups)
-
-    # Build metabolite name lookup from CSV
-    name_lookup = {}
-    for _, row in df.iterrows():
-        kid  = str(row.get("KEGG_C_number", "")).strip()
-        name = str(row.get("metabolite", "")).strip()
-        if kid and name:
-            name_lookup[kid] = name
+    for kid, row_list in kegg_rows.items():
+        kegg_lookup[kid] = [
+            {
+                "metabolite_name": entry["metabolite_name"],
+                "conditions":      _strip_raw_values(entry["stats"]),
+            }
+            for entry in row_list
+        ]
 
     # Attach to nodes
     matched          = 0
@@ -1296,13 +1334,25 @@ def integrate_metabolomics(nodes, filepath):
         if bigg not in kegg_lookup:
             continue
         nd["graph_info"] = kegg_lookup[bigg]
-        raw_by_cond      = kegg_raw_lookup.get(bigg, {})
-        nd["tooltip"]    = dict(
+
+        # Build tooltip: one entry per row
+        raw_rows = kegg_raw_lookup.get(bigg, [])
+        rows_tt  = []
+        for ri, raw_row in enumerate(raw_rows):
+            row_name = (
+                kegg_lookup[bigg][ri]["metabolite_name"]
+                if ri < len(kegg_lookup[bigg]) else bigg
+            )
+            rows_tt.append(dict(
+                metabolite_name=row_name,
+                conditions=_build_condition_tooltip_entries(raw_row),
+            ))
+        nd["tooltip"] = dict(
             type="metabolite",
             id=bigg,
-            name=name_lookup.get(bigg, nd.get("name", bigg)),
+            name=nd.get("name", bigg),
             origin=nd.get("origin", "unknown"),
-            conditions=_build_condition_tooltip_entries(raw_by_cond),
+            rows=rows_tt,
         )
         matched += 1
 
@@ -1319,30 +1369,24 @@ def integrate_metabolomics(nodes, filepath):
         )
 
 
-def _pool_metabolomics(row_list):
+def _raw_values_for_kegg_all(df, groups):
     """
-    Pool raw replicate values across multiple rows sharing the same KEGG ID.
-    Returns {condition: {average, std_dev, count}} — no 'values' key.
+    Return {kegg_id: [{cond: [float, ...]}, ...]} — one dict per CSV row.
+    NaN-only conditions are omitted from each row dict.
     """
-    all_conditions = set()
-    for entry in row_list:
-        all_conditions.update(entry["stats"].keys())
-    result = {}
-    for condition in all_conditions:
-        pooled = []
-        for entry in row_list:
-            cond_stats = entry["stats"].get(condition)
-            if cond_stats and cond_stats.get("values"):
-                pooled.extend(cond_stats["values"])
-        if not pooled:
+    result: dict = {}
+    for _, row in df.iterrows():
+        kid = str(row.get("KEGG_C_number", "")).strip()
+        if not kid or kid == "nan":
             continue
-        arr = np.array(pooled, dtype=float)
-        std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
-        result[condition] = dict(
-            average=float(np.mean(arr)),
-            std_dev=std if not np.isnan(std) else 0.0,
-            count=len(arr),
-        )
+        row_vals = {}
+        for cond, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            vals  = pd.to_numeric(row[valid], errors="coerce").dropna().tolist()
+            if vals:
+                row_vals[cond] = vals
+        if row_vals:
+            result.setdefault(kid, []).append(row_vals)
     return result
 
 

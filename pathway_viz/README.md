@@ -1,6 +1,40 @@
 # Pathway Viz
 
 
+## User Interface Instructions
+
+1. **Start the App**
+    - Run the app as described in the Setup section.
+    - Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser.
+
+2. **Upload Input Files**
+    - Click **Upload Files** in the sidebar.
+    - Upload a **graph file** (`.pickle` or `.json`).
+    - Optionally, upload a **Metabolomics CSV** and/or **Proteomics CSV** for bar chart overlays.
+    - Click **Upload Files** to submit.
+
+3. **Explore the Visualization**
+    - The main panel displays the metabolic network.
+    - Hover over nodes to see tooltips with details.
+    - Use the sidebar to:
+      - Highlight shortest paths between nodes (select start/end nodes and click the button).
+      - Select multiple nodes to create a subgraph.
+      - Revert to the full graph view.
+    - Bar charts will appear on nodes if metabolomics/proteomics data is provided.
+
+4. **Exporting**
+    - Use the export button to download the current map as SVG or PNG.
+
+5. **Configuration**
+    - Adjust layout and style options in the sidebar.
+
+6. **Troubleshooting**
+    - Error messages will appear at the top of the sidebar.
+    - If the graph does not render, check your input files and reload the page.
+
+For more details, see the sections below.
+
+
 ## Input Data
 
 The app expects three input files (uploaded via the UI):
@@ -68,6 +102,8 @@ flask run
 ```
 
 Open **http://127.0.0.1:5000** in your browser.
+
+
 
 ## Configuration
 

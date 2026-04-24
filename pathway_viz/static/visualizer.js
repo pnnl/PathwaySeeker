@@ -339,6 +339,30 @@ class EscherVisualizer {
                 padding:1px 5px;color:${colour};white-space:nowrap">${origin}</span>
           </div>`;
 
+        // New list format: tooltip.rows = [{metabolite_name, conditions: [...]}]
+        if (Array.isArray(tt.rows) && tt.rows.length) {
+            const rowBlocks = tt.rows.map((row, ri) => {
+                const rowName = row.metabolite_name || '';
+                const rowHeader = rowName
+                    ? `<div style="font-size:11px;font-weight:bold;color:#444;
+                           margin-top:${ri > 0 ? 10 : 0}px;margin-bottom:3px;
+                           border-top:${ri > 0 ? '1px solid #ddd' : 'none'};
+                           padding-top:${ri > 0 ? 6 : 0}px">${rowName}</div>`
+                    : '';
+                const conds = (row.conditions || []).filter(c =>
+                    c.replicates && c.replicates.length > 0
+                );
+                if (!conds.length) return '';
+                const condRows = conds.map((c, i) =>
+                    (i > 0 ? this._divRow() : '') + this._conditionBlock(c)
+                ).join('');
+                return rowHeader
+                    + `<table style="border-collapse:collapse;width:100%;font-size:11px">${condRows}</table>`;
+            }).filter(Boolean).join('');
+            return header + (rowBlocks || '<div style="color:#999;font-style:italic">No abundance data</div>');
+        }
+
+        // Legacy flat format: tooltip.conditions = [...]
         if (!tt.conditions || !tt.conditions.length) {
             return header + '<div style="color:#999;font-style:italic">No abundance data</div>';
         }
@@ -644,65 +668,66 @@ class EscherVisualizer {
     // =========================================================================
     //  BAR CHARTS – METABOLOMICS
     // =========================================================================
-    _renderMetaboliteBarChart(parentNode, element, data, config, options = {}) {
-        const bc = config.barChart;
+
+    /**
+     * Render one panel of a metabolite bar chart for a single CSV row.
+     *
+     * @param {d3.Selection} parentNode  - SVG group to append into
+     * @param {object}       rowEntry    - {metabolite_name, conditions: {cond:{average,std_dev,count}}}
+     * @param {object}       data        - node data (for position, bigg_id, origin)
+     * @param {object}       config      - vis config
+     * @param {object}       cfgOverride - merged on top of default bar-chart cfg
+     * @param {number}       yOffset     - vertical offset for stacking multiple panels
+     * @returns {number}  height of this panel (so caller can stack)
+     */
+    _renderMetaboliteBarChartPanel(parentNode, rowEntry, data, config, cfgOverride, yOffset) {
+        const bc  = config.barChart;
         const cfg = Object.assign({
             chartWidth:  bc.width,
             barHeight:   bc.barHeight,
             axisPadding: bc.axisPadding,
             barColor:    this._originColour(data.origin || 'unknown', config),
             hoverColor:  '#1f7a67',
-            getPosition: null,
-        }, options);
+        }, cfgOverride);
 
-        const gi = data.graph_info;
-        if (!gi || typeof gi !== 'object' || Array.isArray(gi)) return;
+        const conditionsObj = rowEntry.conditions || {};
+        // Only include conditions that have a real average (not null/undefined/NaN)
+        const conditions = Object.keys(conditionsObj).filter(k => {
+            const avg = conditionsObj[k]?.average;
+            return avg !== null && avg !== undefined && isFinite(avg);
+        });
+        if (!conditions.length) return 0;
 
-        const conditions = Object.keys(gi).filter(
-            k => k !== 'metabolite' && k !== 'KEGG_C_number'
-        );
-        if (!conditions.length) return;
-
-        const values = conditions.map(k => gi[k]?.average ?? 0);
+        const values = conditions.map(k => conditionsObj[k]?.average ?? 0);
         const maxVal = Math.max(...values, 1e-9);
         const chartH = cfg.barHeight * conditions.length;
         const drawW  = cfg.chartWidth - cfg.axisPadding;
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
 
-        const pos = cfg.getPosition
-            ? cfg.getPosition(data, cfg)
-            : { x: (data.x || 0) - cfg.chartWidth, y: (data.y || 0) - chartH / 2 };
+        const panel = parentNode.append('g')
+            .attr('transform', `translate(0,${yOffset})`);
 
-        const group = parentNode.append('g')
-            .attr('class',     'bar-chart metabolite-bar-chart')
-            .attr('transform', `translate(${pos.x},${pos.y})`);
+        // Row label (metabolite name) above the panel
+        const rowName = rowEntry.metabolite_name || '';
+        const labelH  = rowName ? cfg.barHeight : 0;
+        if (rowName) {
+            panel.append('text')
+                .attr('x',  drawW / 2)
+                .attr('y',  labelH / 2)
+                .attr('dy', '0.35em')
+                .style('text-anchor', 'middle')
+                .style('font-size',   (config.chartLabelFontSize + 1) + 'px')
+                .style('font-weight', 'bold')
+                .style('fill',        '#444')
+                .text(rowName)
+                .append('title').text(rowName);
+        }
 
-        if (data.bigg_id) group.node().dataset.biggId = data.bigg_id;
-
-        const updatePos = () => {
-            const np = cfg.getPosition ? cfg.getPosition(data, cfg) : {
-                x: (data.x || 0) - cfg.chartWidth,
-                y: (data.y || 0) - chartH / 2,
-            };
-            group.attr('transform', `translate(${np.x},${np.y})`);
-        };
-
-        this._registerObserver(
-            new MutationObserver(updatePos)
-        ).observe(element.node(), { attributes: true, attributeFilter: ['transform'] });
-
-        group.insert('rect', ':first-child')
-            .attr('x',      -cfg.axisPadding - 4)
-            .attr('y',      -8)
-            .attr('width',   cfg.chartWidth + 8)
-            .attr('height',  chartH + 16)
-            .attr('fill',   'white')
-            .attr('opacity', 0.88)
-            .attr('rx', 4)
-            .style('cursor', 'default');
+        const barsGroup = panel.append('g')
+            .attr('transform', `translate(0,${labelH})`);
 
         conditions.forEach((cond, i) => {
-            group.append('text')
+            barsGroup.append('text')
                 .attr('x',  -4)
                 .attr('y',   i * cfg.barHeight + cfg.barHeight / 2)
                 .attr('dy', '0.35em')
@@ -712,7 +737,7 @@ class EscherVisualizer {
                 .text(cond);
         });
 
-        group.append('g')
+        barsGroup.append('g')
             .attr('class',     'x-axis')
             .attr('transform', `translate(0,${chartH})`)
             .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
@@ -721,20 +746,22 @@ class EscherVisualizer {
             .style('fill',      '#555');
 
         conditions.forEach((cond, i) => {
-            const avg  = gi[cond]?.average ?? 0;
-            const std  = gi[cond]?.std_dev ?? 0;
+            const avg  = conditionsObj[cond]?.average ?? 0;
+            const std  = conditionsObj[cond]?.std_dev ?? 0;
             const barW = xScale(avg);
+            const barColor = cfg.barColor;
+            const hoverColor = cfg.hoverColor;
 
-            group.append('rect')
+            barsGroup.append('rect')
                 .attr('class',  'bar')
                 .attr('x',       0)
                 .attr('y',       i * cfg.barHeight)
                 .attr('width',   Math.max(barW, 0))
                 .attr('height',  cfg.barHeight - 2)
-                .attr('fill',    cfg.barColor)
+                .attr('fill',    barColor)
                 .on('mouseover', function () {
-                    d3.select(this).attr('fill', cfg.hoverColor);
-                    group.append('text').attr('class', 'value-label')
+                    d3.select(this).attr('fill', hoverColor);
+                    barsGroup.append('text').attr('class', 'value-label')
                         .attr('x',  barW + 3)
                         .attr('y',  i * cfg.barHeight + cfg.barHeight / 2)
                         .attr('dy', '0.35em')
@@ -744,10 +771,123 @@ class EscherVisualizer {
                         .text(`${d3.format('.1e')(avg)} ± ${d3.format('.1e')(std)}`);
                 })
                 .on('mouseout', function () {
-                    d3.select(this).attr('fill', cfg.barColor);
-                    group.selectAll('.value-label').remove();
+                    d3.select(this).attr('fill', barColor);
+                    barsGroup.selectAll('.value-label').remove();
                 });
         });
+
+        return labelH + chartH + bc.barHeight; // panel height incl. axis space
+    }
+
+    /**
+     * Render all metabolite bar chart panels for a node.
+     * graph_info is now a list: [{metabolite_name, conditions: {...}}, ...]
+     * One panel per list entry; entries with all-NaN conditions are silently skipped.
+     */
+    _renderMetaboliteBarChart(parentNode, element, data, config, options = {}) {
+        const bc = config.barChart;
+        const cfgOverride = {
+            chartWidth:  bc.width,
+            barHeight:   bc.barHeight,
+            axisPadding: bc.axisPadding,
+            barColor:    this._originColour(data.origin || 'unknown', config),
+            hoverColor:  '#1f7a67',
+            ...options,
+        };
+        delete cfgOverride.getPosition; // handled below
+
+        const gi = data.graph_info;
+        // New format: list of row-dicts
+        // Old dict format still accepted for legacy JSON (silently wrapped)
+        let rowList;
+        if (Array.isArray(gi)) {
+            rowList = gi;
+        } else if (gi && typeof gi === 'object' && Object.keys(gi).length) {
+            // Legacy dict: wrap in a single-element list
+            rowList = [{ metabolite_name: '', conditions: gi }];
+        } else {
+            return;
+        }
+
+        // Filter out rows with no renderable conditions
+        const renderable = rowList.filter(row => {
+            const conds = row.conditions || {};
+            return Object.values(conds).some(v => {
+                const avg = v?.average;
+                return avg !== null && avg !== undefined && isFinite(avg);
+            });
+        });
+        if (!renderable.length) return;
+
+        // Compute total height across all panels (for background rect and positioning)
+        const barHeight   = cfgOverride.barHeight;
+        const chartWidth  = cfgOverride.chartWidth;
+        const axisPadding = cfgOverride.axisPadding;
+        const gap         = barHeight; // gap between panels
+
+        // First pass: compute each panel height
+        const panelHeights = renderable.map(row => {
+            const conds = Object.keys(row.conditions || {}).filter(k => {
+                const avg = row.conditions[k]?.average;
+                return avg !== null && avg !== undefined && isFinite(avg);
+            });
+            const labelH = row.metabolite_name ? barHeight : 0;
+            return labelH + barHeight * conds.length + barHeight; // label + bars + axis
+        });
+        const totalH = panelHeights.reduce((s, h) => s + h, 0)
+            + gap * Math.max(renderable.length - 1, 0);
+
+        const getPosition = options.getPosition || ((d, c) => ({
+            x: (d.x || 0) - c.chartWidth,
+            y: (d.y || 0) - totalH / 2,
+        }));
+
+        const pos = getPosition(data, cfgOverride);
+
+        const group = parentNode.append('g')
+            .attr('class',     'bar-chart metabolite-bar-chart')
+            .attr('transform', `translate(${pos.x},${pos.y})`);
+
+        if (data.bigg_id) group.node().dataset.biggId = data.bigg_id;
+
+        // Background rect
+        group.insert('rect', ':first-child')
+            .attr('x',      -axisPadding - 4)
+            .attr('y',      -8)
+            .attr('width',   chartWidth + 8)
+            .attr('height',  totalH + 16)
+            .attr('fill',   'white')
+            .attr('opacity', 0.88)
+            .attr('rx', 4)
+            .style('cursor', 'default');
+
+        // Render panels
+        let yOff = 0;
+        renderable.forEach((row, ri) => {
+            if (ri > 0) {
+                // Separator line between panels
+                group.append('line')
+                    .attr('x1', -axisPadding)
+                    .attr('x2', chartWidth - axisPadding + 4)
+                    .attr('y1', yOff - gap / 2)
+                    .attr('y2', yOff - gap / 2)
+                    .attr('stroke', '#ddd')
+                    .attr('stroke-width', 1);
+            }
+            const ph = this._renderMetaboliteBarChartPanel(
+                group, row, data, config, cfgOverride, yOff
+            );
+            yOff += ph + gap;
+        });
+
+        // Keep position in sync with node movement
+        const updatePos = () => {
+            const np = getPosition(data, cfgOverride);
+            group.attr('transform', `translate(${np.x},${np.y})`);
+        };
+        this._registerObserver(
+            new MutationObserver(updatePos)
+        ).observe(element.node(), { attributes: true, attributeFilter: ['transform'] });
     }
 
     // =========================================================================
@@ -906,7 +1046,14 @@ class EscherVisualizer {
         d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
             .each((data, i, nodes) => {
-                if (!data?.graph_info || Array.isArray(data.graph_info)) return;
+                if (!data?.graph_info) return;
+                // Accept both list format (new) and dict format (legacy)
+                const gi = data.graph_info;
+                const hasData = Array.isArray(gi)
+                    ? gi.length > 0
+                    : (gi && typeof gi === 'object' && Object.keys(gi).length > 0);
+                if (!hasData) return;
+
                 const element    = d3.select(nodes[i]);
                 const parentNode = d3.select(nodes[i].parentNode);
                 this._renderMetaboliteBarChart(
