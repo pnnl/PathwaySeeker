@@ -261,6 +261,9 @@ const protByRxn   = {};   // reaction_id -> proteomics entry (with .proteins arr
 // Node id -> list of reaction IDs that touch it (from edges)
 const nodeRxns = {};      // node_id -> Set of reaction_ids
 
+// Node id -> human-readable display label (populated during buildNetwork)
+const nodeLabels = {};    // node_id -> label string
+
 async function loadData() {
   try {
     const resp = await fetch("barchart_data.json");
@@ -279,6 +282,13 @@ async function loadData() {
   });
   // proteomics entries now have { reaction_id, proteins: [...] }
   (barData.proteomics   || []).forEach(d => { protByRxn[d.reaction_id] = d; });
+
+  // DEBUG: check a few metabolomics entries
+  const sampleKeys = Object.keys(metByKegg).slice(0, 3);
+  console.log("[DEBUG loadData] metByKegg sample:", sampleKeys.map(k => ({
+    kegg_id: k,
+    entries: metByKegg[k].map(e => ({ name: e.name, metabolite: e.metabolite }))
+  })));
 }
 
 // ============================================================
@@ -319,9 +329,32 @@ function buildNetwork(graphJson) {
   const nodes = new vis.DataSet(
     graphJson.nodes.map(n => {
       const col = n.color || ORIGIN_COLOR[n.origin] || DEFAULT_COLOR;
+
+      // Build a human-readable label for metabolite nodes (C-numbers).
+      // Use the 'name' field (base name, no _rowN suffix) from barchart_data
+      // if available, falling back to just the node ID.
+      let nodeLabel = n.label || n.id;
+      if (/^C\d+$/.test(n.id)) {
+        const entries = metByKegg[n.id];
+        if (entries && entries.length > 0) {
+          const baseName = (entries[0].name || "").trim();
+          console.log(`[DEBUG buildNetwork] C-node ${n.id}: name field="${entries[0].name}", baseName="${baseName}"`);
+          if (baseName && baseName !== n.id) {
+            nodeLabel = `${baseName}\n(${n.id})`;
+          } else {
+            nodeLabel = n.id;
+          }
+        } else {
+          console.log(`[DEBUG buildNetwork] C-node ${n.id}: NO entry in metByKegg`);
+        }
+      }
+
+      // Store the computed label for sidebar use
+      nodeLabels[n.id] = nodeLabel;
+
       return {
         id:    n.id,
-        label: n.label || n.id,
+        label: nodeLabel,
         color: { background: col, border: col, highlight: { background: col, border: "#333" } },
         shape: n.shape || "dot",
         size:  16,
@@ -401,8 +434,10 @@ function buildNetwork(graphJson) {
 // ============================================================
 
 function showSidebar(nodeId, allNodes) {
-  const nodeObj = allNodes.find(n => n.id === nodeId) || {};
-  const label   = (nodeObj.label || nodeId).replace(/\n/g, " ");
+  // Use the pre-computed label (which includes metabolite name for C-number nodes)
+  console.log(`[DEBUG showSidebar] nodeId="${nodeId}", nodeLabels[nodeId]="${nodeLabels[nodeId]}"`);
+  const label = (nodeLabels[nodeId] || nodeId).replace(/\n/g, " ");
+  console.log(`[DEBUG showSidebar] label="${label}"`);
 
   document.getElementById("node-title").textContent    = label;
   document.getElementById("node-subtitle").textContent = nodeId;
@@ -679,10 +714,16 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
     const dl = document.getElementById("node-list");
     const graphNodeIds = new Set(graphJson.nodes.map(n => n.id));
 
-    // Graph nodes first
+    // Graph nodes first — for C-number nodes include the metabolite name
     graphJson.nodes.forEach(n => {
       const opt = document.createElement("option");
-      opt.value = n.id;
+      if (/^C\d+$/.test(n.id)) {
+        const entries = metByKegg[n.id];
+        const baseName = entries && entries.length > 0 ? (entries[0].name || "").trim() : "";
+        opt.value = baseName && baseName !== n.id ? `${baseName} (${n.id})` : n.id;
+      } else {
+        opt.value = n.id;
+      }
       dl.appendChild(opt);
     });
 
@@ -691,8 +732,8 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
     (barData.metabolomics || []).forEach(d => {
       if (d.kegg_id && !seenDataIds.has(d.kegg_id)) {
         const opt = document.createElement("option");
-        opt.value = d.kegg_id;
-        opt.label = d.metabolite ? `${d.kegg_id} – ${d.metabolite}` : d.kegg_id;
+        const displayName = d.name || d.metabolite || "";
+        opt.value = displayName ? `${displayName} (${d.kegg_id})` : d.kegg_id;
         dl.appendChild(opt);
         seenDataIds.add(d.kegg_id);
       }
@@ -709,22 +750,28 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
     });
 
     // Search box: on Enter or selection, focus + select the node and show sidebar.
-    // If the ID is not a graph node, still show the sidebar charts (data-only node).
+    // Datalist options may have the format "Name (C00022)" — resolve to raw node ID.
     const searchInput = document.getElementById("node-search");
     searchInput.style.pointerEvents = "auto";
     searchInput.addEventListener("change", () => {
-      const val = searchInput.value.trim();
+      let val = searchInput.value.trim();
       if (!val) return;
-      const inGraph = graphNodeIds.has(val);
-      const inData  = seenDataIds.has(val);
+
+      // Try to extract a raw ID from "Name (ID)" format, e.g. "Pyruvate (C00022)" -> "C00022"
+      const parenMatch = val.match(/\(([A-Za-z0-9]+)\)\s*$/);
+      const resolvedId = parenMatch ? parenMatch[1] : val;
+
+      const inGraph = graphNodeIds.has(resolvedId);
+      const inData  = seenDataIds.has(resolvedId) || seenDataIds.has(val);
+
       if (inGraph) {
-        network.selectNodes([val]);
-        network.focus(val, { scale: 1.5, animation: true });
-        showSidebar(val, graphJson.nodes);
+        network.selectNodes([resolvedId]);
+        network.focus(resolvedId, { scale: 1.5, animation: true });
+        showSidebar(resolvedId, graphJson.nodes);
         searchInput.value = "";
       } else if (inData) {
         // Data exists but node isn't in the graph — show sidebar without panning
-        showSidebar(val, graphJson.nodes);
+        showSidebar(resolvedId, graphJson.nodes);
         searchInput.value = "";
       } else {
         searchInput.style.borderColor = "red";

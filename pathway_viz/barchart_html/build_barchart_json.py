@@ -481,6 +481,7 @@ def process_metabolomics(filepath: str) -> list:
 
         records.append({
             "kegg_id":    kegg_id,
+            "name":       str(row.get("metabolite", kegg_id)).strip(),  # base name, no _rowN suffix
             "metabolite": met_name,
             "conditions": conditions,
         })
@@ -592,6 +593,14 @@ def process_proteomics(filepath: str, ko_map: dict,
 
     df["KO"] = df["KO"].astype(str).str.strip()
 
+    # Build a lookup: proteinID -> original row (for annotating the long CSV)
+    # Set proteinID as the index for fast access
+    orig_cols = [c for c in df.columns]          # all original columns
+    protein_row_lookup = {
+        str(row["proteinID"]).strip(): row
+        for _, row in df.iterrows()
+    }
+
     # --- Collect per-protein data per reaction ---
     # rxn_proteins[reaction_id][protein_id][condition] = [val, val, ...]
     rxn_proteins: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -680,28 +689,30 @@ def process_proteomics(filepath: str, ko_map: dict,
     )
 
     # --- Optional: write long-format CSV (one row per reaction × protein × condition) ---
+    # Includes all original columns from the proteomics CSV plus the computed
+    # reaction_id, condition, mean, std, n columns.
     if long_csv_out:
         long_rows = []
         for rec in records:
             rxn_id = rec["reaction_id"]
             for prot in rec["proteins"]:
                 pid = prot["protein_id"]
+                orig_row = protein_row_lookup.get(pid, {})
                 for cond_entry in prot["conditions"]:
-                    long_rows.append({
-                        "reaction_id": rxn_id,
-                        "protein_id":  pid,
-                        "condition":   cond_entry["condition"],
-                        "mean":        cond_entry["mean"],
-                        "std":         cond_entry["std"],
-                        "n":           cond_entry["n"],
-                    })
-        long_df = pd.DataFrame(
-            long_rows,
-            columns=["reaction_id", "protein_id", "condition", "mean", "std", "n"],
-        )
+                    row_dict = {"reaction_id": rxn_id, "condition": cond_entry["condition"],
+                                "mean": cond_entry["mean"], "std": cond_entry["std"],
+                                "n": cond_entry["n"]}
+                    # Append all original columns from the source CSV row
+                    for col in orig_cols:
+                        row_dict[col] = orig_row[col] if hasattr(orig_row, '__getitem__') and col in orig_row else None
+                    long_rows.append(row_dict)
+
+        # Column order: computed cols first, then all original CSV cols
+        out_cols = ["reaction_id", "condition", "mean", "std", "n"] + orig_cols
+        long_df = pd.DataFrame(long_rows, columns=out_cols)
         long_df.to_csv(long_csv_out, index=False)
         print(f"  Long-format proteomics CSV written to {long_csv_out!r} "
-              f"({len(long_df)} rows).")
+              f"({len(long_df)} rows, {len(out_cols)} columns).")
 
     return records
 
