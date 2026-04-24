@@ -35,3 +35,12 @@ static/uploads/
 !failed_downloads.json
 *.pickle
 *.csv
+
+# macOS metadata
+.DS_Store
+
+# barchart_html/ is a local dev/scratch folder — only specific files tracked
+barchart_html/*
+!barchart_html/build_barchart_json.py
+!barchart_html/README.md
+!barchart_html/pathway_barchart.html
