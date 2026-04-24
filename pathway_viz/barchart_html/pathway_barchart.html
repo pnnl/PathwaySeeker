@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pathway Viewer – Metabolomics &amp; Proteomics</title>
+
+  <!-- vis-network -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <!-- Vega / Vega-Lite / Vega-Embed -->
+  <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+
+  <style>
+    /* ── Layout ─────────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f4f6f9;
+      color: #222;
+    }
+
+    header {
+      background: #1a3a5c;
+      color: #fff;
+      padding: 10px 18px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+
+    #layout {
+      display: flex;
+      height: calc(100vh - 42px);
+    }
+
+    /* ── Graph panel ─────────────────────────────────────────── */
+    #graph-panel {
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #mynetwork {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+    }
+
+    /* Loading bar */
+    #loadingBar {
+      position: absolute;
+      inset: 0;
+      background: rgba(200,200,200,.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      transition: opacity .5s;
+    }
+    #loadingBar .bar-wrap {
+      width: 320px;
+      height: 18px;
+      background: #ddd;
+      border-radius: 9px;
+      overflow: hidden;
+    }
+    #loadingBar .bar-fill {
+      height: 100%;
+      width: 0;
+      background: #00adf6;
+      border-radius: 9px;
+      transition: width .1s;
+    }
+    #loadingBar .bar-pct { font-size: .9rem; color: #333; }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    #sidebar {
+      width: 420px;
+      min-width: 320px;
+      max-width: 520px;
+      background: #fff;
+      border-left: 1px solid #d0d7e2;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 10px 14px;
+      background: #eef2f8;
+      border-bottom: 1px solid #d0d7e2;
+      font-size: .85rem;
+      color: #555;
+    }
+    #sidebar-header strong { color: #1a3a5c; font-size: 1rem; }
+
+    #sidebar-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+    }
+
+    /* placeholder when nothing is selected */
+    #placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #aaa;
+      font-size: .9rem;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* ── Chart containers ────────────────────────────────────── */
+    .chart-section {
+      margin-bottom: 18px;
+    }
+    .chart-section h3 {
+      font-size: .82rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #1a3a5c;
+      margin-bottom: 6px;
+      border-bottom: 2px solid #1a3a5c;
+      padding-bottom: 3px;
+    }
+    .chart-section p.no-data {
+      font-size: .8rem;
+      color: #999;
+      font-style: italic;
+    }
+
+    /* ── Protein sub-section within a reaction ───────────────── */
+    .protein-block {
+      margin-bottom: 14px;
+      border-left: 3px solid #6a4c93;
+      padding-left: 8px;
+    }
+    .protein-label {
+      font-size: .72rem;
+      font-weight: 600;
+      color: #6a4c93;
+      margin-bottom: 3px;
+      word-break: break-all;
+    }
+    .reaction-label {
+      font-size: .78rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px dashed #ccc;
+    }
+
+    /* Vega-Embed removes the "…" actions button */
+    .vega-actions { display: none !important; }
+
+    /* ── Legend / colour key ─────────────────────────────────── */
+    #legend {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: .78rem;
+      line-height: 1.7;
+      pointer-events: none;
+    }
+    .leg-dot {
+      display: inline-block;
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+<header>Pathway Viewer — Metabolomics &amp; Proteomics Bar Charts</header>
+
+<div id="layout">
+
+  <!-- ── Graph ── -->
+  <div id="graph-panel">
+    <div id="mynetwork"></div>
+
+    <div id="loadingBar">
+      <div class="bar-wrap"><div class="bar-fill" id="barFill"></div></div>
+      <div class="bar-pct" id="barPct">0 %</div>
+    </div>
+
+    <div id="legend">
+      <div><span class="leg-dot" style="background:#2a9d8f"></span>Metabolomics only</div>
+      <div><span class="leg-dot" style="background:#6a4c93"></span>Proteomics only</div>
+      <div><span class="leg-dot" style="background:#e76f51"></span>Both omics</div>
+      <div style="margin-top:6px;border-top:1px solid #ddd;padding-top:6px;">
+        <input id="node-search" type="text" placeholder="Jump to node (e.g. C00018)"
+          style="width:180px;padding:3px 6px;font-size:.78rem;border:1px solid #ccc;border-radius:4px;"
+          list="node-list"/>
+        <datalist id="node-list"></datalist>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <strong id="node-title">—</strong><br>
+      <span id="node-subtitle">Click a node to see bar charts</span>
+    </div>
+    <div id="sidebar-body">
+      <div id="placeholder">
+        👆 Click any node in the graph to display its metabolomics and/or
+        proteomics bar charts here.<br><br>
+        <small id="debug-status" style="color:#aaa;font-size:.75rem;"></small>
+      </div>
+      <div id="charts-area" style="display:none"></div>
+    </div>
+  </div>
+
+</div><!-- #layout -->
+
+<script>
+// ============================================================
+// 1.  LOAD DATA
+// ============================================================
+// barchart_data.json is expected in the same directory.
+// It has the structure:
+//   { "metabolomics": [...], "proteomics": [...] }
+//
+// metabolomics entry:
+//   { kegg_id, metabolite, conditions: [{condition, mean, std, n}, ...] }
+//
+// proteomics entry (new structure – grouped by reaction, separate per protein):
+//   {
+//     reaction_id,
+//     proteins: [
+//       { protein_id, conditions: [{condition, mean, std, n}, ...] },
+//       ...
+//     ]
+//   }
+
+let barData = { metabolomics: [], proteomics: [] };
+
+// Index for fast lookup
+const metByKegg   = {};   // kegg_id    -> metabolomics entry
+const protByRxn   = {};   // reaction_id -> proteomics entry (with .proteins array)
+
+// Node id -> list of reaction IDs that touch it (from edges)
+const nodeRxns = {};      // node_id -> Set of reaction_ids
+
+async function loadData() {
+  try {
+    const resp = await fetch("barchart_data.json");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    barData = await resp.json();
+  } catch (e) {
+    console.warn("Could not load barchart_data.json:", e.message);
+  }
+
+  // Build lookup indices.
+  // Multiple rows can share the same KEGG ID (C-3: separate records instead of pooling).
+  // metByKegg stores an array of entries per KEGG ID.
+  (barData.metabolomics || []).forEach(d => {
+    if (!metByKegg[d.kegg_id]) metByKegg[d.kegg_id] = [];
+    metByKegg[d.kegg_id].push(d);
+  });
+  // proteomics entries now have { reaction_id, proteins: [...] }
+  (barData.proteomics   || []).forEach(d => { protByRxn[d.reaction_id] = d; });
+}
+
+// ============================================================
+// 2.  GRAPH DATA  (inlined from graph_notebook_Gsub_pellet.json)
+// ============================================================
+// We fetch the JSON at runtime so the HTML stays maintainable.
+
+async function loadGraph() {
+  const resp = await fetch("graph_notebook_Gsub_pellet.json");
+  if (!resp.ok) throw new Error(`Failed to load graph JSON: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+// ============================================================
+// 3.  BUILD vis-network
+// ============================================================
+
+function buildNetwork(graphJson) {
+  // Build nodeRxns: for each node, collect reaction IDs from adjacent edges
+  graphJson.edges.forEach(e => {
+    const rxnMatch = e.label && e.label.match(/^(R\d+)/);
+    if (!rxnMatch) return;
+    const rxnId = rxnMatch[1];
+    [e.source, e.target].forEach(nodeId => {
+      if (!nodeRxns[nodeId]) nodeRxns[nodeId] = new Set();
+      nodeRxns[nodeId].add(rxnId);
+    });
+  });
+
+  // Map origin -> node colour so the graph is colour-coded by data source.
+  const ORIGIN_COLOR = {
+    metabolomics: "#2a9d8f",
+    proteomics:   "#6a4c93",
+    both:         "#e76f51",
+  };
+  const DEFAULT_COLOR = "#aaaaaa";
+
+  const nodes = new vis.DataSet(
+    graphJson.nodes.map(n => {
+      const col = n.color || ORIGIN_COLOR[n.origin] || DEFAULT_COLOR;
+      return {
+        id:    n.id,
+        label: n.label || n.id,
+        color: { background: col, border: col, highlight: { background: col, border: "#333" } },
+        shape: n.shape || "dot",
+        size:  16,
+        font:  { size: 11, color: "#333" },
+        title: `${n.id}${n.origin ? " [" + n.origin + "]" : ""}`,
+      };
+    })
+  );
+
+  const edges = new vis.DataSet(
+    graphJson.edges.map((e, i) => ({
+      id:     i,
+      from:   e.source,
+      to:     e.target,
+      title:  e.label || "",
+      arrows: "to",
+      color:  { color: "#999999", inherit: false },
+    }))
+  );
+
+  const container = document.getElementById("mynetwork");
+  const network = new vis.Network(
+    container,
+    { nodes, edges },
+    {
+      configure: { enabled: false },
+      edges: {
+        smooth: { enabled: true, type: "dynamic" },
+        color:  { inherit: false },
+      },
+      interaction: { dragNodes: true, hideEdgesOnDrag: false },
+      physics: {
+        enabled: true,
+        forceAtlas2Based: {
+          avoidOverlap: 0,
+          centralGravity: 0.01,
+          damping: 0.4,
+          gravitationalConstant: -50,
+          springConstant: 0.08,
+          springLength: 100,
+        },
+        solver: "forceAtlas2Based",
+        stabilization: {
+          enabled: true, fit: true,
+          iterations: 1000, updateInterval: 50,
+        },
+      },
+    }
+  );
+
+  // Loading bar
+  network.on("stabilizationProgress", p => {
+    const pct = Math.round(100 * p.iterations / p.total);
+    document.getElementById("barFill").style.width = pct + "%";
+    document.getElementById("barPct").textContent  = pct + " %";
+  });
+  network.once("stabilizationIterationsDone", () => {
+    document.getElementById("barFill").style.width = "100%";
+    document.getElementById("barPct").textContent  = "100 %";
+    const lb = document.getElementById("loadingBar");
+    lb.style.opacity = "0";
+    setTimeout(() => lb.style.display = "none", 600);
+  });
+
+  // Click handler
+  network.on("click", params => {
+    if (params.nodes.length > 0) {
+      showSidebar(params.nodes[0], graphJson.nodes);
+    }
+  });
+
+  return network;
+}
+
+// ============================================================
+// 4.  SIDEBAR – show charts for a clicked node
+// ============================================================
+
+function showSidebar(nodeId, allNodes) {
+  const nodeObj = allNodes.find(n => n.id === nodeId) || {};
+  const label   = (nodeObj.label || nodeId).replace(/\n/g, " ");
+
+  document.getElementById("node-title").textContent    = label;
+  document.getElementById("node-subtitle").textContent = nodeId;
+  document.getElementById("placeholder").style.display = "none";
+
+  const area = document.getElementById("charts-area");
+  area.style.display = "block";
+  area.innerHTML = "";   // clear previous charts
+
+  // ── Metabolomics charts (one per CSV row for this KEGG C-number) ──
+  const metEntries = metByKegg[nodeId] || [];
+
+  const metSection = document.createElement("div");
+  metSection.className = "chart-section";
+  const metH3 = document.createElement("h3");
+  metH3.textContent = "Metabolomics";
+  metSection.appendChild(metH3);
+
+  if (metEntries.length === 0) {
+    const p = document.createElement("p");
+    p.className = "no-data";
+    p.textContent = "No metabolomics data available for this node.";
+    metSection.appendChild(p);
+  } else {
+    // Collect divs first, then render after appending to DOM
+    const pendingCharts = [];
+    metEntries.forEach((metEntry, mi) => {
+      // Filter out NaN/null conditions before rendering
+      const validConditions = (metEntry.conditions || []).filter(
+        c => c.mean !== null && c.mean !== undefined && isFinite(c.mean)
+      );
+      if (!validConditions.length) return;  // skip all-NaN rows
+
+      const vegaDiv = document.createElement("div");
+      const safeId  = "vega-met-" + nodeId.replace(/[^a-zA-Z0-9]/g, "_") + "_r" + mi;
+      vegaDiv.id    = safeId;
+
+      // Row name label (only when there are multiple rows or name is informative)
+      if (metEntries.length > 1 || metEntry.metabolite) {
+        const lbl = document.createElement("div");
+        lbl.style.cssText = "font-size:.75rem;font-weight:600;color:#2a9d8f;"
+            + "margin-top:6px;margin-bottom:2px;word-break:break-word";
+        lbl.textContent = metEntry.metabolite || metEntry.kegg_id || nodeId;
+        metSection.appendChild(lbl);
+      }
+      metSection.appendChild(vegaDiv);
+
+      pendingCharts.push({
+        id:         "#" + safeId,
+        conditions: validConditions,
+        title:      metEntry.metabolite || metEntry.kegg_id || nodeId,
+      });
+    });
+
+    if (pendingCharts.length === 0) {
+      const p = document.createElement("p");
+      p.className = "no-data";
+      p.textContent = "All metabolomics values for this node are NaN/missing.";
+      metSection.appendChild(p);
+    }
+
+    // Append to DOM first so Vega can measure widths, then render
+    area.appendChild(metSection);
+    pendingCharts.forEach(({ id, conditions, title }) => {
+      const spec = buildVegaSpec(conditions, title, "Abundance", "#2a9d8f");
+      vegaEmbed(id, spec, { actions: false }).catch(console.error);
+    });
+  }
+  if (!area.contains(metSection)) area.appendChild(metSection);
+
+  // ── Proteomics charts (reactions that touch this node) ──
+  // New structure: each reaction has a .proteins array; each protein is a
+  // separate chart within the reaction block.
+  const rxnSet = nodeRxns[nodeId] || new Set();
+  const rxnIds = [...rxnSet].filter(r => protByRxn[r]).sort();
+
+  const protSection = document.createElement("div");
+  protSection.className = "chart-section";
+  const h3 = document.createElement("h3");
+  h3.textContent = `Proteomics (${rxnIds.length} reaction${rxnIds.length !== 1 ? "s" : ""})`;
+  protSection.appendChild(h3);
+
+  if (rxnIds.length === 0) {
+    const p = document.createElement("p");
+    p.className = "no-data";
+    p.textContent = "No proteomics data for reactions connected to this node.";
+    protSection.appendChild(p);
+  } else {
+    rxnIds.forEach(rxnId => {
+      const entry = protByRxn[rxnId];
+      const proteins = entry.proteins || [];
+
+      // Reaction-level wrapper
+      const rxnWrapper = document.createElement("div");
+      rxnWrapper.style.marginBottom = "18px";
+
+      const rxnLbl = document.createElement("div");
+      rxnLbl.className = "reaction-label";
+      rxnLbl.textContent = `${rxnId}  (${proteins.length} protein${proteins.length !== 1 ? "s" : ""})`;
+      rxnWrapper.appendChild(rxnLbl);
+
+      // One block per protein
+      proteins.forEach((prot, pi) => {
+        const protBlock = document.createElement("div");
+        protBlock.className = "protein-block";
+
+        const protLbl = document.createElement("div");
+        protLbl.className = "protein-label";
+        protLbl.textContent = prot.protein_id;
+        protBlock.appendChild(protLbl);
+
+        const vegaDiv = document.createElement("div");
+        // Unique id: reaction + protein index
+        const safeId = (rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
+        vegaDiv.id = "vega-prot-" + safeId;
+        protBlock.appendChild(vegaDiv);
+        rxnWrapper.appendChild(protBlock);
+      });
+
+      protSection.appendChild(rxnWrapper);
+    });
+  }
+
+  // Append protSection to DOM FIRST, then render all charts
+  area.appendChild(protSection);
+
+  // Now that all divs are in the DOM, render Vega charts for each protein
+  rxnIds.forEach(rxnId => {
+    const entry = protByRxn[rxnId];
+    const proteins = entry.proteins || [];
+
+    proteins.forEach((prot, pi) => {
+      const safeId = (rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
+      const divId  = "#vega-prot-" + safeId;
+      const spec   = buildVegaSpec(prot.conditions, prot.protein_id, "Abundance", "#6a4c93");
+      vegaEmbed(divId, spec, { actions: false })
+        .then(() => console.log("[chart] rendered proteomics:", rxnId, prot.protein_id))
+        .catch(err => {
+          console.error("Vega error for", rxnId, prot.protein_id, err);
+          const el = document.querySelector(divId);
+          if (el) el.textContent = "Chart error: " + err.message;
+        });
+    });
+  });
+}
+
+function renderSection(parent, title, spec) {
+  const div = document.createElement("div");
+  div.className = "chart-section";
+
+  const h3 = document.createElement("h3");
+  h3.textContent = title;
+  div.appendChild(h3);
+
+  if (!spec) {
+    const p = document.createElement("p");
+    p.className = "no-data";
+    p.textContent = "No data available for this node.";
+    div.appendChild(p);
+    parent.appendChild(div);
+  } else {
+    const vegaDiv = document.createElement("div");
+    vegaDiv.id = "vega-" + title.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
+    div.appendChild(vegaDiv);
+    // Append to DOM FIRST so Vega can measure the container width
+    parent.appendChild(div);
+    vegaEmbed("#" + vegaDiv.id, spec, { actions: false }).catch(console.error);
+  }
+}
+
+// ============================================================
+// 5.  VEGA-LITE SPEC BUILDER
+// ============================================================
+// Builds a bar chart with error bars (mean ± std).
+// conditions: [{condition, mean, std, n}, ...]
+
+function buildVegaSpec(conditions, title, yLabel, barColor) {
+  // Flatten to Vega-Lite row format.
+  // Skip rows where mean is null/undefined/NaN so no zero-height bars appear.
+  const values = conditions
+    .filter(c => c.mean !== null && c.mean !== undefined && isFinite(c.mean))
+    .map(c => ({
+      condition: c.condition,
+      mean:      c.mean,
+      std:       (c.std !== null && c.std !== undefined && isFinite(c.std)) ? c.std : 0,
+      n:         c.n,
+      lo:        Math.max(0, c.mean - ((c.std !== null && isFinite(c.std)) ? c.std : 0)),
+      hi:        c.mean + ((c.std !== null && isFinite(c.std)) ? c.std : 0),
+    }));
+
+  return {
+    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+    title:   { text: title, fontSize: 11, color: "#333" },
+    width:   360,
+    height:  160,
+    data:    { values },
+    encoding: {
+      x: {
+        field: "condition",
+        type:  "nominal",
+        axis:  {
+          labelAngle: -35,
+          labelFontSize: 9,
+          titleFontSize: 10,
+          title: "Condition",
+        },
+        sort: null,
+      },
+    },
+    layer: [
+      // Bars
+      {
+        mark: { type: "bar", color: barColor, opacity: 0.85, cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
+        encoding: {
+          y: {
+            field: "mean",
+            type:  "quantitative",
+            axis:  { title: yLabel, titleFontSize: 10, labelFontSize: 9 },
+          },
+          tooltip: [
+            { field: "condition", type: "nominal",      title: "Condition" },
+            { field: "mean",      type: "quantitative", title: "Mean",  format: ".4g" },
+            { field: "std",       type: "quantitative", title: "Std",   format: ".4g" },
+            { field: "n",         type: "quantitative", title: "n" },
+          ],
+        },
+      },
+      // Error bars
+      {
+        mark: { type: "errorbar", color: "#333", ticks: true },
+        encoding: {
+          y:  { field: "lo", type: "quantitative" },
+          y2: { field: "hi" },
+        },
+      },
+    ],
+    config: {
+      view:       { stroke: "transparent" },
+      background: "#fafafa",
+    },
+  };
+}
+
+// ============================================================
+// 6.  BOOT
+// ============================================================
+
+(async () => {
+  const dbg = document.getElementById("debug-status");
+  const setDbg = msg => { if (dbg) dbg.textContent = msg; };
+
+  try {
+    setDbg("Loading bar chart data…");
+    await loadData();
+    const totalProteins = (barData.proteomics || []).reduce(
+      (s, r) => s + (r.proteins ? r.proteins.length : 0), 0
+    );
+    setDbg(
+      `✓ ${barData.metabolomics.length} metabolomics, ` +
+      `${barData.proteomics.length} reaction records ` +
+      `(${totalProteins} proteins) loaded. Loading graph…`
+    );
+
+    const graphJson = await loadGraph();
+    setDbg(`✓ Graph: ${graphJson.nodes.length} nodes, ${graphJson.edges.length} edges. Building network…`);
+
+    const network = buildNetwork(graphJson);
+    setDbg(`✓ Ready — ${Object.keys(nodeRxns).length} nodes have reaction links. Click a node!`);
+
+    // Populate datalist for search box autocomplete.
+    // Include ALL nodes from the graph PLUS any KEGG IDs / reaction IDs
+    // that exist in barchart_data but are not graph nodes (e.g. metabolites
+    // not yet in the pathway graph).
+    const dl = document.getElementById("node-list");
+    const graphNodeIds = new Set(graphJson.nodes.map(n => n.id));
+
+    // Graph nodes first
+    graphJson.nodes.forEach(n => {
+      const opt = document.createElement("option");
+      opt.value = n.id;
+      dl.appendChild(opt);
+    });
+
+    // Metabolomics KEGG IDs not in graph
+    const seenDataIds = new Set(graphNodeIds);
+    (barData.metabolomics || []).forEach(d => {
+      if (d.kegg_id && !seenDataIds.has(d.kegg_id)) {
+        const opt = document.createElement("option");
+        opt.value = d.kegg_id;
+        opt.label = d.metabolite ? `${d.kegg_id} – ${d.metabolite}` : d.kegg_id;
+        dl.appendChild(opt);
+        seenDataIds.add(d.kegg_id);
+      }
+    });
+
+    // Proteomics reaction IDs not in graph
+    (barData.proteomics || []).forEach(d => {
+      if (d.reaction_id && !seenDataIds.has(d.reaction_id)) {
+        const opt = document.createElement("option");
+        opt.value = d.reaction_id;
+        dl.appendChild(opt);
+        seenDataIds.add(d.reaction_id);
+      }
+    });
+
+    // Search box: on Enter or selection, focus + select the node and show sidebar.
+    // If the ID is not a graph node, still show the sidebar charts (data-only node).
+    const searchInput = document.getElementById("node-search");
+    searchInput.style.pointerEvents = "auto";
+    searchInput.addEventListener("change", () => {
+      const val = searchInput.value.trim();
+      if (!val) return;
+      const inGraph = graphNodeIds.has(val);
+      const inData  = seenDataIds.has(val);
+      if (inGraph) {
+        network.selectNodes([val]);
+        network.focus(val, { scale: 1.5, animation: true });
+        showSidebar(val, graphJson.nodes);
+        searchInput.value = "";
+      } else if (inData) {
+        // Data exists but node isn't in the graph — show sidebar without panning
+        showSidebar(val, graphJson.nodes);
+        searchInput.value = "";
+      } else {
+        searchInput.style.borderColor = "red";
+        setTimeout(() => searchInput.style.borderColor = "#ccc", 1500);
+      }
+    });
+  } catch(err) {
+    console.error("[boot] FATAL:", err);
+    setDbg("❌ Error: " + err.message);
+    document.getElementById("barPct").textContent = "Error: " + err.message;
+  }
+})();
+</script>
+</body>
+</html>
