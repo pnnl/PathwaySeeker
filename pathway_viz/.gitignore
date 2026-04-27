@@ -28,10 +28,9 @@ ui-tests/test-results
 credentials.txt
 static/json_pathway/
 static/uploads/
-# Ignore all .json files except kegg_pubchem_mapping.json and kegg_names.json
+static/structure_imgs/
+# Ignore all .json files except failed_downloads.json
 *.json
-!kegg_pubchem_mapping.json
-!kegg_names.json
 !failed_downloads.json
 *.pickle
 *.csv
