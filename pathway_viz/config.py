@@ -31,7 +31,9 @@ NODE_THRESHOLD_MEDIUM = 50
 MAX_ASPECT_RATIO = 8
 MIN_ASPECT_RATIO = 0.25
 
-# Canvas padding
+# Canvas padding — extra space around the node bounding box so that
+# bar charts, structure images, and labels that extend beyond the node
+# centre are not clipped at the canvas edge.
 MIN_CANVAS_WIDTH  = 2200
 MIN_CANVAS_HEIGHT = 1500
 CANVAS_PADDING    = 500
@@ -84,11 +86,12 @@ METABOLITE_RADIUS    = 10
 REACTION_RADIUS      = 8
 STRUCTURE_IMAGE_SIZE = 300
 
-LABEL_OFFSET_Y           = 30
+LABEL_OFFSET_Y           = 40
 COPRODUCT_LABEL_OFFSET_Y = -18
-BAR_CHART_OFFSET_Y       = 120
+BAR_CHART_OFFSET_X       = 20
+BAR_CHART_OFFSET_Y       = -50
 
-METABOLITE_LABEL_FONT_SIZE  = 15
+METABOLITE_LABEL_FONT_SIZE  = 40
 COPRODUCT_LABEL_FONT_SIZE  = 15
 CHART_TITLE_FONT_SIZE      = 18
 CHART_LABEL_FONT_SIZE      = 18
@@ -134,6 +137,7 @@ def get_frontend_config():
         # Labels
         'labelOffsetY':              LABEL_OFFSET_Y,
         'coproductLabelOffsetY':     COPRODUCT_LABEL_OFFSET_Y,
+        'barChartOffsetX':           BAR_CHART_OFFSET_X,
         'barChartOffsetY':           BAR_CHART_OFFSET_Y,
         'metaboliteLabelFontSize':   METABOLITE_LABEL_FONT_SIZE,
         'coproductLabelFontSize':    COPRODUCT_LABEL_FONT_SIZE,

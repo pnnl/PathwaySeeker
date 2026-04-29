@@ -9,6 +9,7 @@ from wtforms.validators import (
     DataRequired, Optional, NumberRange, ValidationError
 )
 import os
+import config as cfg
 
 ALLOWED_GRAPH_EXTENSIONS    = {'.pickle', '.pkl', '.json'}
 ALLOWED_CSV_EXTENSIONS      = {'.csv', '.xlsx', '.xls'}
@@ -110,51 +111,52 @@ class BackendConfigForm(FlaskForm):
     keep_positions      = HiddenField(default='1')
 
     # Layout
-    small_graph_layout_vertical = BooleanField('Vertical Layout for Small Graphs')
+    small_graph_layout_vertical = BooleanField('Vertical Layout for Small Graphs',
+                                      default=cfg.SMALL_GRAPH_LAYOUT_VERTICAL)
 
     # Canvas dimensions
     small_graph_width  = IntegerField('Small Graph Width',
                             validators=[NumberRange(min=100, max=100000)],
-                            default=800)
+                            default=cfg.SMALL_GRAPH_WIDTH)
     small_graph_height = IntegerField('Small Graph Height',
                             validators=[NumberRange(min=100, max=100000)],
-                            default=600)
+                            default=cfg.SMALL_GRAPH_HEIGHT)
     medium_graph_width  = IntegerField('Medium Graph Width',
                             validators=[NumberRange(min=100, max=200000)],
-                            default=1200)
+                            default=cfg.MEDIUM_GRAPH_WIDTH)
     medium_graph_height = IntegerField('Medium Graph Height',
                             validators=[NumberRange(min=100, max=100000)],
-                            default=800)
+                            default=cfg.MEDIUM_GRAPH_HEIGHT)
     large_graph_width  = IntegerField('Large Graph Width',
                             validators=[NumberRange(min=100, max=200000)],
-                            default=2000)
+                            default=cfg.LARGE_GRAPH_WIDTH)
     large_graph_height = IntegerField('Large Graph Height',
                             validators=[NumberRange(min=100, max=100000)],
-                            default=1200)
+                            default=cfg.LARGE_GRAPH_HEIGHT)
 
     # Node thresholds
     node_threshold_small  = IntegerField('Small Graph Node Threshold',
                                 validators=[NumberRange(min=2, max=100)],
-                                default=10)
+                                default=cfg.NODE_THRESHOLD_SMALL)
     node_threshold_medium = IntegerField('Medium Graph Node Threshold',
                                 validators=[NumberRange(min=5, max=500)],
-                                default=50)
+                                default=cfg.NODE_THRESHOLD_MEDIUM)
 
     # Coproduct positioning
     coproduct_radius = IntegerField('Coproduct Radius',
                           validators=[NumberRange(min=5, max=200)],
-                          default=50)
+                          default=cfg.COPRODUCT_RADIUS)
     coproduct_offset = IntegerField('Coproduct Offset',
                           validators=[NumberRange(min=5, max=300)],
-                          default=100)
+                          default=cfg.COPRODUCT_OFFSET)
 
     # Aspect ratio
     max_aspect_ratio = FloatField('Max Aspect Ratio',
                           validators=[NumberRange(min=1.0, max=20.0)],
-                          default=3.0)
+                          default=cfg.MAX_ASPECT_RATIO)
     min_aspect_ratio = FloatField('Min Aspect Ratio',
                           validators=[NumberRange(min=0.01, max=1.0)],
-                          default=0.3)
+                          default=cfg.MIN_ASPECT_RATIO)
 
     submit = SubmitField('Regenerate Graph')
 
@@ -172,91 +174,98 @@ class FrontendConfigForm(FlaskForm):
     # ── Node styling ─────────────────────────────────────────────────────
     nodeRadius = IntegerField('Node Radius (px)',
         validators=[NumberRange(min=1, max=200)],
-        default=15,
-        description='Default: 10px')
+        default=cfg.NODE_RADIUS,
+        description=f'Default: {cfg.NODE_RADIUS}px')
 
     metaboliteRadius = IntegerField('Metabolite Radius (px)',
         validators=[NumberRange(min=1, max=200)],
-        default=10,
-        description='Default: 10px')
+        default=cfg.METABOLITE_RADIUS,
+        description=f'Default: {cfg.METABOLITE_RADIUS}px')
 
     reactionRadius = IntegerField('Reaction Radius (px)',
         validators=[NumberRange(min=1, max=200)],
-        default=8,
-        description='Default: 8px')
+        default=cfg.REACTION_RADIUS,
+        description=f'Default: {cfg.REACTION_RADIUS}px')
 
     # ── Label styling ────────────────────────────────────────────────────
     labelOffsetY = IntegerField('Label Vertical Offset (px)',
         validators=[NumberRange(min=-500, max=500)],
-        default=20,
-        description='Default: 35px')
+        default=cfg.LABEL_OFFSET_Y,
+        description=f'Default: {cfg.LABEL_OFFSET_Y}px')
 
     metaboliteLabelFontSize = IntegerField('Metabolite Font Size (px)',
-        validators=[NumberRange(min=4, max=72)],
-        default=12,
-        description='Default: 14px')
+        validators=[NumberRange(min=4, max=200)],
+        default=cfg.METABOLITE_LABEL_FONT_SIZE,
+        description=f'Default: {cfg.METABOLITE_LABEL_FONT_SIZE}px')
 
     coproductLabelOffsetY = IntegerField('Coproduct Label Offset (px)',
         validators=[NumberRange(min=-500, max=500)],
-        default=25,
-        description='Default: 25px')
+        default=cfg.COPRODUCT_LABEL_OFFSET_Y,
+        description=f'Default: {cfg.COPRODUCT_LABEL_OFFSET_Y}px')
 
     coproductLabelFontSize = IntegerField('Coproduct Font Size (px)',
         validators=[NumberRange(min=4, max=72)],
-        default=11,
-        description='Default: 10px')
+        default=cfg.COPRODUCT_LABEL_FONT_SIZE,
+        description=f'Default: {cfg.COPRODUCT_LABEL_FONT_SIZE}px')
 
     # ── Bar chart styling ────────────────────────────────────────────────
+    barChartOffsetX = IntegerField('Bar Chart Horizontal Offset (px)',
+        validators=[NumberRange(min=-500, max=500)],
+        default=cfg.BAR_CHART_OFFSET_X,
+        description=f'Default: {cfg.BAR_CHART_OFFSET_X}px')
+
     barChartWidth = IntegerField('Bar Chart Width (px)',
         validators=[NumberRange(min=10, max=2000)],
-        default=180,
-        description='Default: 180px')
+        default=cfg.BAR_CHART_WIDTH,
+        description=f'Default: {cfg.BAR_CHART_WIDTH}px')
 
     barChartHeight = IntegerField('Bar Chart Height (px)',
         validators=[NumberRange(min=10, max=2000)],
-        default=100,
-        description='Default: 100px')
+        default=cfg.BAR_CHART_HEIGHT,
+        description=f'Default: {cfg.BAR_CHART_HEIGHT}px')
 
     barHeight = IntegerField('Bar Height Per Bar (px)',
         validators=[NumberRange(min=2, max=200)],
-        default=12,
-        description='Default: 12px')
+        default=cfg.BAR_HEIGHT,
+        description=f'Default: {cfg.BAR_HEIGHT}px')
 
     barChartOffsetY = IntegerField('Bar Chart Vertical Offset (px)',
         validators=[NumberRange(min=-500, max=500)],
-        default=60,
-        description='Default: 60px')
+        default=cfg.BAR_CHART_OFFSET_Y,
+        description=f'Default: {cfg.BAR_CHART_OFFSET_Y}px')
 
     barChartAxisPadding = IntegerField('Axis Padding (px)',
         validators=[NumberRange(min=-200, max=500)],
-        default=55,
-        description='Default: 55px')
+        default=cfg.BAR_CHART_AXIS_PADDING,
+        description=f'Default: {cfg.BAR_CHART_AXIS_PADDING}px')
 
     chartTitleFontSize = IntegerField('Chart Title Font Size (px)',
         validators=[NumberRange(min=4, max=72)],
-        default=10,
-        description='Default: 10px')
+        default=cfg.CHART_TITLE_FONT_SIZE,
+        description=f'Default: {cfg.CHART_TITLE_FONT_SIZE}px')
 
     chartLabelFontSize = IntegerField('Chart Label Font Size (px)',
         validators=[NumberRange(min=4, max=72)],
-        default=9,
-        description='Default: 9px')
+        default=cfg.CHART_LABEL_FONT_SIZE,
+        description=f'Default: {cfg.CHART_LABEL_FONT_SIZE}px')
 
     barChartTitle  = StringField('Chart Title',
         validators=[Optional()],
+        default=cfg.BAR_CHART_TITLE,
         description='Leave empty to hide')
 
     barChartXLabel = StringField('X-Axis Label',
         validators=[Optional()],
-        default='Abundance',
-        description='Default: "Abundance"')
+        default=cfg.BAR_CHART_X_LABEL,
+        description=f'Default: "{cfg.BAR_CHART_X_LABEL}"')
 
     barChartYLabel = StringField('Y-Axis Label',
         validators=[Optional()],
+        default=cfg.BAR_CHART_Y_LABEL,
         description='Leave empty to hide')
 
     # ── Images ──────────────────────────────────────────────────────────
     imageSize = IntegerField('Structure Image Size (px)',
         validators=[NumberRange(min=10, max=5000)],
-        default=200,
-        description='Default: 200px')
+        default=cfg.STRUCTURE_IMAGE_SIZE,
+        description=f'Default: {cfg.STRUCTURE_IMAGE_SIZE}px')

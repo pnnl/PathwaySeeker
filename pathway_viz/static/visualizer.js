@@ -708,7 +708,10 @@ class EscherVisualizer {
             .attr('transform', `translate(0,${yOffset})`);
 
         // Row label (metabolite name) above the panel
+        // Show only the method part if name is "MetaboliteName (method)"
         const rowName = rowEntry.metabolite_name || '';
+        const methodMatch = rowName.match(/\(([^)]+)\)$/);
+        const displayLabel = methodMatch ? methodMatch[1] : rowName;
         const labelH  = rowName ? cfg.barHeight : 0;
         if (rowName) {
             panel.append('text')
@@ -719,7 +722,7 @@ class EscherVisualizer {
                 .style('font-size',   (config.chartLabelFontSize + 1) + 'px')
                 .style('font-weight', 'bold')
                 .style('fill',        '#444')
-                .text(rowName)
+                .text(displayLabel)
                 .append('title').text(rowName);
         }
 
@@ -838,8 +841,8 @@ class EscherVisualizer {
             + gap * Math.max(renderable.length - 1, 0);
 
         const getPosition = options.getPosition || ((d, c) => ({
-            x: (d.x || 0) - c.chartWidth,
-            y: (d.y || 0) - totalH / 2,
+            x: (d.x || 0) + config.barChartOffsetX,
+            y: (d.y || 0) + config.barChartOffsetY - totalH,
         }));
 
         const pos = getPosition(data, cfgOverride);
@@ -1057,13 +1060,7 @@ class EscherVisualizer {
                 const element    = d3.select(nodes[i]);
                 const parentNode = d3.select(nodes[i].parentNode);
                 this._renderMetaboliteBarChart(
-                    parentNode, element, data, config, {
-                        getPosition: (d, cfg) => useLeft
-                            ? { x: d.x + config.barChartOffsetY,
-                                y: d.y - cfg.chartWidth }
-                            : { x: d.x - config.barChart.width / 2,
-                                y: d.y + config.barChartOffsetY },
-                    }
+                    parentNode, element, data, config
                 );
             });
     }

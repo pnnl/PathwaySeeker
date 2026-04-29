@@ -46,6 +46,7 @@ class FrontendConfig(TypedDict):
     imageSize:               int
     labelOffsetY:            int
     coproductLabelOffsetY:   int
+    barChartOffsetX:         int
     barChartOffsetY:         int
     metaboliteLabelFontSize: int
     coproductLabelFontSize:  int
@@ -413,26 +414,28 @@ def ensure_graph_loaded() -> bool:
 
 def build_template_context(json_data, view_type='full') -> dict:
     backend_form = BackendConfigForm(
-        small_graph_layout_vertical=cfg.SMALL_GRAPH_LAYOUT_VERTICAL,
-        small_graph_width=cfg.SMALL_GRAPH_WIDTH,
-        small_graph_height=cfg.SMALL_GRAPH_HEIGHT,
-        medium_graph_width=cfg.MEDIUM_GRAPH_WIDTH,
-        medium_graph_height=cfg.MEDIUM_GRAPH_HEIGHT,
-        large_graph_width=cfg.LARGE_GRAPH_WIDTH,
-        large_graph_height=cfg.LARGE_GRAPH_HEIGHT,
-        node_threshold_small=cfg.NODE_THRESHOLD_SMALL,
-        node_threshold_medium=cfg.NODE_THRESHOLD_MEDIUM,
-        coproduct_radius=cfg.COPRODUCT_RADIUS,
-        coproduct_offset=cfg.COPRODUCT_OFFSET,
-        max_aspect_ratio=cfg.MAX_ASPECT_RATIO,
-        min_aspect_ratio=cfg.MIN_ASPECT_RATIO,
-        view_type=view_type,
-        start_node=request.args.get('start', ''),
-        end_node=request.args.get('end', ''),
-        path_nodes=request.args.get('nodes', ''),
-        selected_nodes=request.args.get('selected', ''),
-        connection_distance=request.args.get('dist', ''),
-        keep_positions='1' if request.args.get('keep_pos', '1') == '1' else '0',
+        data=dict(
+            small_graph_layout_vertical=cfg.SMALL_GRAPH_LAYOUT_VERTICAL,
+            small_graph_width=cfg.SMALL_GRAPH_WIDTH,
+            small_graph_height=cfg.SMALL_GRAPH_HEIGHT,
+            medium_graph_width=cfg.MEDIUM_GRAPH_WIDTH,
+            medium_graph_height=cfg.MEDIUM_GRAPH_HEIGHT,
+            large_graph_width=cfg.LARGE_GRAPH_WIDTH,
+            large_graph_height=cfg.LARGE_GRAPH_HEIGHT,
+            node_threshold_small=cfg.NODE_THRESHOLD_SMALL,
+            node_threshold_medium=cfg.NODE_THRESHOLD_MEDIUM,
+            coproduct_radius=cfg.COPRODUCT_RADIUS,
+            coproduct_offset=cfg.COPRODUCT_OFFSET,
+            max_aspect_ratio=cfg.MAX_ASPECT_RATIO,
+            min_aspect_ratio=cfg.MIN_ASPECT_RATIO,
+            view_type=view_type,
+            start_node=request.args.get('start', ''),
+            end_node=request.args.get('end', ''),
+            path_nodes=request.args.get('nodes', ''),
+            selected_nodes=request.args.get('selected', ''),
+            connection_distance=request.args.get('dist', ''),
+            keep_positions='1' if request.args.get('keep_pos', '0') == '1' else '0',
+        )
     )
 
     # Build a populated FrontendConfigForm for the template
@@ -602,6 +605,7 @@ def find_path():
                 highlight_path=','.join(path),
                 start=start_node,
                 end=end_node,
+                keep_pos='1',
             ))
         else:
             load_or_generate_pathway_data(
@@ -616,6 +620,7 @@ def find_path():
                 view='subgraph',
                 start=start_node,
                 end=end_node,
+                keep_pos='0',
             ))
     except ValueError as e:
         flash(f'Path view error: {e}', 'error')
