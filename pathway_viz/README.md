@@ -105,9 +105,37 @@ Open **http://127.0.0.1:5000** in your browser.
 
 
 
+## Running Tests
+
+Make sure your conda environment is active and pytest is installed:
+
+```bash
+conda activate pathway_viz_env
+pip install pytest
+```
+
+Run the full test suite from the `pathway_viz` directory:
+
+```bash
+pytest tests/test_pathway_app.py -v
+```
+
+To run only the pyruvic acid statistics tests:
+
+```bash
+pytest tests/test_pathway_app.py::TestPyruvicAcidStats -v
+```
+
+To run a single test by name (e.g. the AgitWAO mean check):
+
+```bash
+pytest tests/test_pathway_app.py -k "test_pyruvate_agit_wao_mean" -v
+```
+
+
 ## Configuration
 
-All layout and styling parameters are centralized in `config.py`:
+All layout and styling parameters are centralized in `config.py`.
 
 
 ## Troubleshooting

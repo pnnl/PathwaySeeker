@@ -599,7 +599,7 @@ def _validate_metabolomics_stats(nodes, metabolomics_file):
         return ["Metabolomics validation: missing KEGG_C_number column"]
 
     df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
-    meta_cols = {"metabolite", "Tags", "KEGG_C_number"}
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
     groups    = _infer_metabolomics_condition_groups(
         df.columns.tolist(), meta_cols
     )
@@ -1252,7 +1252,7 @@ def integrate_metabolomics(nodes, filepath):
         return
 
     df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
-    meta_cols = {"metabolite", "Tags", "KEGG_C_number"}
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
 
     if _is_long_format(df):
         kegg_lookup = _long_stats(df, "KEGG_C_number")
@@ -1279,8 +1279,11 @@ def integrate_metabolomics(nodes, filepath):
         if pd.isna(kid) or str(kid).strip() in ("", "nan"):
             skipped += 1
             continue
-        kid  = str(kid).strip()
-        name = str(row.get("metabolite", kid)).strip()
+        kid    = str(kid).strip()
+        name   = str(row.get("metabolite", kid)).strip()
+        method = str(row.get("method", "")).strip()
+        if method:
+            name = f"{name} ({method})"
         row_stats = {}
         for grp, cols in groups.items():
             valid = [c for c in cols if c in df.columns]

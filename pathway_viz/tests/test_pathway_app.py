@@ -751,54 +751,65 @@ class TestMetabolomicsIntegration:
             for kid in kegg_ids
         }
 
+    def _gi_conditions(self, nodes, kid):
+        """Return the conditions dict from the first graph_info entry."""
+        gi = nodes[kid]["graph_info"]
+        assert isinstance(gi, list) and len(gi) > 0
+        return gi[0]["conditions"]
+
     def test_attaches_to_correct_node(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317", "C00423"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        assert nodes["C08317"]["graph_info"] != {}
-        assert nodes["C00423"]["graph_info"] != {}
+        assert nodes["C08317"]["graph_info"] != []
+        assert nodes["C00423"]["graph_info"] != []
 
     def test_five_conditions_dot_format(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        assert len(nodes["C08317"]["graph_info"]) == 5
+        # graph_info is a list with one entry; that entry has 5 conditions
+        gi = nodes["C08317"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        assert len(gi[0]["conditions"]) == 5
 
     def test_two_conditions_lc_format(self, metabolomics_csv_lc):
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_lc)
-        assert len(nodes["C08317"]["graph_info"]) == 2
+        gi = nodes["C08317"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        assert len(gi[0]["conditions"]) == 2
 
     def test_average_is_float(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        for cond, stats in nodes["C08317"]["graph_info"].items():
+        for cond, stats in self._gi_conditions(nodes, "C08317").items():
             assert isinstance(stats["average"], float), f"{cond}: not float"
 
     def test_std_dev_non_negative(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317", "C00423"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
         for kid in ["C08317", "C00423"]:
-            for cond, stats in nodes[kid]["graph_info"].items():
+            for cond, stats in self._gi_conditions(nodes, kid).items():
                 assert stats["std_dev"] >= 0.0
 
     def test_count_equals_four_dot_format(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        for cond, stats in nodes["C08317"]["graph_info"].items():
+        for cond, stats in self._gi_conditions(nodes, "C08317").items():
             assert stats["count"] == 4, f"{cond}: expected count=4"
 
     def test_cond_a_mean_c08317(self, metabolomics_csv_dot):
         """CondA replicates: [457623.28, 216552.3, 166988.64, 353752.56]."""
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        gi  = nodes["C08317"]["graph_info"]
-        key = next(k for k in gi if "CondA" in k)
+        conds = self._gi_conditions(nodes, "C08317")
+        key = next(k for k in conds if "CondA" in k)
         expected = np.mean([457623.28, 216552.3, 166988.64, 353752.56])
-        assert abs(gi[key]["average"] - expected) < 1.0
+        assert abs(conds[key]["average"] - expected) < 1.0
 
     def test_no_values_key_in_output(self, metabolomics_csv_dot):
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        for cond, stats in nodes["C08317"]["graph_info"].items():
+        for cond, stats in self._gi_conditions(nodes, "C08317").items():
             assert "values" not in stats
 
     def test_missing_file_noop(self):
@@ -830,10 +841,13 @@ class TestMetabolomicsIntegration:
         nodes = {"C00001": {"node_type": "metabolite",
                              "bigg_id": "C00001", "graph_info": {}}}
         integrate_metabolomics(nodes, path)
-        gi  = nodes["C00001"]["graph_info"]
-        key = next(iter(gi))
-        assert abs(gi[key]["average"] - 250.0) < 1e-6
-        assert gi[key]["count"] == 4
+        gi = nodes["C00001"]["graph_info"]
+        # Two separate rows → two entries in the list
+        assert isinstance(gi, list) and len(gi) == 2
+        # Each entry has CondA with 2 replicates
+        for entry in gi:
+            assert "CondA" in entry["conditions"]
+            assert entry["conditions"]["CondA"]["count"] == 2
 
     def test_nan_values_handled(self, tmp_path):
         content = textwrap.dedent("""\
@@ -846,19 +860,184 @@ class TestMetabolomicsIntegration:
         nodes = {"C00001": {"node_type": "metabolite",
                              "bigg_id": "C00001", "graph_info": {}}}
         integrate_metabolomics(nodes, path)
-        gi  = nodes["C00001"]["graph_info"]
-        key = next(iter(gi))
-        assert gi[key]["count"]   == 2
-        assert abs(gi[key]["average"] - 150.0) < 1e-6
+        gi = nodes["C00001"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        conds = gi[0]["conditions"]
+        assert conds["CondA"]["count"]   == 2
+        assert abs(conds["CondA"]["average"] - 150.0) < 1e-6
 
     def test_lc_format_mean_correct(self, metabolomics_csv_lc):
         """PopX_Met_P_NN_LC_M replicates [100,200,300] → mean=200."""
         nodes = self._nodes(["C08317"])
         integrate_metabolomics(nodes, metabolomics_csv_lc)
-        gi      = nodes["C08317"]["graph_info"]
-        popx_k  = next(k for k in gi if "PopX" in k)
-        assert abs(gi[popx_k]["average"] - 200.0) < 1e-3
-        assert gi[popx_k]["count"] == 3
+        gi = nodes["C08317"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        conds  = gi[0]["conditions"]
+        popx_k = next(k for k in conds if "PopX" in k)
+        assert abs(conds[popx_k]["average"] - 200.0) < 1e-3
+        assert conds[popx_k]["count"] == 3
+
+
+# =============================================================================
+# 5b. METABOLOMICS – PYRUVIC ACID (C00022) REAL-DATA VALUES
+# =============================================================================
+
+@pytest.fixture
+def metabolomics_csv_pyruvate(tmp_path):
+    """
+    Dot-suffix format with four conditions matching the curated dataset.
+    Real replicate values from metabolomics_with_C_numbers_curated.csv.
+    Expected stats for C00022 (pyruvic acid):
+        AgitWAO  : mean=55835211,     std=21681803.403
+        AgitWOAO : mean=79091843,     std=20305218.479
+        StatWAO  : mean=12663298,     std=1737316.917
+        StatWOAO : mean=33729035,     std=5774330.289
+    """
+    content = textwrap.dedent("""\
+        metabolite,AgitWAO,AgitWAO.1,AgitWAO.2,AgitWAO.3,AgitWOAO,AgitWOAO.1,AgitWOAO.2,AgitWOAO.3,StatWAO,StatWAO.1,StatWAO.2,StatWAO.3,StatWOAO,StatWOAO.1,StatWOAO.2,StatWOAO.3,KEGG_C_number
+        pyruvic acid,83831312.0,30900360.0,54095176.0,54513996.0,108778416.0,66324684.0,75606040.0,65658232.0,13483593.0,14492685.0,10465284.0,12211630.0,31030902.0,30228986.0,31292348.0,42363904.0,C00022
+    """)
+    path = str(tmp_path / "metabolomics_pyruvate.csv")
+    with open(path, "w") as f:
+        f.write(content)
+    return path
+
+
+class TestPyruvicAcidStats:
+    """
+    Verify that integrate_metabolomics produces the correct mean and std_dev
+    for pyruvic acid (C00022) across all four conditions.
+
+    Expected values (from Gsub_pellet dataset):
+        AgitWAO  : mean = 55 835 211,   std = 21 681 803.4
+        AgitWOAO : mean = 79 091 843,   std = 20 305 218.48
+        StatWAO  : mean = 12 663 298,   std =  1 737 316.917
+        StatWOAO : mean = 33 729 035,   std =  5 774 330.289
+    """
+
+    def _nodes(self, kegg_ids):
+        return {
+            kid: {"node_type": "metabolite", "bigg_id": kid, "graph_info": {}}
+            for kid in kegg_ids
+        }
+
+    def _get_cond_stats(self, nodes, kegg_id, cond_name):
+        """Return the stats dict for a given condition from graph_info list."""
+        gi = nodes[kegg_id]["graph_info"]
+        assert isinstance(gi, list) and len(gi) > 0, (
+            f"graph_info for {kegg_id} is empty or not a list"
+        )
+        conditions = gi[0]["conditions"]
+        key = next(
+            (k for k in conditions if cond_name in k),
+            None,
+        )
+        assert key is not None, (
+            f"Condition '{cond_name}' not found in graph_info. "
+            f"Available: {list(conditions.keys())}"
+        )
+        return conditions[key]
+
+    def test_pyruvate_node_has_graph_info(self, metabolomics_csv_pyruvate):
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        assert nodes["C00022"]["graph_info"] != {}
+
+    def test_pyruvate_four_conditions(self, metabolomics_csv_pyruvate):
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        gi = nodes["C00022"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        assert len(gi[0]["conditions"]) == 4
+
+    def test_pyruvate_agit_wao_mean(self, metabolomics_csv_pyruvate):
+        """AgitWAO mean should be 55 835 211."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "AgitWAO")
+        assert abs(stats["average"] - 55_835_211) < 1.0, (
+            f"AgitWAO mean: expected 55835211, got {stats['average']}"
+        )
+
+    def test_pyruvate_agit_wao_std(self, metabolomics_csv_pyruvate):
+        """AgitWAO std should be 21 681 803.4."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "AgitWAO")
+        assert abs(stats["std_dev"] - 21_681_803.4) < 1.0, (
+            f"AgitWAO std: expected 21681803.4, got {stats['std_dev']}"
+        )
+
+    def test_pyruvate_agit_woao_mean(self, metabolomics_csv_pyruvate):
+        """AgitWOAO mean should be 79 091 843."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "AgitWOAO")
+        assert abs(stats["average"] - 79_091_843) < 1.0, (
+            f"AgitWOAO mean: expected 79091843, got {stats['average']}"
+        )
+
+    def test_pyruvate_agit_woao_std(self, metabolomics_csv_pyruvate):
+        """AgitWOAO std should be 20 305 218.48."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "AgitWOAO")
+        assert abs(stats["std_dev"] - 20_305_218.48) < 1.0, (
+            f"AgitWOAO std: expected 20305218.48, got {stats['std_dev']}"
+        )
+
+    def test_pyruvate_stat_wao_mean(self, metabolomics_csv_pyruvate):
+        """StatWAO mean should be 12 663 298."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "StatWAO")
+        assert abs(stats["average"] - 12_663_298) < 1.0, (
+            f"StatWAO mean: expected 12663298, got {stats['average']}"
+        )
+
+    def test_pyruvate_stat_wao_std(self, metabolomics_csv_pyruvate):
+        """StatWAO std should be 1 737 316.917."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "StatWAO")
+        assert abs(stats["std_dev"] - 1_737_316.917) < 1.0, (
+            f"StatWAO std: expected 1737316.917, got {stats['std_dev']}"
+        )
+
+    def test_pyruvate_stat_woao_mean(self, metabolomics_csv_pyruvate):
+        """StatWOAO mean should be 33 729 035."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "StatWOAO")
+        assert abs(stats["average"] - 33_729_035) < 1.0, (
+            f"StatWOAO mean: expected 33729035, got {stats['average']}"
+        )
+
+    def test_pyruvate_stat_woao_std(self, metabolomics_csv_pyruvate):
+        """StatWOAO std should be 5 774 330.289."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        stats = self._get_cond_stats(nodes, "C00022", "StatWOAO")
+        assert abs(stats["std_dev"] - 5_774_330.289) < 1.0, (
+            f"StatWOAO std: expected 5774330.289, got {stats['std_dev']}"
+        )
+
+    def test_pyruvate_metabolite_name(self, metabolomics_csv_pyruvate):
+        """graph_info[0]['metabolite_name'] should be 'pyruvic acid' (as in CSV)."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        gi = nodes["C00022"]["graph_info"]
+        assert gi[0]["metabolite_name"] == "pyruvic acid"
+
+    def test_pyruvate_count_four_per_condition(self, metabolomics_csv_pyruvate):
+        """Each condition should have count=4 (4 replicates)."""
+        nodes = self._nodes(["C00022"])
+        integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
+        gi = nodes["C00022"]["graph_info"]
+        for cond, stats in gi[0]["conditions"].items():
+            assert stats["count"] == 4, (
+                f"Condition '{cond}': expected count=4, got {stats['count']}"
+            )
 
 
 # =============================================================================
@@ -1330,8 +1509,10 @@ class TestOmicsValidation:
         nodes, segs = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        first_cond = next(iter(nodes["C08317"]["graph_info"]))
-        nodes["C08317"]["graph_info"][first_cond]["average"] = -999.0
+        # graph_info is a list; corrupt the first condition in the first entry
+        gi = nodes["C08317"]["graph_info"]
+        first_cond = next(iter(gi[0]["conditions"]))
+        gi[0]["conditions"][first_cond]["average"] = -999.0
         with pytest.raises(AssertionError, match="average mismatch"):
             validate_against_graph(
                 G, nodes, segs, metabolomics_file=metabolomics_csv_dot
@@ -1347,8 +1528,9 @@ class TestOmicsValidation:
         nodes, segs = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        first_cond = next(iter(nodes["C08317"]["graph_info"]))
-        nodes["C08317"]["graph_info"][first_cond]["count"] = 9999
+        gi = nodes["C08317"]["graph_info"]
+        first_cond = next(iter(gi[0]["conditions"]))
+        gi[0]["conditions"][first_cond]["count"] = 9999
         with pytest.raises(AssertionError, match="count mismatch"):
             validate_against_graph(
                 G, nodes, segs, metabolomics_file=metabolomics_csv_dot
@@ -1364,8 +1546,9 @@ class TestOmicsValidation:
         nodes, segs = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        first_cond = next(iter(nodes["C08317"]["graph_info"]))
-        nodes["C08317"]["graph_info"][first_cond]["average"] = -999.0
+        gi = nodes["C08317"]["graph_info"]
+        first_cond = next(iter(gi[0]["conditions"]))
+        gi[0]["conditions"][first_cond]["average"] = -999.0
         validate_against_graph(G, nodes, segs)   # no file → no error
 
     def test_proteomics_validation_passes(
@@ -1568,13 +1751,17 @@ class TestBarChartDataShape:
         }
         integrate_metabolomics(nodes, metabolomics_csv_dot)
         for kid in ["C08317", "C00423"]:
-            self._check_stats(nodes[kid]["graph_info"], label=kid)
+            gi = nodes[kid]["graph_info"]
+            assert isinstance(gi, list) and len(gi) > 0
+            self._check_stats(gi[0]["conditions"], label=kid)
 
     def test_metabolomics_five_bars_dot(self, metabolomics_csv_dot):
         nodes = {"C08317": {"node_type": "metabolite",
                              "bigg_id": "C08317", "graph_info": {}}}
         integrate_metabolomics(nodes, metabolomics_csv_dot)
-        assert len(nodes["C08317"]["graph_info"]) == 5
+        gi = nodes["C08317"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        assert len(gi[0]["conditions"]) == 5
 
     def test_proteomics_shape_dot(self, proteomics_csv_dot):
         segs = {
@@ -1630,9 +1817,9 @@ class TestBarChartDataShape:
         for nid, nd in nodes_dict.items():
             if nd.get("node_type") != "metabolite":
                 continue
-            gi = nd.get("graph_info", {})
-            if gi:
-                self._check_stats(gi, label=f"node {nid}")
+            gi = nd.get("graph_info")
+            if gi and isinstance(gi, list) and len(gi) > 0:
+                self._check_stats(gi[0]["conditions"], label=f"node {nid}")
 
         for sid, seg in segs_dict.items():
             if seg.get("edge_type") != "reactant_edge":
@@ -2006,18 +2193,19 @@ class TestKeggNameLookup:
         nodes = {"C00001": {"node_type": "metabolite",
                             "bigg_id": "C00001", "graph_info": {}}}
         integrate_metabolomics(nodes, path)
-        gi  = nodes["C00001"]["graph_info"]
-        key = next(iter(gi))
+        gi    = nodes["C00001"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        conds = gi[0]["conditions"]
+        stats = conds["CondA"]
 
         # Only 3 non-NaN values: 100, 300, 400
-        assert gi[key]["count"]   == 3
-        assert gi[key]["average"] == pytest.approx(
+        assert stats["count"]   == 3
+        assert stats["average"] == pytest.approx(
             np.mean([100.0, 300.0, 400.0]), abs=1e-6
         )
-        assert gi[key]["std_dev"] == pytest.approx(
+        assert stats["std_dev"] == pytest.approx(
             np.std([100.0, 300.0, 400.0], ddof=1), abs=1e-6
         )
-
 
     def test_all_nan_condition_absent_from_graph_info(self, tmp_path):
         """
@@ -2034,10 +2222,12 @@ class TestKeggNameLookup:
         nodes = {"C00001": {"node_type": "metabolite",
                             "bigg_id": "C00001", "graph_info": {}}}
         integrate_metabolomics(nodes, path)
-        gi = nodes["C00001"]["graph_info"]
+        gi    = nodes["C00001"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        conds = gi[0]["conditions"]
 
-        assert "CondA" in gi,   "CondA (has data) should be present"
-        assert "CondB" not in gi, "CondB (all NaN) should be absent"
+        assert "CondA" in conds,     "CondA (has data) should be present"
+        assert "CondB" not in conds, "CondB (all NaN) should be absent"
     def test_values_survive_json_serialisation(
         self, tmp_dir, kegg_cache_path,
         metabolomics_csv_dot, proteomics_csv_dot
@@ -2071,17 +2261,25 @@ class TestKeggNameLookup:
         disk_nodes = from_disk[1]["nodes"]
         disk_segs  = next(iter(from_disk[1]["reactions"].values()))["segments"]
 
-        # Compare metabolite node averages
+        # Compare metabolite node averages (graph_info is a list of entries)
         for nid, nd in in_memory_nodes.items():
             if nd.get("node_type") != "metabolite":
                 continue
-            gi_mem  = nd.get("graph_info", {})
-            gi_disk = disk_nodes.get(nid, {}).get("graph_info", {})
-            for cond, stats in gi_mem.items():
-                assert cond in gi_disk, f"Condition {cond} lost for node {nid}"
-                assert abs(
-                    stats["average"] - gi_disk[cond]["average"]
-                ) < 1e-6, f"Average changed after JSON round-trip: {nid}/{cond}"
+            gi_mem  = nd.get("graph_info")
+            gi_disk = disk_nodes.get(nid, {}).get("graph_info")
+            if not isinstance(gi_mem, list) or not isinstance(gi_disk, list):
+                continue
+            for entry_m, entry_d in zip(gi_mem, gi_disk):
+                for cond, stats in entry_m.get("conditions", {}).items():
+                    disk_conds = entry_d.get("conditions", {})
+                    assert cond in disk_conds, (
+                        f"Condition {cond} lost for node {nid}"
+                    )
+                    assert abs(
+                        stats["average"] - disk_conds[cond]["average"]
+                    ) < 1e-6, (
+                        f"Average changed after JSON round-trip: {nid}/{cond}"
+                    )
 
         # Compare proteomics segment averages
         for sid, seg in in_memory_segs.items():
@@ -2167,11 +2365,13 @@ class TestKeggNameLookup:
                             "bigg_id": "C08317", "graph_info": {}}}
         integrate_metabolomics(nodes, metabolomics_csv_dot)
         gi = nodes["C08317"]["graph_info"]
+        assert isinstance(gi, list) and len(gi) == 1
+        conds = gi[0]["conditions"]
 
-        stored_total = sum(s["count"] for s in gi.values())
+        stored_total = sum(s["count"] for s in conds.values())
 
         # Count non-NaN values for C08317 in CSV
-        row      = df[df["KEGG_C_number"] == "C08317"].iloc[0]
+        row       = df[df["KEGG_C_number"] == "C08317"].iloc[0]
         data_cols = [c for c in df.columns if c not in meta]
         csv_total = int(pd.to_numeric(row[data_cols], errors="coerce")
                         .notna().sum())
@@ -2179,12 +2379,13 @@ class TestKeggNameLookup:
         assert stored_total == csv_total, (
             f"Stored count total {stored_total} != CSV non-NaN count {csv_total}"
         )
+
     def test_pooling_against_manual_calculation(self, tmp_path):
         """
-        Two rows for C00001:
-        row1 CondA: [10, 20, 30]  → sum=60
-        row2 CondA: [40, 50, 60]  → sum=150
-        pooled: [10,20,30,40,50,60] → mean=35, std=ddof1, count=6
+        Two rows for C00001 → two separate graph_info entries (not pooled).
+        row1 CondA: [10, 20, 30]  → mean=20
+        row2 CondA: [40, 50, 60]  → mean=50
+        Each entry is independent; values are NOT pooled across rows.
         """
         content = textwrap.dedent("""\
             metabolite,CondA,CondA.1,CondA.2,KEGG_C_number
@@ -2197,13 +2398,12 @@ class TestKeggNameLookup:
         nodes = {"C00001": {"node_type": "metabolite",
                             "bigg_id": "C00001", "graph_info": {}}}
         integrate_metabolomics(nodes, path)
-        gi  = nodes["C00001"]["graph_info"]
-        key = next(iter(gi))
+        gi = nodes["C00001"]["graph_info"]
+        # Two separate rows → two entries
+        assert isinstance(gi, list) and len(gi) == 2
 
-        all_vals     = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
-        expected_avg = float(np.mean(all_vals))
-        expected_std = float(np.std(all_vals, ddof=1))
-
-        assert gi[key]["average"] == pytest.approx(expected_avg, abs=1e-6)
-        assert gi[key]["std_dev"] == pytest.approx(expected_std, abs=1e-6)
-        assert gi[key]["count"]   == 6
+        avgs = sorted(entry["conditions"]["CondA"]["average"] for entry in gi)
+        assert avgs[0] == pytest.approx(np.mean([10.0, 20.0, 30.0]), abs=1e-6)
+        assert avgs[1] == pytest.approx(np.mean([40.0, 50.0, 60.0]), abs=1e-6)
+        for entry in gi:
+            assert entry["conditions"]["CondA"]["count"] == 3

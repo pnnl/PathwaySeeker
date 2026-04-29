@@ -377,7 +377,7 @@ def collect_values_from_row(row: pd.Series, cols: list, df_columns: list) -> lis
 # =============================================================================
 
 # Columns in the metabolomics CSV that are NOT measurement data
-METABOLOMICS_META_COLS = {"metabolite", "Tags", "KEGG_C_number"}
+METABOLOMICS_META_COLS = {"metabolite", "Tags", "KEGG_C_number", "method"}
 
 
 def process_metabolomics(filepath: str) -> list:
@@ -456,9 +456,12 @@ def process_metabolomics(filepath: str) -> list:
             continue
 
         met_name = str(row.get("metabolite", kegg_id)).strip()
+        method   = str(row.get("method", "")).strip()
         is_dup   = kegg_occurrences.get(kegg_id, 1) > 1
 
-        if is_dup:
+        if method:
+            met_name = f"{met_name} ({method})"
+        elif is_dup:
             kegg_row_counter[kegg_id] = kegg_row_counter.get(kegg_id, 0) + 1
             met_name = f"{met_name}_row{kegg_row_counter[kegg_id]}"
 
