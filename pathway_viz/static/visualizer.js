@@ -698,8 +698,9 @@ class EscherVisualizer {
         });
         if (!conditions.length) return 0;
 
-        const values = conditions.map(k => conditionsObj[k]?.average ?? 0);
-        const maxVal = Math.max(...values, 1e-9);
+        const values  = conditions.map(k => conditionsObj[k]?.average ?? 0);
+        const stdDevs = conditions.map(k => conditionsObj[k]?.std_dev ?? 0);
+        const maxVal  = Math.max(...values.map((v, i) => v + stdDevs[i]), 1e-9);
         const chartH = cfg.barHeight * conditions.length;
         const drawW  = cfg.chartWidth - cfg.axisPadding;
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
@@ -743,7 +744,7 @@ class EscherVisualizer {
         barsGroup.append('g')
             .attr('class',     'x-axis')
             .attr('transform', `translate(0,${chartH})`)
-            .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
+            .call(d3.axisBottom(xScale).ticks(3).tickFormat(d => d3.format('.1e')(d).replace(/\.0(e)/, '$1')))
             .selectAll('text')
             .style('font-size', config.chartLabelFontSize + 'px')
             .style('fill',      '#555');
@@ -777,6 +778,32 @@ class EscherVisualizer {
                     d3.select(this).attr('fill', barColor);
                     barsGroup.selectAll('.value-label').remove();
                 });
+
+            // Error bar
+            if (std > 0) {
+                const cy       = i * cfg.barHeight + (cfg.barHeight - 2) / 2;
+                const capH     = Math.min(cfg.barHeight - 4, 6);
+                const errEnd   = xScale(avg + std);
+                const errStart = xScale(Math.max(avg - std, 0));
+                // horizontal line
+                barsGroup.append('line')
+                    .attr('x1', errStart).attr('x2', errEnd)
+                    .attr('y1', cy).attr('y2', cy)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+                // left cap
+                barsGroup.append('line')
+                    .attr('x1', errStart).attr('x2', errStart)
+                    .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+                // right cap
+                barsGroup.append('line')
+                    .attr('x1', errEnd).attr('x2', errEnd)
+                    .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+            }
         });
 
         return labelH + chartH + bc.barHeight; // panel height incl. axis space
@@ -916,8 +943,9 @@ class EscherVisualizer {
         let maxVal = 1e-9;
         proteinList.forEach(p =>
             conditions.forEach(c => {
-                const v = p.stats?.[c]?.average ?? 0;
-                if (v > maxVal) maxVal = v;
+                const avg = p.stats?.[c]?.average ?? 0;
+                const std = p.stats?.[c]?.std_dev ?? 0;
+                if (avg + std > maxVal) maxVal = avg + std;
             })
         );
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
@@ -987,7 +1015,7 @@ class EscherVisualizer {
                 pGroup.append('g')
                     .attr('class',     'x-axis')
                     .attr('transform', `translate(0,${singleH})`)
-                    .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
+                    .call(d3.axisBottom(xScale).ticks(3).tickFormat(d => d3.format('.1e')(d).replace(/\.0(e)/, '$1')))
                     .selectAll('text')
                     .style('font-size', config.chartLabelFontSize + 'px')
                     .style('fill',      '#555');
@@ -1030,6 +1058,29 @@ class EscherVisualizer {
                         d3.select(this).attr('opacity', 1);
                         pGroup.selectAll('.value-label').remove();
                     });
+
+                // Error bar
+                if (std > 0) {
+                    const cy       = ci * barH + (barH - 2) / 2;
+                    const capH     = Math.min(barH - 4, 6);
+                    const errEnd   = xScale(avg + std);
+                    const errStart = xScale(Math.max(avg - std, 0));
+                    pGroup.append('line')
+                        .attr('x1', errStart).attr('x2', errEnd)
+                        .attr('y1', cy).attr('y2', cy)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                    pGroup.append('line')
+                        .attr('x1', errStart).attr('x2', errStart)
+                        .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                    pGroup.append('line')
+                        .attr('x1', errEnd).attr('x2', errEnd)
+                        .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                }
             });
         });
     }
