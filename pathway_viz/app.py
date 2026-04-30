@@ -59,6 +59,7 @@ class FrontendConfig(TypedDict):
     barChartTitle:           str
     barChartXLabel:          str
     barChartYLabel:          str
+    barMinCount:             int
 
 
 # =============================================================================

@@ -31,6 +31,7 @@ const CONFIG_DEFAULTS = Object.freeze({
     barChartXLabel:           'Abundance',
     barChartTitle:            '',
     barChartYLabel:           '',
+    barMinCount:              1,
     smallGraphLayoutVertical: true,
     nodeThresholdSmall:       20,
     barChartWidth:            200,
@@ -360,6 +361,7 @@ class PathwayApp {
             barChartTitle:           txt('barChartTitle'),
             barChartXLabel:          txt('barChartXLabel'),
             barChartYLabel:          txt('barChartYLabel'),
+            barMinCount:             num('barMinCount',             CONFIG_DEFAULTS.barMinCount),
         };
     }
 
@@ -418,7 +420,7 @@ class PathwayApp {
         const chartsChanged = affects(
             'barChartWidth', 'barChartHeight', 'barHeight',
             'barChartOffsetX', 'barChartOffsetY', 'barChartAxisPadding', 'barChartXLabel',
-            'barChartTitle', 'chartLabelFontSize', 'chartTitleFontSize'
+            'barChartTitle', 'chartLabelFontSize', 'chartTitleFontSize', 'barMinCount'
         );
         const labelsChanged = affects(
             'labelOffsetY', 'coproductLabelOffsetY',

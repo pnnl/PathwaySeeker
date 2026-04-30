@@ -264,6 +264,11 @@ class FrontendConfigForm(FlaskForm):
         default=cfg.BAR_CHART_Y_LABEL,
         description='Leave empty to hide')
 
+    barMinCount = IntegerField('Min Replicate Count to Show Bar',
+        validators=[NumberRange(min=0, max=10000)],
+        default=cfg.BAR_MIN_COUNT,
+        description=f'Only draw a bar if its replicate count ≥ this value (0 = show all)')
+
     # ── Images ──────────────────────────────────────────────────────────
     imageSize = IntegerField('Structure Image Size (px)',
         validators=[NumberRange(min=10, max=5000)],

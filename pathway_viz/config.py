@@ -103,6 +103,7 @@ BAR_CHART_AXIS_PADDING = 20
 BAR_CHART_TITLE        = ""
 BAR_CHART_X_LABEL      = "Abundance"
 BAR_CHART_Y_LABEL      = ""
+BAR_MIN_COUNT          = 1   # Only render a bar if its replicate count >= this value
 # Origin colours for metabolite nodes
 ORIGIN_COLOURS = {
     "metabolomics": "#2a9d8f",
@@ -151,6 +152,7 @@ def get_frontend_config():
         'barChartTitle':       BAR_CHART_TITLE,
         'barChartXLabel':      BAR_CHART_X_LABEL,
         'barChartYLabel':      BAR_CHART_Y_LABEL,
+        'barMinCount':         BAR_MIN_COUNT,
         # Layout hints needed by frontend
         'smallGraphLayoutVertical': SMALL_GRAPH_LAYOUT_VERTICAL,
         'nodeThresholdSmall':       NODE_THRESHOLD_SMALL,
