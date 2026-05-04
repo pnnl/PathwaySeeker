@@ -222,7 +222,7 @@
     </div>
     <div id="sidebar-body">
       <div id="placeholder">
-         Click any <strong>edge</strong> to see bar charts for the reaction (R-number) and all compounds (C-numbers) in its equation.<br><br>
+         Click any <strong>edge</strong> to see bar charts for the reaction (R-number) and all compounds (C-numbers) in its equation.
         <small id="debug-status" style="color:#aaa;font-size:.75rem;"></small>
       </div>
       <div id="charts-area" style="display:none"></div>
@@ -394,7 +394,7 @@ function buildNetwork(graphJson) {
       label:  undefined,
       arrows: "to",
       color:  { color: "#999999", inherit: false },
-      width:  3,
+      width:  5,
     }))
   );
 
@@ -408,7 +408,7 @@ function buildNetwork(graphJson) {
         smooth: { enabled: true, type: "dynamic" },
         color:  { inherit: false },
       },
-      interaction: { dragNodes: true, hideEdgesOnDrag: false },
+      interaction: { dragNodes: true, hideEdgesOnDrag: false, selectConnectedEdges: false },
       physics: {
         enabled: true,
         forceAtlas2Based: {
@@ -444,8 +444,9 @@ function buildNetwork(graphJson) {
     network.setOptions({ physics: { enabled: false } });
   });
 
-  // Click handler — only respond to edge clicks
+  // Click handler — only respond to edge clicks (not node clicks)
   network.on("click", params => {
+    if (params.nodes.length > 0) return;  // ignore node clicks
     if (params.edges.length > 0) {
       // Find the edge object from graphJson by matching the vis edge id (index)
       const edgeIdx = params.edges[0];
@@ -458,14 +459,14 @@ function buildNetwork(graphJson) {
   network.on("hoverEdge", params => {
     const edgeId = params.edge;
     if (edgeId !== null && edgeId !== undefined) {
-      edges.update({ id: edgeId, width: 6 });
+      edges.update({ id: edgeId, width: 10 });
     }
   });
 
   network.on("blurEdge", params => {
     const edgeId = params.edge;
     if (edgeId !== null && edgeId !== undefined) {
-      edges.update({ id: edgeId, width: 3 });
+      edges.update({ id: edgeId, width: 5 });
     }
   });
 
@@ -1012,8 +1013,8 @@ function buildVegaSpec(conditions, title, yLabel, barColor, minSampleCount = 3) 
       }
     });
 
-    // Search box: on Enter or selection, focus + select the node and show sidebar.
-    // Datalist options may have the format "Name (C00022)" — resolve to raw node ID.
+    // Search box: on Enter or selection, focus the node in the graph.
+    // Only show sidebar for reaction IDs (R-numbers) since only edges trigger charts.
     const searchInput = document.getElementById("node-search");
     searchInput.style.pointerEvents = "auto";
     searchInput.addEventListener("change", () => {
@@ -1025,16 +1026,9 @@ function buildVegaSpec(conditions, title, yLabel, barColor, minSampleCount = 3) 
       const resolvedId = parenMatch ? parenMatch[1] : val;
 
       const inGraph = graphNodeIds.has(resolvedId);
-      const inData  = seenDataIds.has(resolvedId) || seenDataIds.has(val);
 
       if (inGraph) {
-        network.selectNodes([resolvedId]);
         network.focus(resolvedId, { scale: 1.5, animation: true });
-        showSidebar(resolvedId, graphJson.nodes);
-        searchInput.value = "";
-      } else if (inData) {
-        // Data exists but node isn't in the graph — show sidebar without panning
-        showSidebar(resolvedId, graphJson.nodes);
         searchInput.value = "";
       } else {
         searchInput.style.borderColor = "red";
