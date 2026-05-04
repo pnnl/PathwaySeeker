@@ -193,6 +193,80 @@ def load_ko_reaction_map(ko_reactions_path: str,
 # SECTION 2 – REPLICATE COLUMN GROUPING
 # =============================================================================
 
+def _split_sequential_groups(cond_base: str, cols: list,
+                              num_extractor) -> dict:
+    """
+    Given a list of columns that all share the same *cond_base* condition
+    name, split them into sub-groups where each sub-group contains only
+    columns whose extracted integers form a **consecutive sequential run**
+    (i.e. each number is exactly 1 more than the previous).
+
+    Columns with no extractable integer are placed in their own singleton
+    group.
+
+    Sub-group naming:
+    - If there is only one sub-group (all numbers are already sequential or
+      there are no numbers), the original *cond_base* is returned unchanged.
+    - If there are multiple sub-groups, each is named
+      ``<cond_base>_run<first_number_in_run>`` so the condition names remain
+      unique and informative.
+
+    Parameters
+    ----------
+    cond_base     : str   – the base condition name (number already stripped).
+    cols          : list  – column names belonging to this condition.
+    num_extractor : callable(col) -> int | None
+                    Returns the integer replicate number from a column name,
+                    or None if no number can be extracted.
+
+    Returns
+    -------
+    dict  { sub_condition_name: [col, ...] }
+    """
+    # Pair each column with its extracted number; sort by number (None last)
+    numbered   = []
+    unnumbered = []
+    for col in cols:
+        n = num_extractor(col)
+        if n is None:
+            unnumbered.append(col)
+        else:
+            numbered.append((n, col))
+
+    numbered.sort(key=lambda x: x[0])
+
+    # Split numbered columns into consecutive runs
+    runs = []   # list of list of (n, col)
+    for item in numbered:
+        if not runs:
+            runs.append([item])
+        else:
+            prev_n = runs[-1][-1][0]
+            if item[0] == prev_n + 1:
+                runs[-1].append(item)
+            else:
+                runs.append([item])
+
+    # Unnumbered columns each become their own singleton run
+    for col in unnumbered:
+        runs.append([(None, col)])
+
+    if len(runs) <= 1:
+        # Everything is already sequential – keep the original name
+        return {cond_base: cols}
+
+    # Multiple runs – name each by its first number
+    result = {}
+    for run in runs:
+        first_n = run[0][0]
+        if first_n is None:
+            sub_name = f"{cond_base}_nonum"
+        else:
+            sub_name = f"{cond_base}_run{first_n}"
+        result[sub_name] = [col for _, col in run]
+    return result
+
+
 def group_replicate_columns(data_cols: list) -> dict:
     """
     Detect the replicate-naming pattern used in *data_cols* and group
@@ -217,6 +291,11 @@ def group_replicate_columns(data_cols: list) -> dict:
         Detection : r'\\.\\d+$'  (end-anchored)
 
     Fallback – if none match, each column is its own singleton condition.
+
+    Within each detected pattern, columns are further split so that only
+    **sequentially consecutive** numbers are grouped together.  For example,
+    columns numbered 01/02/03 and 16/17/18 that share the same prefix will
+    produce TWO separate conditions rather than one.
 
     Returns
     -------
@@ -249,6 +328,19 @@ def group_replicate_columns(data_cols: list) -> dict:
     def _cond_pattern1(col):
         return col.split('.')[0]
 
+    # Number extractors (return int or None)
+    def _num_pattern3(col):
+        m = re.search(r'_BioRep(\d+)$', col, re.IGNORECASE)
+        return int(m.group(1)) if m else None
+
+    def _num_pattern2(col):
+        m = re.search(r'_(\d+)_LC(?:_|$)', col)
+        return int(m.group(1)) if m else None
+
+    def _num_pattern1(col):
+        m = re.search(r'\.(\d+)$', col)
+        return int(m.group(1)) if m else None
+
     has_p3 = any(_is_pattern3(c) for c in data_cols)
     has_p2 = any(_is_pattern2(c) for c in data_cols)
     has_p1 = any(_is_pattern1(c) for c in data_cols)
@@ -266,14 +358,17 @@ def group_replicate_columns(data_cols: list) -> dict:
         )
 
     if has_p3:
-        extractor = _cond_pattern3
-        pattern_name = "BioRepN"
+        extractor     = _cond_pattern3
+        num_extractor = _num_pattern3
+        pattern_name  = "BioRepN"
     elif has_p2:
-        extractor = _cond_pattern2
-        pattern_name = "_NN_LC"
+        extractor     = _cond_pattern2
+        num_extractor = _num_pattern2
+        pattern_name  = "_NN_LC"
     elif has_p1:
-        extractor = _cond_pattern1
-        pattern_name = "dot-number"
+        extractor     = _cond_pattern1
+        num_extractor = _num_pattern1
+        pattern_name  = "dot-number"
     else:
         print(
             "[WARNING] Could not detect a replicate-naming pattern. "
@@ -283,10 +378,17 @@ def group_replicate_columns(data_cols: list) -> dict:
 
     print(f"[Grouping] Detected replicate pattern: {pattern_name!r}")
 
-    groups: dict = {}
+    # First pass: group by stripped condition name
+    raw_groups: dict = {}
     for col in data_cols:
         cond = extractor(col)
-        groups.setdefault(cond, []).append(col)
+        raw_groups.setdefault(cond, []).append(col)
+
+    # Second pass: split each raw group into sequential sub-groups
+    groups: dict = {}
+    for cond_base, cols in raw_groups.items():
+        sub = _split_sequential_groups(cond_base, cols, num_extractor)
+        groups.update(sub)
 
     for cond, cols in sorted(groups.items()):
         print(f"  {cond!r}: {len(cols)} replicate(s) -> {cols}")
