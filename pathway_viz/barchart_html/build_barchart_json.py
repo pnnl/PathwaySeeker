@@ -47,6 +47,7 @@ Pipeline
         {
           "kegg_id":    "C00002",
           "metabolite": "Adenosine",
+          "method":     "RP Positive",
           "conditions": [
             { "condition": "ConditionA", "mean": 1234.5, "std": 56.7, "n": 9 },
             ...
@@ -60,6 +61,7 @@ Pipeline
           "proteins": [
             {
               "protein_id": "jgi|OrgA|...",
+              "description": "enzyme description",
               "conditions": [
                 { "condition": "TreatmentA_28C", "mean": 30.1, "std": 0.7, "n": 3 },
                 ...
@@ -222,6 +224,9 @@ def _split_sequential_groups(cond_base: str, cols: list,
     Returns
     -------
     dict  { sub_condition_name: [col, ...] }
+    
+    Each sub_condition_name includes the range (e.g., 'run22_24') for sequential
+    numbered runs, and stores metadata about original column names.
     """
     # Pair each column with its extracted number; sort by number (None last)
     numbered   = []
@@ -255,14 +260,19 @@ def _split_sequential_groups(cond_base: str, cols: list,
         # Everything is already sequential – keep the original name
         return {cond_base: cols}
 
-    # Multiple runs – name each by its first number
+    # Multiple runs – name each by its range (e.g., run22_24 for 22,23,24)
     result = {}
     for run in runs:
         first_n = run[0][0]
+        last_n = run[-1][0]
         if first_n is None:
             sub_name = f"{cond_base}_nonum"
-        else:
+        elif first_n == last_n:
+            # Single number
             sub_name = f"{cond_base}_run{first_n}"
+        else:
+            # Range (e.g., run22_24)
+            sub_name = f"{cond_base}_run{first_n}_{last_n}"
         result[sub_name] = [col for _, col in run]
     return result
 
@@ -498,6 +508,7 @@ def process_metabolomics(filepath: str) -> list:
         {
           "kegg_id":    "C00002",
           "metabolite": "Adenosine_row1",
+          "method":     "RP Positive",
           "conditions": [
             { "condition": "...", "mean": ..., "std": ..., "n": ... },
             ...
@@ -576,7 +587,11 @@ def process_metabolomics(filepath: str) -> list:
                     context=f"{kegg_id} / {met_name} / {cond}"
                 )
                 if stats:
-                    conditions.append({"condition": cond, **stats})
+                    conditions.append({
+                        "condition": cond,
+                        "columns": cols,  # store original column names for tooltip
+                        **stats
+                    })
 
         if not conditions:
             skipped_no_data += 1
@@ -588,6 +603,7 @@ def process_metabolomics(filepath: str) -> list:
             "kegg_id":    kegg_id,
             "name":       str(row.get("metabolite", kegg_id)).strip(),  # base name, no _rowN suffix
             "metabolite": met_name,
+            "method":     method,
             "conditions": conditions,
         })
 
@@ -644,6 +660,7 @@ def process_proteomics(filepath: str, ko_map: dict,
           "proteins": [
             {
               "protein_id": "jgi|Cersu1|...",
+              "description": "enzyme description from CSV",
               "conditions": [
                 { "condition": "TreatmentA_28C", "mean": ..., "std": ..., "n": ... },
                 ...
@@ -700,7 +717,7 @@ def process_proteomics(filepath: str, ko_map: dict,
 
     # Build a lookup: proteinID -> original row (for annotating the long CSV)
     # Set proteinID as the index for fast access
-    orig_cols = [c for c in df.columns]          # all original columns
+    orig_cols = list(df.columns)
     protein_row_lookup = {
         str(row["proteinID"]).strip(): row
         for _, row in df.iterrows()
@@ -709,6 +726,9 @@ def process_proteomics(filepath: str, ko_map: dict,
     # --- Collect per-protein data per reaction ---
     # rxn_proteins[reaction_id][protein_id][condition] = [val, val, ...]
     rxn_proteins: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    # Separate metadata storage (not mixed into condition data)
+    # rxn_meta[reaction_id][protein_id] = {"description": ..., "ko": ..., "cols": {cond: [cols]}}
+    rxn_meta: dict = defaultdict(lambda: defaultdict(dict))
 
     skipped_no_ko       = 0
     skipped_no_reaction = 0
@@ -731,21 +751,35 @@ def process_proteomics(filepath: str, ko_map: dict,
         # Collect values for this protein row
         row_has_data = False
         row_vals_by_cond = {}
+        row_cols_by_cond = {}
         for cond, cols in groups.items():
             vals = collect_values_from_row(row, cols, df_columns)
             if vals:
                 row_vals_by_cond[cond] = vals
+                row_cols_by_cond[cond] = cols  # store column names for tooltip
                 row_has_data = True
 
         if not row_has_data:
             skipped_no_data_row += 1
             continue
 
+        # Store the description and KO for this protein (all reactions will reference it)
+        description = str(row.get("description", "")).strip()
+        ko_number = str(row.get("KO", "")).strip()
+
         # Distribute values to every reaction this protein maps to,
         # keeping each protein separate (not pooled across proteins)
         for rxn_id in reactions:
             for cond, vals in row_vals_by_cond.items():
                 rxn_proteins[rxn_id][protein_id][cond].extend(vals)
+            # Store metadata separately
+            meta = rxn_meta[rxn_id][protein_id]
+            meta["description"] = description
+            meta["ko"] = ko_number
+            if "cols" not in meta:
+                meta["cols"] = {}
+            for cond, cols in row_cols_by_cond.items():
+                meta["cols"][cond] = cols
 
     # --- Compute stats per reaction_id / protein_id ---
     records = []
@@ -755,6 +789,10 @@ def process_proteomics(filepath: str, ko_map: dict,
         proteins_list = []
         for protein_id in sorted(rxn_proteins[rxn_id].keys()):
             cond_data = rxn_proteins[rxn_id][protein_id]
+            meta = rxn_meta[rxn_id].get(protein_id, {})
+            description = meta.get("description", "")
+            ko_number = meta.get("ko", "")
+            cols_map = meta.get("cols", {})
             conditions = []
             for cond in sorted(cond_data.keys()):
                 stats = compute_stats(
@@ -762,10 +800,16 @@ def process_proteomics(filepath: str, ko_map: dict,
                     context=f"{rxn_id} / {protein_id} / {cond}"
                 )
                 if stats:
-                    conditions.append({"condition": cond, **stats})
+                    conditions.append({
+                        "condition": cond,
+                        "columns": cols_map.get(cond, []),
+                        **stats
+                    })
             if conditions:
                 proteins_list.append({
                     "protein_id": protein_id,
+                    "ko": ko_number,
+                    "description": description,
                     "conditions": conditions,
                 })
 
@@ -857,7 +901,7 @@ def run_sanity_tests(metabolomics_records: list, proteomics_records: list) -> No
         errors.append("proteomics_records is empty")
 
     # 2. Required keys – metabolomics
-    met_required = {"kegg_id", "metabolite", "conditions"}
+    met_required = {"kegg_id", "metabolite", "method", "conditions"}
     for i, rec in enumerate(metabolomics_records):
         missing = met_required - set(rec.keys())
         if missing:
@@ -878,9 +922,15 @@ def run_sanity_tests(metabolomics_records: list, proteomics_records: list) -> No
                 f"proteins list is empty"
             )
 
-    # 5. Every protein has >= 1 condition
+    # 5. Every protein has >= 1 condition and required keys
     for i, rec in enumerate(proteomics_records):
         for k, prot in enumerate(rec.get("proteins", [])):
+            prot_required = {"protein_id", "ko", "description", "conditions"}
+            missing_keys = prot_required - set(prot.keys())
+            if missing_keys:
+                errors.append(
+                    f"proteomics record[{i}] protein[{k}] missing keys: {missing_keys}"
+                )
             if not prot.get("conditions"):
                 errors.append(
                     f"proteomics record[{i}] protein[{k}] "
@@ -997,7 +1047,7 @@ def main():
     )
     parser.add_argument(
         "--metabolomics",
-        default="metabolomics_with_C_numbers.csv",
+        default="metabolomics_with_C_numbers_methods.csv",
         help="Path to the metabolomics CSV",
     )
     parser.add_argument(

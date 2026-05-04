@@ -83,9 +83,9 @@
 
     /* ── Sidebar ─────────────────────────────────────────────── */
     #sidebar {
-      width: 420px;
-      min-width: 320px;
-      max-width: 520px;
+      width: 560px;
+      min-width: 420px;
+      max-width: 700px;
       background: #fff;
       border-left: 1px solid #d0d7e2;
       display: flex;
@@ -222,8 +222,7 @@
     </div>
     <div id="sidebar-body">
       <div id="placeholder">
-        👆 Click any <strong>node</strong> to see its metabolomics / proteomics bar charts.<br><br>
-        🔗 Click any <strong>edge</strong> to see bar charts for the reaction (R-number) and all compounds (C-numbers) in its equation.<br><br>
+         Click any <strong>edge</strong> to see bar charts for the reaction (R-number) and all compounds (C-numbers) in its equation.<br><br>
         <small id="debug-status" style="color:#aaa;font-size:.75rem;"></small>
       </div>
       <div id="charts-area" style="display:none"></div>
@@ -441,17 +440,32 @@ function buildNetwork(graphJson) {
     const lb = document.getElementById("loadingBar");
     lb.style.opacity = "0";
     setTimeout(() => lb.style.display = "none", 600);
+    // Freeze physics after initial layout completes so nodes stop drifting
+    network.setOptions({ physics: { enabled: false } });
   });
 
-  // Click handler — nodes take priority; fall back to edges
+  // Click handler — only respond to edge clicks
   network.on("click", params => {
-    if (params.nodes.length > 0) {
-      showSidebar(params.nodes[0], graphJson.nodes);
-    } else if (params.edges.length > 0) {
+    if (params.edges.length > 0) {
       // Find the edge object from graphJson by matching the vis edge id (index)
       const edgeIdx = params.edges[0];
       const edgeObj = graphJson.edges[edgeIdx];
       if (edgeObj) showEdgeSidebar(edgeObj);
+    }
+  });
+
+  // Hover effects for edges — thicken on hover
+  network.on("hoverEdge", params => {
+    const edgeId = params.edge;
+    if (edgeId !== null && edgeId !== undefined) {
+      edges.update({ id: edgeId, width: 6 });
+    }
+  });
+
+  network.on("blurEdge", params => {
+    const edgeId = params.edge;
+    if (edgeId !== null && edgeId !== undefined) {
+      edges.update({ id: edgeId, width: 3 });
     }
   });
 
@@ -490,6 +504,7 @@ function showSidebar(nodeId, allNodes) {
     p.className = "no-data";
     p.textContent = "No metabolomics data available for this node.";
     metSection.appendChild(p);
+    area.appendChild(metSection);
   } else {
     // Collect divs first, then render after appending to DOM
     const pendingCharts = [];
@@ -511,6 +526,13 @@ function showSidebar(nodeId, allNodes) {
             + "margin-top:6px;margin-bottom:2px;word-break:break-word";
         lbl.textContent = metEntry.metabolite || metEntry.kegg_id || nodeId;
         metSection.appendChild(lbl);
+        // Add method if available
+        if (metEntry.method) {
+          const methodLbl = document.createElement("div");
+          methodLbl.style.cssText = "font-size:.7rem;color:#666;margin-bottom:4px;font-style:italic";
+          methodLbl.textContent = "Method: " + metEntry.method;
+          metSection.appendChild(methodLbl);
+        }
       }
       metSection.appendChild(vegaDiv);
 
@@ -531,11 +553,10 @@ function showSidebar(nodeId, allNodes) {
     // Append to DOM first so Vega can measure widths, then render
     area.appendChild(metSection);
     pendingCharts.forEach(({ id, conditions, title }) => {
-      const spec = buildVegaSpec(conditions, title, "Abundance", "#2a9d8f");
+      const spec = buildVegaSpec(conditions, title, "Abundance", "#2a9d8f", 3);  // metabolomics threshold = 3
       vegaEmbed(id, spec, { actions: false }).catch(console.error);
     });
   }
-  if (!area.contains(metSection)) area.appendChild(metSection);
 
   // ── Proteomics charts (reactions that touch this node) ──
   // New structure: each reaction has a .proteins array; each protein is a
@@ -578,6 +599,22 @@ function showSidebar(nodeId, allNodes) {
         protLbl.textContent = prot.protein_id;
         protBlock.appendChild(protLbl);
 
+        // Add KO if available
+        if (prot.ko) {
+          const koLbl = document.createElement("div");
+          koLbl.style.cssText = "font-size:.7rem;color:#666;margin-bottom:2px;font-weight:500";
+          koLbl.textContent = "KO: " + prot.ko;
+          protBlock.appendChild(koLbl);
+        }
+
+        // Add description if available
+        if (prot.description) {
+          const descLbl = document.createElement("div");
+          descLbl.style.cssText = "font-size:.7rem;color:#666;margin-bottom:4px;font-style:italic;word-break:break-word";
+          descLbl.textContent = prot.description;
+          protBlock.appendChild(descLbl);
+        }
+
         const vegaDiv = document.createElement("div");
         // Unique id: reaction + protein index
         const safeId = (rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
@@ -601,7 +638,7 @@ function showSidebar(nodeId, allNodes) {
     proteins.forEach((prot, pi) => {
       const safeId = (rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
       const divId  = "#vega-prot-" + safeId;
-      const spec   = buildVegaSpec(prot.conditions, prot.protein_id, "Abundance", "#6a4c93");
+      const spec   = buildVegaSpec(prot.conditions, prot.protein_id, "Abundance", "#6a4c93", 3);  // proteomics threshold = 3
       vegaEmbed(divId, spec, { actions: false })
         .then(() => console.log("[chart] rendered proteomics:", rxnId, prot.protein_id))
         .catch(err => {
@@ -675,6 +712,22 @@ function showEdgeSidebar(edgeObj) {
       protLbl.textContent = prot.protein_id;
       protBlock.appendChild(protLbl);
 
+      // Add KO if available
+      if (prot.ko) {
+        const koLbl = document.createElement("div");
+        koLbl.style.cssText = "font-size:.7rem;color:#666;margin-bottom:2px;font-weight:500";
+        koLbl.textContent = "KO: " + prot.ko;
+        protBlock.appendChild(koLbl);
+      }
+
+      // Add description if available
+      if (prot.description) {
+        const descLbl = document.createElement("div");
+        descLbl.style.cssText = "font-size:.7rem;color:#666;margin-bottom:4px;font-style:italic;word-break:break-word";
+        descLbl.textContent = prot.description;
+        protBlock.appendChild(descLbl);
+      }
+
       const vegaDiv = document.createElement("div");
       const safeId = ("edge_" + rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
       vegaDiv.id = "vega-eprot-" + safeId;
@@ -689,7 +742,7 @@ function showEdgeSidebar(edgeObj) {
     proteins.forEach((prot, pi) => {
       const safeId = ("edge_" + rxnId + "_p" + pi).replace(/[^a-zA-Z0-9]/g, "_");
       const divId  = "#vega-eprot-" + safeId;
-      const spec   = buildVegaSpec(prot.conditions, prot.protein_id, "Abundance", "#6a4c93");
+      const spec   = buildVegaSpec(prot.conditions, prot.protein_id, "Abundance", "#6a4c93", 3);  // proteomics threshold = 3
       vegaEmbed(divId, spec, { actions: false }).catch(console.error);
     });
   }
@@ -738,6 +791,13 @@ function showEdgeSidebar(edgeObj) {
             + "margin-top:4px;margin-bottom:2px;word-break:break-word";
           lbl.textContent = metEntry.metabolite || cId;
           metSection.appendChild(lbl);
+          // Add method if available
+          if (metEntry.method) {
+            const methodLbl = document.createElement("div");
+            methodLbl.style.cssText = "font-size:.65rem;color:#666;margin-bottom:2px;font-style:italic";
+            methodLbl.textContent = "Method: " + metEntry.method;
+            metSection.appendChild(methodLbl);
+          }
         }
 
         const vegaDiv = document.createElement("div");
@@ -765,33 +825,9 @@ function showEdgeSidebar(edgeObj) {
 
   // Render metabolomics charts after DOM insertion
   pendingMetCharts.forEach(({ id, conditions, title }) => {
-    const spec = buildVegaSpec(conditions, title, "Abundance", "#2a9d8f");
+    const spec = buildVegaSpec(conditions, title, "Abundance", "#2a9d8f", 3);  // metabolomics threshold = 3
     vegaEmbed(id, spec, { actions: false }).catch(console.error);
   });
-}
-
-function renderSection(parent, title, spec) {
-  const div = document.createElement("div");
-  div.className = "chart-section";
-
-  const h3 = document.createElement("h3");
-  h3.textContent = title;
-  div.appendChild(h3);
-
-  if (!spec) {
-    const p = document.createElement("p");
-    p.className = "no-data";
-    p.textContent = "No data available for this node.";
-    div.appendChild(p);
-    parent.appendChild(div);
-  } else {
-    const vegaDiv = document.createElement("div");
-    vegaDiv.id = "vega-" + title.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
-    div.appendChild(vegaDiv);
-    // Append to DOM FIRST so Vega can measure the container width
-    parent.appendChild(div);
-    vegaEmbed("#" + vegaDiv.id, spec, { actions: false }).catch(console.error);
-  }
 }
 
 // ============================================================
@@ -800,7 +836,9 @@ function renderSection(parent, title, spec) {
 // Builds a bar chart with error bars (mean ± std).
 // conditions: [{condition, mean, std, n}, ...]
 
-function buildVegaSpec(conditions, title, yLabel, barColor) {
+function buildVegaSpec(conditions, title, yLabel, barColor, minSampleCount = 3) {
+  // Threshold for highlighting low sample counts (customizable per data type)
+  
   // Flatten to Vega-Lite row format.
   // Skip rows where mean is null/undefined/NaN so no zero-height bars appear.
   const values = conditions
@@ -810,19 +848,33 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
       mean:      c.mean,
       std:       (c.std !== null && c.std !== undefined && isFinite(c.std)) ? c.std : 0,
       n:         c.n,
-      lo:        Math.max(0, c.mean - ((c.std !== null && isFinite(c.std)) ? c.std : 0)),
+      lo:        c.mean - ((c.std !== null && isFinite(c.std)) ? c.std : 0),
       hi:        c.mean + ((c.std !== null && isFinite(c.std)) ? c.std : 0),
+      columns:   (c.columns || []).join("; "),  // join columns for tooltip display
+      isLowN:    c.n < minSampleCount,  // flag for low sample count
     }));
+
+  // Check if any bars have low sample count
+  const hasLowN = values.some(v => v.isLowN);
 
   // Height scales with number of conditions; each bar is at most 28px tall
   const barHeight = Math.min(28, Math.max(16, Math.floor(160 / Math.max(values.length, 1))));
-  const chartHeight = values.length * barHeight + 20;
+  let chartHeight = values.length * barHeight + 20;
+  // Add space for legend if needed
+  if (hasLowN) chartHeight += 25;
 
-  return {
+  const spec = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     title:   { text: title, fontSize: 11, color: "#333" },
-    width:   300,
+    width:   380,
     height:  chartHeight,
+    config: {
+      axis: { labelLimit: 0 },
+      view: { stroke: "transparent", continuousWidth: 300, continuousHeight: chartHeight },
+      mark: { tooltip: true },
+      margin: { left: 200, right: 10, top: 20, bottom: 10 },
+      background: "#fafafa",
+    },
     data:    { values },
     encoding: {
       y: {
@@ -832,24 +884,39 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
           labelFontSize: 9,
           titleFontSize: 10,
           title: "Condition",
+          labelPadding: 8,
         },
         sort: null,
       },
+      tooltip: [
+        { field: "condition", type: "nominal", title: "Condition" }
+      ]
     },
     layer: [
-      // Bars
+      // Bars with conditional coloring
       {
-        mark: { type: "bar", color: barColor, opacity: 0.85, cornerRadiusTopRight: 3, cornerRadiusBottomRight: 3 },
+        mark: { type: "bar", opacity: 0.85, cornerRadiusTopRight: 3, cornerRadiusBottomRight: 3, height: { band: 0.7 } },
         encoding: {
           x: {
             field: "mean",
             type:  "quantitative",
             axis:  { title: yLabel, titleFontSize: 10, labelFontSize: 9 },
           },
-          yOffset: { value: 0 },
-          size: { value: barHeight },
+          color: {
+            field: "isLowN",
+            type: "nominal",
+            scale: {
+              domain: [false, true],
+              range: [barColor, "#FFD700"]  // original color or yellow
+            },
+            legend: hasLowN ? {
+              title: "Sample Count",
+              labelExpr: "datum.label === 'true' ? 'n < 3' : 'n >= 3'"
+            } : null
+          },
           tooltip: [
-            { field: "condition", type: "nominal",      title: "Condition" },
+            { field: "condition", type: "nominal",      title: "Condition", format: "" },
+            { field: "columns",   type: "nominal",      title: "Columns (replicates)" },
             { field: "mean",      type: "quantitative", title: "Mean",  format: ".4g" },
             { field: "std",       type: "quantitative", title: "Std",   format: ".4g" },
             { field: "n",         type: "quantitative", title: "n" },
@@ -860,16 +927,15 @@ function buildVegaSpec(conditions, title, yLabel, barColor) {
       {
         mark: { type: "errorbar", color: "#333", ticks: true },
         encoding: {
+          y:  { field: "condition", type: "nominal" },
           x:  { field: "lo", type: "quantitative" },
           x2: { field: "hi" },
         },
       },
     ],
-    config: {
-      view:       { stroke: "transparent" },
-      background: "#fafafa",
-    },
   };
+
+  return spec;
 }
 
 // ============================================================
