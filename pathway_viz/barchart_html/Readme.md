@@ -1,20 +1,5 @@
 # How to Run pathway_barchart.html with Python Server
 
-Then create and activate a .venv (optional) before running the server:
-
-```sh
-# create venv
-python3 -m venv .venv
-
-# macOS / Linux
-source .venv/bin/activate
-
-# Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# Windows (cmd)
-.venv\Scripts\activate.bat
-```
    ```sh
    cd /Users/marjolein.oostrom/Library/CloudStorage/OneDrive-PNNL/Documents/PathwaySeeker/pathway_viz/barchart_html
    ```
@@ -28,3 +13,23 @@ source .venv/bin/activate
    ```
 
 This will serve the HTML file so you can view it in your browser.
+
+## Setup: Virtual Environment
+
+Create and activate a virtual environment, then install dependencies:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Building the Barchart JSON
+
+If `barchart_data.json` already exists, you can skip this step. Only run this if you need to regenerate the JSON data (e.g., after updating input data files).
+
+```sh
+python3 build_barchart_json.py
+```
+
+This script reads the proteomics and metabolomics CSV files and produces `barchart_data.json`, which is consumed by `pathway_barchart.html`.
