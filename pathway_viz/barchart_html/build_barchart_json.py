@@ -12,11 +12,13 @@ Pipeline
     (K<digits> and R<digits>); malformed entries raise ValueError.
 
  2.  Load the metabolomics CSV.
+    - Remove columns matching the exclusion pattern (e.g., "_TVPop_").
     - Identify data columns using the "_NN_LC" naming pattern
       (e.g. "CondA_07_LC_M_RP_POS" -> condition "CondA_LC_M_RP_POS").
     - Group replicate columns by condition.
     - Duplicate KEGG_C_numbers produce SEPARATE records (one per row),
-      each labelled with the row's metabolite name suffixed by "_rowN".
+      each labelled with the row's metabolite name. If a method column is present,
+      the name is suffixed with the method; otherwise, rows are suffixed by "_rowN".
     - One output record per CSV row that has a valid KEGG C-number.
 
  3.  Load the proteomics CSV.
@@ -97,11 +99,19 @@ import pandas as pd
 
 
 # =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# Column exclusion pattern: columns matching this string will be filtered out
+# from metabolomics data during loading
+EXCLUDE_COLUMNS_PATTERN = "_TVPop_"
+
+
+# =============================================================================
 # SECTION 1 – KO -> REACTION LOOKUP
 # =============================================================================
 
-def load_ko_reaction_map(ko_reactions_path: str,
-                         long_csv_out: str | None = None) -> dict:
+def load_ko_reaction_map(ko_reactions_path: str) -> dict:
     """
     Read ko_to_reactions CSV and return a dict mapping each KO identifier
     to a list of unique reaction IDs.
@@ -116,9 +126,6 @@ def load_ko_reaction_map(ko_reactions_path: str,
     ----------
     ko_reactions_path : str
         Path to the KO-to-reactions CSV file.
-    long_csv_out : str or None
-        If provided, write a long-format CSV (one row per KO+Reaction pair,
-        after deduplication and cleaning) to this path.
 
     Returns
     -------
@@ -175,18 +182,6 @@ def load_ko_reaction_map(ko_reactions_path: str,
 
     print(f"[KO map]  Loaded {len(ko_map)} unique KO identifiers "
           f"covering {sum(len(v) for v in ko_map.values())} reaction entries.")
-
-    # --- Optional: write long-format CSV (one row per KO+Reaction pair) ---
-    if long_csv_out:
-        rows = [
-            {"KO": ko, "Reaction": rxn}
-            for ko, reactions in ko_map.items()
-            for rxn in reactions
-        ]
-        long_df = pd.DataFrame(rows, columns=["KO", "Reaction"])
-        long_df.to_csv(long_csv_out, index=False)
-        print(f"[KO map]  Long-format CSV written to {long_csv_out!r} "
-              f"({len(long_df)} rows).")
 
     return ko_map
 
@@ -518,6 +513,13 @@ def process_metabolomics(filepath: str) -> list:
     df = pd.read_csv(filepath)
     df.columns = [str(c).strip() for c in df.columns]
 
+    # Remove columns matching the exclusion pattern
+    cols_before = len(df.columns)
+    df = df.loc[:, ~df.columns.str.contains(EXCLUDE_COLUMNS_PATTERN, na=False)]
+    cols_removed = cols_before - len(df.columns)
+    if cols_removed > 0:
+        print(f"[Metabolomics] Removed {cols_removed} column(s) containing '{EXCLUDE_COLUMNS_PATTERN}'")
+
     print(f"\n[Metabolomics] Loaded {filepath}")
     print(f"  Rows: {len(df)}, Columns: {len(df.columns)}")
 
@@ -570,11 +572,10 @@ def process_metabolomics(filepath: str) -> list:
 
         met_name = str(row.get("metabolite", kegg_id)).strip()
         method   = str(row.get("method", "")).strip()
-        is_dup   = kegg_occurrences.get(kegg_id, 1) > 1
 
         if method:
             met_name = f"{met_name} ({method})"
-        elif is_dup:
+        elif kegg_occurrences.get(kegg_id, 1) > 1:
             kegg_row_counter[kegg_id] = kegg_row_counter.get(kegg_id, 0) + 1
             met_name = f"{met_name}_row{kegg_row_counter[kegg_id]}"
 
@@ -628,8 +629,7 @@ def process_metabolomics(filepath: str) -> list:
 PROTEOMICS_META_COLS = {"proteinID", "KO", "description", "Reaction", "Tags"}
 
 
-def process_proteomics(filepath: str, ko_map: dict,
-                       long_csv_out: str | None = None) -> list:
+def process_proteomics(filepath: str, ko_map: dict) -> list:
     """
     Load the proteomics CSV and compute per-condition mean/std grouped by
     reaction_id, with each protein kept as a SEPARATE entry within the
@@ -648,9 +648,6 @@ def process_proteomics(filepath: str, ko_map: dict,
         Path to the proteomics CSV file.
     ko_map : dict
         Mapping of KO identifier -> list of reaction IDs.
-    long_csv_out : str or None
-        If provided, write a long-format CSV (one row per
-        reaction_id × protein_id × condition) to this path.
 
     Returns
     -------
@@ -715,20 +712,9 @@ def process_proteomics(filepath: str, ko_map: dict,
 
     df["KO"] = df["KO"].astype(str).str.strip()
 
-    # Build a lookup: proteinID -> original row (for annotating the long CSV)
-    # Set proteinID as the index for fast access
-    orig_cols = list(df.columns)
-    protein_row_lookup = {
-        str(row["proteinID"]).strip(): row
-        for _, row in df.iterrows()
-    }
-
-    # --- Collect per-protein data per reaction ---
-    # rxn_proteins[reaction_id][protein_id][condition] = [val, val, ...]
-    rxn_proteins: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    # Separate metadata storage (not mixed into condition data)
-    # rxn_meta[reaction_id][protein_id] = {"description": ..., "ko": ..., "cols": {cond: [cols]}}
-    rxn_meta: dict = defaultdict(lambda: defaultdict(dict))
+    # --- Single-pass: compute stats per row and assign to reactions ---
+    # {rxn_id: [protein_entry, ...]}  where protein_entry is a complete dict
+    reaction_proteins: dict = defaultdict(list)
 
     skipped_no_ko       = 0
     skipped_no_reaction = 0
@@ -748,82 +734,49 @@ def process_proteomics(filepath: str, ko_map: dict,
             skipped_no_reaction += 1
             continue
 
-        # Collect values for this protein row
-        row_has_data = False
-        row_vals_by_cond = {}
-        row_cols_by_cond = {}
+        # Compute stats for this row immediately
+        conditions = []
         for cond, cols in groups.items():
             vals = collect_values_from_row(row, cols, df_columns)
             if vals:
-                row_vals_by_cond[cond] = vals
-                row_cols_by_cond[cond] = cols  # store column names for tooltip
-                row_has_data = True
-
-        if not row_has_data:
-            skipped_no_data_row += 1
-            continue
-
-        # Store the description and KO for this protein (all reactions will reference it)
-        description = str(row.get("description", "")).strip()
-        ko_number = str(row.get("KO", "")).strip()
-
-        # Distribute values to every reaction this protein maps to,
-        # keeping each protein separate (not pooled across proteins)
-        for rxn_id in reactions:
-            for cond, vals in row_vals_by_cond.items():
-                rxn_proteins[rxn_id][protein_id][cond].extend(vals)
-            # Store metadata separately
-            meta = rxn_meta[rxn_id][protein_id]
-            meta["description"] = description
-            meta["ko"] = ko_number
-            if "cols" not in meta:
-                meta["cols"] = {}
-            for cond, cols in row_cols_by_cond.items():
-                meta["cols"][cond] = cols
-
-    # --- Compute stats per reaction_id / protein_id ---
-    records = []
-    skipped_no_data_rxn = 0
-
-    for rxn_id in sorted(rxn_proteins.keys()):
-        proteins_list = []
-        for protein_id in sorted(rxn_proteins[rxn_id].keys()):
-            cond_data = rxn_proteins[rxn_id][protein_id]
-            meta = rxn_meta[rxn_id].get(protein_id, {})
-            description = meta.get("description", "")
-            ko_number = meta.get("ko", "")
-            cols_map = meta.get("cols", {})
-            conditions = []
-            for cond in sorted(cond_data.keys()):
-                stats = compute_stats(
-                    cond_data[cond],
-                    context=f"{rxn_id} / {protein_id} / {cond}"
-                )
+                stats = compute_stats(vals, context=f"{protein_id}/{cond}")
                 if stats:
                     conditions.append({
                         "condition": cond,
-                        "columns": cols_map.get(cond, []),
+                        "columns": cols,
                         **stats
                     })
-            if conditions:
-                proteins_list.append({
-                    "protein_id": protein_id,
-                    "ko": ko_number,
-                    "description": description,
-                    "conditions": conditions,
-                })
 
-        if not proteins_list:
-            skipped_no_data_rxn += 1
+        if not conditions:
+            skipped_no_data_row += 1
             continue
 
-        records.append({
-            "reaction_id": rxn_id,
-            "proteins":    proteins_list,
-        })
+        description = str(row.get("description", "")).strip()
+
+        protein_entry = {
+            "protein_id": protein_id,
+            "ko": ko_id,
+            "description": description,
+            "conditions": conditions,
+        }
+
+        # Assign this protein entry to each of its mapped reactions
+        for rxn_id in reactions:
+            reaction_proteins[rxn_id].append(protein_entry)
+
+    # --- Build sorted output records ---
+    records = []
+    skipped_no_data_rxn = 0
+
+    for rxn_id in sorted(reaction_proteins):
+        proteins_list = sorted(reaction_proteins[rxn_id], key=lambda p: p["protein_id"])
+        if proteins_list:
+            records.append({"reaction_id": rxn_id, "proteins": proteins_list})
+        else:
+            skipped_no_data_rxn += 1
 
     print(
-        f"  Unique reaction IDs with data: {len(rxn_proteins)}, "
+        f"  Unique reaction IDs with data: {len(reaction_proteins)}, "
         f"output records: {len(records)}, "
         f"skipped (no KO): {skipped_no_ko}, "
         f"skipped (KO not in map): {skipped_no_reaction}, "
@@ -836,32 +789,6 @@ def process_proteomics(filepath: str, ko_map: dict,
         "Check that KO values follow the 'K<digits>' format and that "
         "the ko_to_reactions file covers the KOs in the proteomics file."
     )
-
-    # --- Optional: write long-format CSV (one row per reaction × protein × condition) ---
-    # Includes all original columns from the proteomics CSV plus the computed
-    # reaction_id, condition, mean, std, n columns.
-    if long_csv_out:
-        long_rows = []
-        for rec in records:
-            rxn_id = rec["reaction_id"]
-            for prot in rec["proteins"]:
-                pid = prot["protein_id"]
-                orig_row = protein_row_lookup.get(pid, {})
-                for cond_entry in prot["conditions"]:
-                    row_dict = {"reaction_id": rxn_id, "condition": cond_entry["condition"],
-                                "mean": cond_entry["mean"], "std": cond_entry["std"],
-                                "n": cond_entry["n"]}
-                    # Append all original columns from the source CSV row
-                    for col in orig_cols:
-                        row_dict[col] = orig_row[col] if hasattr(orig_row, '__getitem__') and col in orig_row else None
-                    long_rows.append(row_dict)
-
-        # Column order: computed cols first, then all original CSV cols
-        out_cols = ["reaction_id", "condition", "mean", "std", "n"] + orig_cols
-        long_df = pd.DataFrame(long_rows, columns=out_cols)
-        long_df.to_csv(long_csv_out, index=False)
-        print(f"  Long-format proteomics CSV written to {long_csv_out!r} "
-              f"({len(long_df)} rows, {len(out_cols)} columns).")
 
     return records
 
@@ -1047,7 +974,7 @@ def main():
     )
     parser.add_argument(
         "--metabolomics",
-        default="metabolomics_with_C_numbers_methods.csv",
+        default="metabolomics_with_C_numbers.csv",
         help="Path to the metabolomics CSV",
     )
     parser.add_argument(
@@ -1070,51 +997,25 @@ def main():
         action="store_true",
         help="Skip the sanity-test suite (not recommended).",
     )
-    parser.add_argument(
-        "--ko-reactions-long-csv",
-        default="ko_reaction_map_long.csv",
-        help=(
-            "Path for the long-format KO-reaction CSV output "
-            "(one row per KO+Reaction pair; default: ko_reaction_map_long.csv). "
-            "Pass empty string '' to disable."
-        ),
-    )
-    parser.add_argument(
-        "--proteomics-long-csv",
-        default="proteomics_long.csv",
-        help=(
-            "Path for the long-format proteomics CSV output "
-            "(one row per reaction × protein × condition; default: proteomics_long.csv). "
-            "Pass empty string '' to disable."
-        ),
-    )
-
     args = parser.parse_args()
-
-    ko_reactions_long_csv = args.ko_reactions_long_csv or None
-    proteomics_long_csv   = args.proteomics_long_csv   or None
 
     print("=" * 60)
     print("build_barchart_json.py")
     print("=" * 60)
-    print(f"  metabolomics         : {args.metabolomics}")
-    print(f"  proteomics           : {args.proteomics}")
-    print(f"  ko-reactions         : {args.ko_reactions}")
-    print(f"  output               : {args.output}")
-    print(f"  ko-reactions-long-csv: {ko_reactions_long_csv or '(disabled)'}")
-    print(f"  proteomics-long-csv  : {proteomics_long_csv   or '(disabled)'}")
+    print(f"  metabolomics : {args.metabolomics}")
+    print(f"  proteomics   : {args.proteomics}")
+    print(f"  ko-reactions : {args.ko_reactions}")
+    print(f"  output       : {args.output}")
     print()
 
     # Step 1: KO -> Reaction lookup
-    ko_map = load_ko_reaction_map(args.ko_reactions,
-                                  long_csv_out=ko_reactions_long_csv)
+    ko_map = load_ko_reaction_map(args.ko_reactions)
 
     # Step 2: Metabolomics (one record per CSV row with valid KEGG ID)
     metabolomics_records = process_metabolomics(args.metabolomics)
 
     # Step 3: Proteomics (grouped by reaction, separate per protein)
-    proteomics_records = process_proteomics(args.proteomics, ko_map,
-                                            long_csv_out=proteomics_long_csv)
+    proteomics_records = process_proteomics(args.proteomics, ko_map)
 
     # Step 4: Sanity tests
     if not args.skip_sanity:
