@@ -99,12 +99,25 @@ import pandas as pd
 
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+def _read_tabular(filepath: str, **kwargs) -> "pd.DataFrame":
+    """Read a CSV or Excel (.xlsx/.xls) file into a DataFrame."""
+    from pathlib import Path
+    ext = Path(filepath).suffix.lower()
+    if ext in (".xlsx", ".xls"):
+        return pd.read_excel(filepath, **kwargs)
+    return pd.read_csv(filepath, **kwargs)
+
+
+# =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Column exclusion pattern: columns matching this string will be filtered out
-# from metabolomics data during loading
-EXCLUDE_COLUMNS_PATTERN = "_TVPop_"
+# Column inclusion patterns: only data columns matching at least one of these
+# patterns will be kept.  If empty/None, all data columns are kept.
+DEFAULT_INCLUDE_PATTERNS = ["_TVPop_"]
 
 
 # =============================================================================
@@ -137,7 +150,7 @@ def load_ko_reaction_map(ko_reactions_path: str) -> dict:
     ValueError         if required columns are missing or any ID is malformed.
     AssertionError     if the resulting map is empty.
     """
-    df = pd.read_csv(ko_reactions_path)
+    df = _read_tabular(ko_reactions_path)
     df.columns = df.columns.str.strip()
 
     missing = {"KO", "Reaction"} - set(df.columns)
@@ -487,7 +500,7 @@ def collect_values_from_row(row: pd.Series, cols: list, df_columns: list) -> lis
 METABOLOMICS_META_COLS = {"metabolite", "Tags", "KEGG_C_number", "method"}
 
 
-def process_metabolomics(filepath: str) -> list:
+def process_metabolomics(filepath: str, include_patterns: list = None) -> list:
     """
     Load the metabolomics CSV and compute per-condition mean/std for every
     row that has a valid KEGG C-number.
@@ -510,15 +523,21 @@ def process_metabolomics(filepath: str) -> list:
           ]
         }
     """
-    df = pd.read_csv(filepath)
+    df = _read_tabular(filepath)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Remove columns matching the exclusion pattern
-    cols_before = len(df.columns)
-    df = df.loc[:, ~df.columns.str.contains(EXCLUDE_COLUMNS_PATTERN, na=False)]
-    cols_removed = cols_before - len(df.columns)
-    if cols_removed > 0:
-        print(f"[Metabolomics] Removed {cols_removed} column(s) containing '{EXCLUDE_COLUMNS_PATTERN}'")
+    # If include patterns are specified, keep only data columns matching at least one pattern
+    if include_patterns:
+        mask = df.columns.to_series().apply(
+            lambda c: any(pat in c for pat in include_patterns)
+        )
+        # Always keep meta columns
+        meta_mask = df.columns.to_series().str.lower().isin({m.lower() for m in METABOLOMICS_META_COLS})
+        keep_mask = mask | meta_mask
+        cols_removed = int((~keep_mask).sum())
+        df = df.loc[:, keep_mask]
+        if cols_removed > 0:
+            print(f"[Metabolomics] Kept columns matching {include_patterns}; removed {cols_removed} non-matching column(s)")
 
     print(f"\n[Metabolomics] Loaded {filepath}")
     print(f"  Rows: {len(df)}, Columns: {len(df.columns)}")
@@ -671,7 +690,7 @@ def process_proteomics(filepath: str, ko_map: dict) -> list:
     ------
     ValueError  if duplicate proteinIDs are found in the CSV.
     """
-    df = pd.read_csv(filepath)
+    df = _read_tabular(filepath)
     df.columns = [str(c).strip() for c in df.columns]
 
     print(f"\n[Proteomics] Loaded {filepath}")
@@ -965,6 +984,74 @@ def write_json(output_path: str, metabolomics_records: list, proteomics_records:
 # SECTION 8 – MAIN
 # =============================================================================
 
+def build_barchart_json(
+    metabolomics: str = "metabolomics_with_C_numbers.csv",
+    proteomics: str = "proteomics_with_ko.csv",
+    ko_reactions: str = "ko_to_reactions.csv",
+    output: str = "barchart_data.json",
+    include_columns: list = None,
+    skip_sanity: bool = False,
+) -> str:
+    """
+    Build a Vega-ready JSON file from metabolomics and proteomics data.
+
+    Parameters
+    ----------
+    metabolomics : str
+        Path to the metabolomics CSV/XLSX file.
+    proteomics : str
+        Path to the proteomics CSV/XLSX file.
+    ko_reactions : str
+        Path to the KO-to-reactions CSV/XLSX file.
+    output : str
+        Output JSON file path.
+    include_columns : list or None
+        Substring patterns for data columns to INCLUDE in metabolomics.
+        None or empty list means keep all columns.
+        Default when called without argument: DEFAULT_INCLUDE_PATTERNS.
+    skip_sanity : bool
+        If True, skip the sanity-test suite.
+
+    Returns
+    -------
+    str
+        The path to the written output file.
+    """
+    if include_columns is None:
+        include_columns = DEFAULT_INCLUDE_PATTERNS
+
+    print("=" * 60)
+    print("build_barchart_json")
+    print("=" * 60)
+    print(f"  metabolomics : {metabolomics}")
+    print(f"  proteomics   : {proteomics}")
+    print(f"  ko-reactions : {ko_reactions}")
+    print(f"  output       : {output}")
+    print()
+
+    # Step 1: KO -> Reaction lookup
+    ko_map = load_ko_reaction_map(ko_reactions)
+
+    # Step 2: Metabolomics (one record per CSV row with valid KEGG ID)
+    include_patterns = include_columns if include_columns else None
+    metabolomics_records = process_metabolomics(metabolomics, include_patterns=include_patterns)
+
+    # Step 3: Proteomics (grouped by reaction, separate per protein)
+    proteomics_records = process_proteomics(proteomics, ko_map)
+
+    # Step 4: Sanity tests
+    if not skip_sanity:
+        run_sanity_tests(metabolomics_records, proteomics_records)
+    else:
+        print("\n[Sanity tests] Skipped.")
+
+    # Step 5: Write JSON
+    write_json(output, metabolomics_records, proteomics_records)
+
+    print("\nDone.")
+    return output
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -972,61 +1059,22 @@ def main():
             "averages and standard deviations, grouped by experimental condition."
         )
     )
-    parser.add_argument(
-        "--metabolomics",
-        default="metabolomics_with_C_numbers.csv",
-        help="Path to the metabolomics CSV",
-    )
-    parser.add_argument(
-        "--proteomics",
-        default="proteomics_with_ko.csv",
-        help="Path to the proteomics CSV",
-    )
-    parser.add_argument(
-        "--ko-reactions",
-        default="ko_to_reactions.csv",
-        help="Path to the KO-to-reactions CSV",
-    )
-    parser.add_argument(
-        "--output",
-        default="barchart_data.json",
-        help="Output JSON file path (default: barchart_data.json)",
-    )
-    parser.add_argument(
-        "--skip-sanity",
-        action="store_true",
-        help="Skip the sanity-test suite (not recommended).",
-    )
+    parser.add_argument("--metabolomics", default="metabolomics_with_C_numbers.csv")
+    parser.add_argument("--proteomics", default="proteomics_with_ko.csv")
+    parser.add_argument("--ko-reactions", default="ko_to_reactions.csv")
+    parser.add_argument("--output", default="barchart_data.json")
+    parser.add_argument("--include-columns", nargs="*", default=None)
+    parser.add_argument("--skip-sanity", action="store_true")
     args = parser.parse_args()
 
-    print("=" * 60)
-    print("build_barchart_json.py")
-    print("=" * 60)
-    print(f"  metabolomics : {args.metabolomics}")
-    print(f"  proteomics   : {args.proteomics}")
-    print(f"  ko-reactions : {args.ko_reactions}")
-    print(f"  output       : {args.output}")
-    print()
-
-    # Step 1: KO -> Reaction lookup
-    ko_map = load_ko_reaction_map(args.ko_reactions)
-
-    # Step 2: Metabolomics (one record per CSV row with valid KEGG ID)
-    metabolomics_records = process_metabolomics(args.metabolomics)
-
-    # Step 3: Proteomics (grouped by reaction, separate per protein)
-    proteomics_records = process_proteomics(args.proteomics, ko_map)
-
-    # Step 4: Sanity tests
-    if not args.skip_sanity:
-        run_sanity_tests(metabolomics_records, proteomics_records)
-    else:
-        print("\n[Sanity tests] Skipped (--skip-sanity flag set).")
-
-    # Step 5: Write JSON
-    write_json(args.output, metabolomics_records, proteomics_records)
-
-    print("\nDone.")
+    build_barchart_json(
+        metabolomics=args.metabolomics,
+        proteomics=args.proteomics,
+        ko_reactions=args.ko_reactions,
+        output=args.output,
+        include_columns=args.include_columns,
+        skip_sanity=args.skip_sanity,
+    )
 
 
 if __name__ == "__main__":
