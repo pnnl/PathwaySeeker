@@ -40,4 +40,5 @@ static/structure_imgs/
 
 # barchart_html/ is a local dev/scratch folder — only specific files tracked
 barchart_html/*
-.html
+*.html
+*.xlsx
