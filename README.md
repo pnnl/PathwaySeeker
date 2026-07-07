@@ -34,7 +34,9 @@ To run in Jupyter notebook:
 ```bash
 jupyter lab
 ```
-Open ```notebooks/multiomics_graph.ipynb``` and run the pipeline step by step.
+If you have Proteomics and Metabolomics data to work: Open ```notebooks/multiomics_graph_proteomics&metabolomics.ipynb``` and run the pipeline step by step.
+
+If you have only Proteomics (or Transcriptomics) data to work: Open ```notebooks/multiomics_graph_only_proteomics.ipynb``` and run the pipeline step by step.
 
 
 
@@ -59,6 +61,6 @@ The graph can be visualized either in a web browser or embedded in Jupyter.
 ## Authors
 
 - Lummy M O Monteiro - multiomics graph
-- Marjolein T Oostrom
-- Niaz Chowdhury
-- Sutanay Choudhury
+- Marjolein T Oostrom - pathway_viz
+- Niaz Chowdhury - MDF
+- Sutanay Choudhury - AI module
