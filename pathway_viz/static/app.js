@@ -15,26 +15,28 @@
 // CONFIG DEFAULTS  — single source of truth for fallback values
 // =============================================================================
 const CONFIG_DEFAULTS = Object.freeze({
-    imageSize:                200,
+    imageSize:                300,
     defaultToBiggId:          false,
-    nodeRadius:               15,
+    nodeRadius:               10,
     metaboliteRadius:         10,
     reactionRadius:           8,
-    labelOffsetY:             20,
-    coproductLabelOffsetY:    25,
-    barChartOffsetY:          60,
-    metaboliteLabelFontSize:  12,
-    coproductLabelFontSize:   11,
-    chartTitleFontSize:       10,
-    chartLabelFontSize:       9,
-    barChartXLabel:           '',
+    labelOffsetY:             40,
+    coproductLabelOffsetY:    -18,
+    barChartOffsetX:          20,
+    barChartOffsetY:          -50,
+    metaboliteLabelFontSize:  40,
+    coproductLabelFontSize:   15,
+    chartTitleFontSize:       18,
+    chartLabelFontSize:       18,
+    barChartXLabel:           'Abundance',
     barChartTitle:            '',
     barChartYLabel:           '',
+    barMinCount:              1,
     smallGraphLayoutVertical: true,
-    nodeThresholdSmall:       10,
-    barChartWidth:            180,
-    barChartAxisPadding:      55,
-    barHeight:                12,
+    nodeThresholdSmall:       20,
+    barChartWidth:            200,
+    barChartAxisPadding:      20,
+    barHeight:                15,
     barChartGap:              18,
     originColours: {
         metabolomics: '#2a9d8f',
@@ -298,7 +300,7 @@ class PathwayApp {
             set('hidden-path-nodes',          p.get('nodes')    || '');
             set('hidden-selected-nodes',      p.get('selected') || '');
             set('hidden-connection-distance', p.get('dist')     || '');
-            set('hidden-keep-positions',      p.get('keep_pos') || '1');
+            set('hidden-keep-positions',      p.get('keep_pos') || '0');
             console.log('[PathwayApp] Backend form submit — view:',
                 isSubgraph ? 'subgraph' : 'full');
         });
@@ -349,8 +351,9 @@ class PathwayApp {
             metaboliteLabelFontSize: num('metaboliteLabelFontSize', CONFIG_DEFAULTS.metaboliteLabelFontSize),
             coproductLabelFontSize:  num('coproductLabelFontSize',  CONFIG_DEFAULTS.coproductLabelFontSize),
             barChartWidth:           num('barChartWidth',           CONFIG_DEFAULTS.barChartWidth),
-            barChartHeight:          num('barChartHeight',          CONFIG_DEFAULTS.barChartWidth),
+            barChartHeight:          num('barChartHeight',          CONFIG_DEFAULTS.barChartHeight),
             barHeight:               num('barHeight',               CONFIG_DEFAULTS.barHeight),
+            barChartOffsetX:         num('barChartOffsetX',         CONFIG_DEFAULTS.barChartOffsetX),
             barChartOffsetY:         num('barChartOffsetY',         CONFIG_DEFAULTS.barChartOffsetY),
             barChartAxisPadding:     num('barChartAxisPadding',     CONFIG_DEFAULTS.barChartAxisPadding),
             chartTitleFontSize:      num('chartTitleFontSize',      CONFIG_DEFAULTS.chartTitleFontSize),
@@ -358,6 +361,7 @@ class PathwayApp {
             barChartTitle:           txt('barChartTitle'),
             barChartXLabel:          txt('barChartXLabel'),
             barChartYLabel:          txt('barChartYLabel'),
+            barMinCount:             num('barMinCount',             CONFIG_DEFAULTS.barMinCount),
         };
     }
 
@@ -415,8 +419,8 @@ class PathwayApp {
         const imagesChanged = affects('imageSize');
         const chartsChanged = affects(
             'barChartWidth', 'barChartHeight', 'barHeight',
-            'barChartOffsetY', 'barChartAxisPadding', 'barChartXLabel',
-            'barChartTitle', 'chartLabelFontSize', 'chartTitleFontSize'
+            'barChartOffsetX', 'barChartOffsetY', 'barChartAxisPadding', 'barChartXLabel',
+            'barChartTitle', 'chartLabelFontSize', 'chartTitleFontSize', 'barMinCount'
         );
         const labelsChanged = affects(
             'labelOffsetY', 'coproductLabelOffsetY',

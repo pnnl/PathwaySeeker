@@ -28,10 +28,9 @@ ui-tests/test-results
 credentials.txt
 static/json_pathway/
 static/uploads/
-# Ignore all .json files except kegg_pubchem_mapping.json and kegg_names.json
+static/structure_imgs/
+# Ignore all .json files except failed_downloads.json
 *.json
-!kegg_pubchem_mapping.json
-!kegg_names.json
 !failed_downloads.json
 *.pickle
 *.csv
@@ -41,6 +40,5 @@ static/uploads/
 
 # barchart_html/ is a local dev/scratch folder — only specific files tracked
 barchart_html/*
-!barchart_html/build_barchart_json.py
-!barchart_html/README.md
-!barchart_html/pathway_barchart.html
+*.html
+*.xlsx

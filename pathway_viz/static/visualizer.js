@@ -691,15 +691,21 @@ class EscherVisualizer {
         }, cfgOverride);
 
         const conditionsObj = rowEntry.conditions || {};
+        const minCount = config.barMinCount ?? 1;
         // Only include conditions that have a real average (not null/undefined/NaN)
+        // AND whose replicate count meets the minimum threshold
         const conditions = Object.keys(conditionsObj).filter(k => {
-            const avg = conditionsObj[k]?.average;
-            return avg !== null && avg !== undefined && isFinite(avg);
+            const entry = conditionsObj[k];
+            const avg   = entry?.average;
+            if (avg === null || avg === undefined || !isFinite(avg)) return false;
+            const cnt = entry?.count ?? entry?.n ?? Infinity;
+            return cnt >= minCount;
         });
         if (!conditions.length) return 0;
 
-        const values = conditions.map(k => conditionsObj[k]?.average ?? 0);
-        const maxVal = Math.max(...values, 1e-9);
+        const values  = conditions.map(k => conditionsObj[k]?.average ?? 0);
+        const stdDevs = conditions.map(k => conditionsObj[k]?.std_dev ?? 0);
+        const maxVal  = Math.max(...values.map((v, i) => v + stdDevs[i]), 1e-9);
         const chartH = cfg.barHeight * conditions.length;
         const drawW  = cfg.chartWidth - cfg.axisPadding;
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
@@ -708,7 +714,10 @@ class EscherVisualizer {
             .attr('transform', `translate(0,${yOffset})`);
 
         // Row label (metabolite name) above the panel
+        // Show only the method part if name is "MetaboliteName (method)"
         const rowName = rowEntry.metabolite_name || '';
+        const methodMatch = rowName.match(/\(([^)]+)\)$/);
+        const displayLabel = methodMatch ? methodMatch[1] : rowName;
         const labelH  = rowName ? cfg.barHeight : 0;
         if (rowName) {
             panel.append('text')
@@ -719,7 +728,7 @@ class EscherVisualizer {
                 .style('font-size',   (config.chartLabelFontSize + 1) + 'px')
                 .style('font-weight', 'bold')
                 .style('fill',        '#444')
-                .text(rowName)
+                .text(displayLabel)
                 .append('title').text(rowName);
         }
 
@@ -740,7 +749,7 @@ class EscherVisualizer {
         barsGroup.append('g')
             .attr('class',     'x-axis')
             .attr('transform', `translate(0,${chartH})`)
-            .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
+            .call(d3.axisBottom(xScale).ticks(3).tickFormat(d => d3.format('.1e')(d).replace(/\.0(e)/, '$1')))
             .selectAll('text')
             .style('font-size', config.chartLabelFontSize + 'px')
             .style('fill',      '#555');
@@ -774,6 +783,32 @@ class EscherVisualizer {
                     d3.select(this).attr('fill', barColor);
                     barsGroup.selectAll('.value-label').remove();
                 });
+
+            // Error bar
+            if (std > 0) {
+                const cy       = i * cfg.barHeight + (cfg.barHeight - 2) / 2;
+                const capH     = Math.min(cfg.barHeight - 4, 6);
+                const errEnd   = xScale(avg + std);
+                const errStart = xScale(Math.max(avg - std, 0));
+                // horizontal line
+                barsGroup.append('line')
+                    .attr('x1', errStart).attr('x2', errEnd)
+                    .attr('y1', cy).attr('y2', cy)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+                // left cap
+                barsGroup.append('line')
+                    .attr('x1', errStart).attr('x2', errStart)
+                    .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+                // right cap
+                barsGroup.append('line')
+                    .attr('x1', errEnd).attr('x2', errEnd)
+                    .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                    .attr('stroke', '#333').attr('stroke-width', 1.5)
+                    .style('pointer-events', 'none');
+            }
         });
 
         return labelH + chartH + bc.barHeight; // panel height incl. axis space
@@ -809,7 +844,9 @@ class EscherVisualizer {
             return;
         }
 
-        // Filter out rows with no renderable conditions
+        const minCount = config.barMinCount ?? 1;
+
+        // Filter out rows with no renderable conditions (any valid average)
         const renderable = rowList.filter(row => {
             const conds = row.conditions || {};
             return Object.values(conds).some(v => {
@@ -825,21 +862,55 @@ class EscherVisualizer {
         const axisPadding = cfgOverride.axisPadding;
         const gap         = barHeight; // gap between panels
 
-        // First pass: compute each panel height
-        const panelHeights = renderable.map(row => {
-            const conds = Object.keys(row.conditions || {}).filter(k => {
-                const avg = row.conditions[k]?.average;
-                return avg !== null && avg !== undefined && isFinite(avg);
-            });
+        // Helper: compute panel height for a row given a condition-filter predicate
+        const _panelH = (row, condPred) => {
+            const conds = Object.keys(row.conditions || {}).filter(condPred);
+            if (!conds.length) return 0;
             const labelH = row.metabolite_name ? barHeight : 0;
             return labelH + barHeight * conds.length + barHeight; // label + bars + axis
-        });
-        const totalH = panelHeights.reduce((s, h) => s + h, 0)
+        };
+
+        // "Full" height — all rows that have any valid average (ignoring count threshold)
+        // Used to anchor the bottom of the chart at the same Y regardless of filtering.
+        const fullPanelHeights = renderable.map(row =>
+            _panelH(row, k => {
+                const avg = row.conditions[k]?.average;
+                return avg !== null && avg !== undefined && isFinite(avg);
+            })
+        );
+        const fullTotalH = fullPanelHeights.reduce((s, h) => s + h, 0)
             + gap * Math.max(renderable.length - 1, 0);
 
+        // "Visible" rows — those that have at least one bar passing the count threshold
+        const visibleRows = renderable.filter(row =>
+            Object.entries(row.conditions || {}).some(([k, v]) => {
+                const avg = v?.average;
+                if (avg === null || avg === undefined || !isFinite(avg)) return false;
+                const cnt = v?.count ?? v?.n ?? Infinity;
+                return cnt >= minCount;
+            })
+        );
+        if (!visibleRows.length) return;
+
+        // Visible panel heights (only conditions passing count threshold)
+        const visiblePanelHeights = visibleRows.map(row =>
+            _panelH(row, k => {
+                const entry = row.conditions[k];
+                const avg   = entry?.average;
+                if (avg === null || avg === undefined || !isFinite(avg)) return false;
+                const cnt = entry?.count ?? entry?.n ?? Infinity;
+                return cnt >= minCount;
+            })
+        );
+        const visibleTotalH = visiblePanelHeights.reduce((s, h) => s + h, 0)
+            + gap * Math.max(visibleRows.length - 1, 0);
+
+        // Y-shift so the bottom of the visible chart aligns with the full chart's bottom
+        const yShift = fullTotalH - visibleTotalH;
+
         const getPosition = options.getPosition || ((d, c) => ({
-            x: (d.x || 0) - c.chartWidth,
-            y: (d.y || 0) - totalH / 2,
+            x: (d.x || 0) + config.barChartOffsetX,
+            y: (d.y || 0) + config.barChartOffsetY - fullTotalH,
         }));
 
         const pos = getPosition(data, cfgOverride);
@@ -850,20 +921,20 @@ class EscherVisualizer {
 
         if (data.bigg_id) group.node().dataset.biggId = data.bigg_id;
 
-        // Background rect
+        // Background rect — sized to visible content only, shifted down to bottom-align
         group.insert('rect', ':first-child')
             .attr('x',      -axisPadding - 4)
-            .attr('y',      -8)
+            .attr('y',      yShift - 8)
             .attr('width',   chartWidth + 8)
-            .attr('height',  totalH + 16)
+            .attr('height',  visibleTotalH + 16)
             .attr('fill',   'white')
             .attr('opacity', 0.88)
             .attr('rx', 4)
             .style('cursor', 'default');
 
-        // Render panels
-        let yOff = 0;
-        renderable.forEach((row, ri) => {
+        // Render visible panels (shifted down by yShift to keep bottom aligned)
+        let yOff = yShift;
+        visibleRows.forEach((row, ri) => {
             if (ri > 0) {
                 // Separator line between panels
                 group.append('line')
@@ -894,14 +965,38 @@ class EscherVisualizer {
     //  BAR CHARTS – PROTEOMICS
     // =========================================================================
     _renderProteomicsBarCharts(parentNode, segData, nodeData, config) {
-        const bc = config.barChart;
+        const bc       = config.barChart;
+        const minCount = config.barMinCount ?? 1;
         const proteinList = segData.graph_info;
         if (!Array.isArray(proteinList) || !proteinList.length) return;
 
-        const conditions = Object.keys(proteinList[0]?.stats || {});
+        // Filter conditions by minCount (use first protein's stats as reference keys)
+        const allConditions = Object.keys(proteinList[0]?.stats || {});
+        const conditions = allConditions.filter(c => {
+            // A condition passes if at least one protein has count >= minCount for it
+            return proteinList.some(p => {
+                const entry = p.stats?.[c];
+                const avg   = entry?.average;
+                if (avg === null || avg === undefined || !isFinite(avg)) return false;
+                const cnt = entry?.count ?? entry?.n ?? Infinity;
+                return cnt >= minCount;
+            });
+        });
         if (!conditions.length) return;
 
-        const nProteins = proteinList.length;
+        // Filter proteins: only keep those with at least one renderable condition
+        const renderableProteins = proteinList.filter(p =>
+            conditions.some(c => {
+                const entry = p.stats?.[c];
+                const avg   = entry?.average;
+                if (avg === null || avg === undefined || !isFinite(avg)) return false;
+                const cnt = entry?.count ?? entry?.n ?? Infinity;
+                return cnt >= minCount;
+            })
+        );
+        if (!renderableProteins.length) return;
+
+        const nProteins = renderableProteins.length;
         const colours   = this._proteinColours(nProteins);
         const barH      = bc.barHeight;
         const axisPad   = bc.axisPadding;
@@ -911,10 +1006,11 @@ class EscherVisualizer {
         const gap       = bc.gapBetween;
 
         let maxVal = 1e-9;
-        proteinList.forEach(p =>
+        renderableProteins.forEach(p =>
             conditions.forEach(c => {
-                const v = p.stats?.[c]?.average ?? 0;
-                if (v > maxVal) maxVal = v;
+                const avg = p.stats?.[c]?.average ?? 0;
+                const std = p.stats?.[c]?.std_dev ?? 0;
+                if (avg + std > maxVal) maxVal = avg + std;
             })
         );
         const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
@@ -941,7 +1037,7 @@ class EscherVisualizer {
             .attr('rx', 4)
             .style('cursor', 'default');
 
-        proteinList.forEach((prot, pi) => {
+        renderableProteins.forEach((prot, pi) => {
             const colour  = colours[pi];
             const offsetY = pi * (singleH + gap);
             const pGroup  = outerGroup.append('g')
@@ -984,7 +1080,7 @@ class EscherVisualizer {
                 pGroup.append('g')
                     .attr('class',     'x-axis')
                     .attr('transform', `translate(0,${singleH})`)
-                    .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.1e')))
+                    .call(d3.axisBottom(xScale).ticks(3).tickFormat(d => d3.format('.1e')(d).replace(/\.0(e)/, '$1')))
                     .selectAll('text')
                     .style('font-size', config.chartLabelFontSize + 'px')
                     .style('fill',      '#555');
@@ -1001,9 +1097,12 @@ class EscherVisualizer {
             }
 
             conditions.forEach((cond, ci) => {
-                const avg = prot.stats?.[cond]?.average ?? null;
-                const std = prot.stats?.[cond]?.std_dev ?? 0;
-                if (avg === null) return;
+                const entry = prot.stats?.[cond];
+                const avg   = entry?.average ?? null;
+                const std   = entry?.std_dev ?? 0;
+                const cnt   = entry?.count ?? entry?.n ?? Infinity;
+                // Skip this bar if count is below threshold
+                if (avg === null || cnt < minCount) return;
                 const barW = xScale(avg);
 
                 pGroup.append('rect')
@@ -1027,6 +1126,29 @@ class EscherVisualizer {
                         d3.select(this).attr('opacity', 1);
                         pGroup.selectAll('.value-label').remove();
                     });
+
+                // Error bar
+                if (std > 0) {
+                    const cy       = ci * barH + (barH - 2) / 2;
+                    const capH     = Math.min(barH - 4, 6);
+                    const errEnd   = xScale(avg + std);
+                    const errStart = xScale(Math.max(avg - std, 0));
+                    pGroup.append('line')
+                        .attr('x1', errStart).attr('x2', errEnd)
+                        .attr('y1', cy).attr('y2', cy)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                    pGroup.append('line')
+                        .attr('x1', errStart).attr('x2', errStart)
+                        .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                    pGroup.append('line')
+                        .attr('x1', errEnd).attr('x2', errEnd)
+                        .attr('y1', cy - capH / 2).attr('y2', cy + capH / 2)
+                        .attr('stroke', '#333').attr('stroke-width', 1.5)
+                        .style('pointer-events', 'none');
+                }
             });
         });
     }
@@ -1057,13 +1179,7 @@ class EscherVisualizer {
                 const element    = d3.select(nodes[i]);
                 const parentNode = d3.select(nodes[i].parentNode);
                 this._renderMetaboliteBarChart(
-                    parentNode, element, data, config, {
-                        getPosition: (d, cfg) => useLeft
-                            ? { x: d.x + config.barChartOffsetY,
-                                y: d.y - cfg.chartWidth }
-                            : { x: d.x - config.barChart.width / 2,
-                                y: d.y + config.barChartOffsetY },
-                    }
+                    parentNode, element, data, config
                 );
             });
     }

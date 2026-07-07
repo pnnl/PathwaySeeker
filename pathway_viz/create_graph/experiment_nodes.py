@@ -248,13 +248,20 @@ def compute_layout(G, path_order=None, full_graph=None):
     first so the sub-graph keeps its spatial context.
     """
     if full_graph is not None:
-        full_norm = _normalize(_raw_layout(full_graph))
+        raw = _raw_layout(full_graph)
+        logger.info(f"[LAYOUT] full_graph raw positions: {raw}")
+        full_norm = _normalize(raw)
+        logger.info(f"[LAYOUT] full_graph normalized positions: {full_norm}")
         pos = {n: full_norm[n] for n in G.nodes() if n in full_norm}
         missing = [n for n in G.nodes() if n not in pos]
         if missing:
             pos.update(_normalize(_spring_layout(G.subgraph(missing))))
         return pos
-    return _normalize(_raw_layout(G, path_order))
+    raw = _raw_layout(G, path_order)
+    logger.info(f"[LAYOUT] raw positions (n={G.number_of_nodes()}): {raw}")
+    norm = _normalize(raw)
+    logger.info(f"[LAYOUT] normalized positions: {norm}")
+    return norm
 
 
 def _canvas_size(num_nodes):
@@ -308,7 +315,9 @@ def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
     """
     b      = _get_bounds(positions)
     margin = cfg.CANVAS_PADDING
-    uw, uh = cw - 2 * margin, ch - 2 * margin
+    uw     = max(cw - 2 * margin, cw // 2)
+    uh     = max(ch - 2 * margin, ch // 2)
+    logger.info(f"[NODES] canvas={cw}x{ch}, margin={margin}, usable={uw}x{uh}, bounds={b}")
     nodes  = {}
     for nid, pos in positions.items():
         name   = get_kegg_name(str(nid), kegg_cache, cache_path)
@@ -318,6 +327,7 @@ def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
         ny_    = (pos[1] - b["min_y"]) / b["y_range"]
         x      = margin + nx_ * uw
         y      = margin + ny_ * uh
+        logger.debug(f"[NODES]   {nid}: raw_pos={pos}, nx={nx_:.3f}, ny={ny_:.3f}, canvas=({x:.1f},{y:.1f})")
         nodes[str(nid)] = dict(
             node_type="metabolite",
             color=color,
@@ -599,7 +609,7 @@ def _validate_metabolomics_stats(nodes, metabolomics_file):
         return ["Metabolomics validation: missing KEGG_C_number column"]
 
     df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
-    meta_cols = {"metabolite", "Tags", "KEGG_C_number"}
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
     groups    = _infer_metabolomics_condition_groups(
         df.columns.tolist(), meta_cols
     )
@@ -1252,7 +1262,7 @@ def integrate_metabolomics(nodes, filepath):
         return
 
     df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
-    meta_cols = {"metabolite", "Tags", "KEGG_C_number"}
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
 
     if _is_long_format(df):
         kegg_lookup = _long_stats(df, "KEGG_C_number")
@@ -1279,8 +1289,11 @@ def integrate_metabolomics(nodes, filepath):
         if pd.isna(kid) or str(kid).strip() in ("", "nan"):
             skipped += 1
             continue
-        kid  = str(kid).strip()
-        name = str(row.get("metabolite", kid)).strip()
+        kid    = str(kid).strip()
+        name   = str(row.get("metabolite", kid)).strip()
+        method = str(row.get("method", "")).strip()
+        if method:
+            name = f"{name} ({method})"
         row_stats = {}
         for grp, cols in groups.items():
             valid = [c for c in cols if c in df.columns]
