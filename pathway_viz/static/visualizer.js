@@ -93,8 +93,6 @@ class EscherVisualizer {
         this.equalizeNodeRadii(config);
         this.colourNodesByOrigin(config);
         this.loadStructureImages(jsonData, config);
-        this.createNodeBarCharts(jsonData, config);
-        this.createSegmentBarCharts(jsonData[1].nodes, jsonData[1].reactions, config);
         this.initializeLabels(jsonData, config);
         this.attachTooltipListeners(jsonData, config);
         console.log('[EscherVisualizer] Structures initialized');
@@ -120,18 +118,58 @@ class EscherVisualizer {
     // =========================================================================
     //  NODE COLOURING
     // =========================================================================
-    colourNodesByOrigin(config) {
+    /**
+     * Colour metabolite nodes and midpoint nodes by their omics origin.
+     *
+     * @param {object}      config           - vis config (has originColours)
+     * @param {object|null} originOverrides  - { bigg_id: 'metabolomics'|'proteomics'|'both'|'unknown' }
+     *                                         Overrides d.origin for metabolite nodes.
+     * @param {object|null} midpointOrigins  - { node_id: 'proteomics' }
+     *                                         Origin for midpoint (reaction) nodes.
+     */
+    colourNodesByOrigin(config, originOverrides, midpointOrigins) {
+        // ── Metabolite nodes ──────────────────────────────────────────────
         d3.select('#' + this.containerId)
             .selectAll('.node-circle.metabolite-circle')
             .each((d, i, nodes) => {
                 if (!d) return;
-                const colour = this._originColour(d.origin || 'unknown', config);
+                const origin = (originOverrides && originOverrides[d.bigg_id])
+                    || d.origin
+                    || 'unknown';
+                const colour = this._originColour(origin, config);
                 d3.select(nodes[i])
                     .style('fill',         colour)
                     .style('fill-opacity',  0.85)
                     .style('stroke',       d3.color(colour).darker(0.6).toString())
                     .style('stroke-width', '1.5px');
             });
+
+        // ── Midpoint (reaction) nodes ─────────────────────────────────────
+        if (midpointOrigins && Object.keys(midpointOrigins).length) {
+            d3.select('#' + this.containerId)
+                .selectAll('.node-circle')
+                .each((d, i, nodes) => {
+                    if (!d || d.node_type !== 'midpoint') return;
+                    // d.bigg_id for midpoints is "midpoint_<id>"; use the Escher node id
+                    // The D3 datum for a midpoint circle has node_id or we can derive it
+                    // from bigg_id: "midpoint_<id>" -> id is the map node key
+                    // However, midpointOrigins is keyed by the map node ID (string).
+                    // d.bigg_id = "midpoint_<nodeId>" so strip the prefix.
+                    const rawId = d.bigg_id
+                        ? d.bigg_id.replace(/^midpoint_/, '')
+                        : null;
+                    const origin = (rawId && midpointOrigins[rawId])
+                        || (d.bigg_id && midpointOrigins[d.bigg_id])
+                        || null;
+                    if (!origin) return;
+                    const colour = this._originColour(origin, config);
+                    d3.select(nodes[i])
+                        .style('fill',         colour)
+                        .style('fill-opacity',  0.85)
+                        .style('stroke',       d3.color(colour).darker(0.6).toString())
+                        .style('stroke-width', '1.5px');
+                });
+        }
     }
 
     // =========================================================================
@@ -556,6 +594,7 @@ class EscherVisualizer {
 
             parentNode.selectAll('.label').style('display', 'none');
 
+            
             let label = parentNode.select('.node-label.coproduct-name');
             if (label.empty()) {
                 label = parentNode.append('text')
@@ -1290,5 +1329,651 @@ class EscherVisualizer {
                 const d = d3.select(this).data()[0];
                 return d && selectedNodeIds.includes(d.to_node_id);
             });
+    }
+
+    // =========================================================================
+    //  CANVAS BAR CHARTS  (Vega-Lite embedded via <foreignObject> on the SVG)
+    // =========================================================================
+    /**
+     * Render Vega-Lite bar charts directly on the Escher SVG canvas next to
+     * every node/midpoint that has data in barchart_data.
+     *
+     * Charts are placed in <foreignObject> elements so they use the same
+     * Vega-Lite spec as the sidebar panel.
+     *
+     * @param {object} jsonData  - Escher map JSON
+     * @param {object} config    - vis config
+     * @param {object} bcd       - { metabolites, reactions, kegg_names }
+     */
+    createCanvasBarCharts(jsonData, config, bcd) {
+        if (!bcd || (!Object.keys(bcd.metabolites || {}).length && !Object.keys(bcd.reactions || {}).length)) return;
+
+        const metByKegg = bcd.metabolites || {};
+        const protByRxn = bcd.reactions   || {};
+        const keggNames = bcd.kegg_names  || {};
+
+        const svgEl = document.querySelector('#' + this.containerId + ' svg');
+        if (!svgEl) return;
+
+        // Remove any previously rendered canvas charts
+        d3.select('#' + this.containerId).selectAll('.canvas-vega-chart').remove();
+
+        // The Escher JSON nodes object — same data that Escher binds as D3 datums.
+        // We use it as a fallback to look up reaction_kegg_ids by node ID when the
+        // D3 datum on a midpoint circle doesn't carry that field directly.
+        const jsonNodes = (jsonData[1] && jsonData[1].nodes) || {};
+
+        const CHART_W  = 360;   // foreignObject width — must fit full chart incl. y-axis
+        const CHART_H  = 180;
+        const OFFSET_X = 20;
+        const OFFSET_Y = -(CHART_H + 20);
+
+        // Append foreignObjects into the Escher canvas group (the panned/zoomed <g>)
+        // so that node coordinates are already in the right space.
+        // Escher wraps everything in a <g class="escher-3d"> or similar; we find the
+        // deepest <g> that contains the node circles.
+        // Find the Escher canvas group (panned/zoomed <g>).
+        // Walk up from a node circle to find the group that is a direct child of the SVG —
+        // that is the zoom/pan group whose coordinate space matches the node transforms.
+        // Find the Escher canvas group (panned/zoomed <g>).
+        // Walk up from a node circle to find the group that is a direct child of the SVG.
+        const firstCircle = d3.select('#' + this.containerId + ' svg .node-circle').node();
+        let canvasG = null;
+        if (firstCircle) {
+            // Log the parent chain for debugging
+            const chain = [];
+            let dbg = firstCircle;
+            while (dbg && dbg !== document.body) {
+                chain.push(dbg.tagName + (dbg.className?.baseVal ? '.' + dbg.className.baseVal.split(' ').join('.') : ''));
+                dbg = dbg.parentNode;
+            }
+            console.log('[EscherVisualizer] Node circle parent chain:', chain.join(' > '));
+
+            // Walk up until we find a <g> whose parent is the SVG
+            let el = firstCircle.parentNode;
+            while (el && el !== svgEl) {
+                if (el.parentNode === svgEl && el.tagName === 'g') {
+                    canvasG = el;
+                    break;
+                }
+                el = el.parentNode;
+            }
+        }
+        // Fallback: try known Escher class names
+        if (!canvasG) {
+            canvasG = svgEl.querySelector('g.escher-3d')
+                || svgEl.querySelector('g.zoom-g')
+                || svgEl.querySelector('g.canvas-g')
+                || svgEl.querySelector('g');
+        }
+        console.log('[EscherVisualizer] Canvas group found:', canvasG?.tagName,
+            canvasG?.className?.baseVal || canvasG?.className);
+
+        // We append foreignObjects into the canvas group so coordinates match.
+        // If we couldn't find a canvas group, fall back to a dedicated overlay <g>
+        // that we manually keep in sync with the canvas transform.
+        let canvasSel;
+        if (canvasG) {
+            canvasSel = d3.select(canvasG);
+        } else {
+            // Last resort: create an overlay group on the SVG and copy the transform
+            // from the first <g> child of the SVG (which is the zoom group).
+            const zoomG = svgEl.querySelector('g');
+            const overlayG = d3.select(svgEl).append('g')
+                .attr('class', 'canvas-chart-overlay');
+            if (zoomG) {
+                const copyTransform = () => {
+                    const tf = d3.select(zoomG).attr('transform');
+                    if (tf) overlayG.attr('transform', tf);
+                };
+                copyTransform();
+                new MutationObserver(copyTransform)
+                    .observe(zoomG, { attributes: true, attributeFilter: ['transform'] });
+            }
+            canvasSel = overlayG;
+        }
+
+        // Count how many node circles exist
+        const circleCount = d3.select('#' + this.containerId).selectAll('.node-circle').size();
+        const metCircleCount = d3.select('#' + this.containerId).selectAll('.node-circle.metabolite-circle').size();
+        console.log('[EscherVisualizer] Node circles:', circleCount, '| metabolite circles:', metCircleCount);
+        console.log('[EscherVisualizer] metByKegg keys:', Object.keys(metByKegg).length,
+            '| protByRxn keys:', Object.keys(protByRxn).length);
+
+        // Helper: append a foreignObject Vega chart at (nx, ny) in canvas space
+        const _appendChart = (nx, ny, safeId, spec) => {
+            const fo = canvasSel.append('foreignObject')
+                .attr('class', 'canvas-vega-chart')
+                .attr('x', nx + OFFSET_X)
+                .attr('y', ny + OFFSET_Y)
+                .attr('width',  CHART_W)
+                .attr('height', CHART_H)
+                .style('overflow', 'visible')
+                .style('pointer-events', 'none');
+
+            fo.append('xhtml:div')
+                .attr('id', safeId)
+                .style('width',         CHART_W + 'px')
+                .style('height',        CHART_H + 'px')
+                .style('background',    'rgba(255,255,255,0.93)')
+                .style('border',        '1px solid #ccc')
+                .style('border-radius', '4px')
+                .style('overflow',      'hidden')
+                .style('pointer-events','auto');
+
+            if (typeof vegaEmbed !== 'undefined') {
+                // Strip the legend to save horizontal space on the canvas.
+                // Deep-clone layers and remove color encoding legend.
+                const stripLegend = layers => (layers || []).map(layer => {
+                    if (!layer.encoding?.color) return layer;
+                    return {
+                        ...layer,
+                        encoding: {
+                            ...layer.encoding,
+                            color: { ...layer.encoding.color, legend: null },
+                        },
+                    };
+                });
+                // For layered specs, autosize 'fit' doesn't work well.
+                // Instead, set a small view width and let the y-axis labels
+                // extend into the padding area. The foreignObject has overflow:visible.
+                const compact = {
+                    ...spec,
+                    width:    160,   // plot area only; y-axis labels extend left into padding
+                    height:   CHART_H - 50,
+                    autosize: { type: 'none' },
+                    title:    { ...(spec.title || {}), fontSize: 9 },
+                    padding:  { left: 90, right: 8, top: 14, bottom: 20 },
+                    layer:    stripLegend(spec.layer),
+                    config: {
+                        ...(spec.config || {}),
+                        axis:   { labelFontSize: 7, titleFontSize: 0, labelLimit: 80 },
+                        legend: { disable: true },
+                        background: 'transparent',
+                    },
+                };
+                // Use rAF to ensure foreignObject div is in the DOM before vegaEmbed
+                requestAnimationFrame(() => {
+                    vegaEmbed('#' + safeId, compact, { actions: false }).catch(console.error);
+                });
+            }
+        };
+
+        // ── Metabolite nodes ──────────────────────────────────────────────
+        let metCount = 0;
+        d3.select('#' + this.containerId)
+            .selectAll('.node-circle.metabolite-circle')
+            .each((d, i, nodes) => {
+                if (!d) return;
+                const keggId = d.bigg_id;
+                const entries = metByKegg[keggId];
+                if (!entries || !entries.length) return;
+
+                const firstEntry = entries[0];
+                const conds = (firstEntry.conditions || []).filter(
+                    c => c.mean !== null && c.mean !== undefined && isFinite(c.mean)
+                );
+                if (!conds.length) return;
+
+                const name  = keggNames[keggId] || d.name || keggId;
+                const spec  = EscherVisualizer._buildVegaSpec(conds, name, 'Abundance');
+                const safeId = 'cvega-met-' + keggId.replace(/[^a-zA-Z0-9]/g, '_');
+
+                // Position: use parent <g> transform
+                const parentG = nodes[i].parentNode;
+                const tf = d3.select(parentG).attr('transform') || '';
+                const m  = tf.match(/translate\(\s*([^,\s]+)[,\s]+([^)\s]+)\s*\)/);
+                const nx = m ? parseFloat(m[1]) : (d.x || 0);
+                const ny = m ? parseFloat(m[2]) : (d.y || 0);
+
+                _appendChart(nx, ny, safeId, spec);
+                metCount++;
+            });
+
+        // ── Midpoint (reaction) nodes ─────────────────────────────────────
+        let rxnCount = 0;
+        const CHART_GAP = 8;  // vertical gap between stacked protein charts
+        d3.select('#' + this.containerId)
+            .selectAll('.node-circle')
+            .each((d, i, nodes) => {
+                if (!d || d.node_type !== 'midpoint') return;
+
+                // Try D3 datum first, then fall back to JSON lookup
+                const nodeEl = nodes[i];
+                const parentG = nodeEl.parentNode;
+
+                // Get the reaction KEGG id from the midpoint's tooltip.
+                // The graph builder stores it as d.tooltip.reaction_id (e.g. "R09293").
+                // Fall back to jsonNodes lookup in case Escher strips the tooltip field.
+                const rxnId = (d.tooltip && d.tooltip.reaction_id)
+                    || (() => {
+                        const gId = parentG.id || '';
+                        const nid = gId.replace(/^n/, '');
+                        const jn  = jsonNodes[nid];
+                        return (jn && jn.tooltip && jn.tooltip.reaction_id) || null;
+                    })();
+
+                if (!rxnId) return;
+                const protEntry = protByRxn[rxnId];
+                if (!protEntry) return;
+
+                const proteins = protEntry.proteins || [];
+                if (!proteins.length) return;
+
+                const tf = d3.select(parentG).attr('transform') || '';
+                const m  = tf.match(/translate\(\s*([^,\s]+)[,\s]+([^)\s]+)\s*\)/);
+                const nx = m ? parseFloat(m[1]) : (d.x || 0);
+                const ny = m ? parseFloat(m[2]) : (d.y || 0);
+
+                // Stack one chart per protein vertically.
+                // The first chart sits at OFFSET_Y above the node; subsequent
+                // charts are placed below it with a small gap.
+                let stackOffset = 0;
+                proteins.forEach((prot, pi) => {
+                    const conds = (prot.conditions || []).filter(
+                        c => c.mean !== null && c.mean !== undefined && isFinite(c.mean)
+                    );
+                    if (!conds.length) return;
+
+                    const desc  = prot.description || '';
+                    const title = desc
+                        ? rxnId + ': ' + desc.slice(0, 35) + (desc.length > 35 ? '…' : '')
+                        : rxnId;
+                    const spec   = EscherVisualizer._buildVegaSpec(conds, title, 'Abundance');
+                    const safeId = ('cvega-rxn-' + rxnId + '_p' + pi)
+                        .replace(/[^a-zA-Z0-9]/g, '_');
+
+                    // Compute per-chart height from the spec so stacking is accurate
+                    const chartH = (spec.height || CHART_H) + 50; // +50 for title + padding
+
+                    const fo = canvasSel.append('foreignObject')
+                        .attr('class', 'canvas-vega-chart')
+                        .attr('x', nx + OFFSET_X)
+                        .attr('y', ny + OFFSET_Y - stackOffset)
+                        .attr('width',  CHART_W)
+                        .attr('height', chartH)
+                        .style('overflow', 'visible')
+                        .style('pointer-events', 'none');
+
+                    fo.append('xhtml:div')
+                        .attr('id', safeId)
+                        .style('width',         CHART_W + 'px')
+                        .style('height',        chartH + 'px')
+                        .style('background',    'rgba(255,255,255,0.93)')
+                        .style('border',        '1px solid #ccc')
+                        .style('border-radius', '4px')
+                        .style('overflow',      'hidden')
+                        .style('pointer-events','auto');
+
+                    if (typeof vegaEmbed !== 'undefined') {
+                        const stripLegend = layers => (layers || []).map(layer => {
+                            if (!layer.encoding?.color) return layer;
+                            return {
+                                ...layer,
+                                encoding: {
+                                    ...layer.encoding,
+                                    color: { ...layer.encoding.color, legend: null },
+                                },
+                            };
+                        });
+                        const compact = {
+                            ...spec,
+                            width:    160,
+                            height:   chartH - 50,
+                            autosize: { type: 'none' },
+                            title:    { ...(spec.title || {}), fontSize: 9 },
+                            padding:  { left: 90, right: 8, top: 14, bottom: 20 },
+                            layer:    stripLegend(spec.layer),
+                            config: {
+                                ...(spec.config || {}),
+                                axis:   { labelFontSize: 7, titleFontSize: 0, labelLimit: 80 },
+                                legend: { disable: true },
+                                background: 'transparent',
+                            },
+                        };
+                        requestAnimationFrame(() => {
+                            vegaEmbed('#' + safeId, compact, { actions: false }).catch(console.error);
+                        });
+                    }
+
+                    stackOffset += chartH + CHART_GAP;
+                    rxnCount++;
+                });
+            });
+
+        console.log(`[EscherVisualizer] Canvas charts: ${metCount} metabolite, ${rxnCount} reaction`);
+    }
+
+    // =========================================================================
+    //  SIDEBAR CHART PANEL  (click-triggered, reference design with Vega-Lite)
+    // =========================================================================
+    /**
+     * Show the reference-style sidebar panel for a clicked edge or metabolite node.
+     *
+     * For edges (reactions):
+     *   - Header: rxnId + equation label
+     *   - Proteomics section: one protein-block per protein with KO, description,
+     *     entry_name, UniProt, KEGG gene, and a Vega-Lite bar chart
+     *   - Metabolomics section: one sub-section per C-number in the equation
+     *
+     * For metabolite nodes (no rxnId):
+     *   - Header: compound name
+     *   - Metabolomics section only
+     *
+     * @param {string|null} rxnId         - KEGG reaction ID (e.g. "R00771") or null
+     * @param {string}      equationLabel - full equation string or display label
+     * @param {object|null} protEntry     - raw proteomics entry {reaction_id, proteins:[...]}
+     * @param {string[]}    cNumbers      - C-numbers to show metabolomics for
+     * @param {object}      metByKegg     - kegg_id -> [{kegg_id, metabolite, conditions:[...]}]
+     * @param {object}      keggNames     - kegg_id -> human-readable name
+     */
+    showSidebarCharts(rxnId, equationLabel, protEntry, cNumbers, metByKegg, keggNames) {
+        const panel       = document.getElementById('chart-panel');
+        const titleEl     = document.getElementById('chart-panel-title');
+        const subtitleEl  = document.getElementById('chart-panel-subtitle');
+        const placeholder = document.getElementById('chart-panel-placeholder');
+        const content     = document.getElementById('chart-panel-content');
+        if (!panel || !content) return;
+
+        // Update header
+        if (titleEl)    titleEl.textContent    = rxnId || equationLabel || '—';
+        if (subtitleEl) subtitleEl.textContent = equationLabel || '';
+
+        // Show panel, hide placeholder, clear content
+        if (placeholder) placeholder.style.display = 'none';
+        content.style.display = 'block';
+        content.innerHTML = '';
+
+        const pendingCharts = [];  // {divId, conditions, title, yLabel}
+
+        // ── Proteomics section ────────────────────────────────────────────
+        const protSection = document.createElement('div');
+        protSection.className = 'cp-chart-section';
+        const protH3 = document.createElement('h3');
+        protH3.textContent = rxnId ? `Proteomics — ${rxnId}` : 'Proteomics';
+        protSection.appendChild(protH3);
+
+        if (!protEntry) {
+            const p = document.createElement('p');
+            p.className = 'no-data';
+            p.textContent = rxnId
+                ? `No proteomics data for reaction ${rxnId}.`
+                : 'No reaction ID found.';
+            protSection.appendChild(p);
+        } else {
+            const proteins = protEntry.proteins || [];
+            const rxnWrapper = document.createElement('div');
+            rxnWrapper.style.marginBottom = '18px';
+            const rxnLbl = document.createElement('div');
+            rxnLbl.className = 'cp-reaction-label';
+            rxnLbl.textContent = `${rxnId}  (${proteins.length} protein${proteins.length !== 1 ? 's' : ''})`;
+            rxnWrapper.appendChild(rxnLbl);
+
+            proteins.forEach((prot, pi) => {
+                const block = document.createElement('div');
+                block.className = 'cp-protein-block';
+
+                const protLbl = document.createElement('div');
+                protLbl.className = 'cp-protein-label';
+                protLbl.textContent = prot.protein_id || prot.title || `Protein ${pi + 1}`;
+                block.appendChild(protLbl);
+
+                if (prot.ko) {
+                    const d = document.createElement('div');
+                    d.className = 'cp-meta-label';
+                    d.textContent = 'KO: ' + prot.ko;
+                    block.appendChild(d);
+                }
+                if (prot.description) {
+                    const d = document.createElement('div');
+                    d.className = 'cp-meta-label italic';
+                    d.textContent = prot.description;
+                    block.appendChild(d);
+                }
+                if (prot.entry_name) {
+                    const d = document.createElement('div');
+                    d.className = 'cp-meta-label';
+                    d.textContent = 'Entry name: ' + prot.entry_name;
+                    block.appendChild(d);
+                }
+                if (prot.entry) {
+                    const d = document.createElement('div');
+                    d.className = 'cp-meta-label';
+                    d.textContent = 'UniProt: ' + prot.entry;
+                    block.appendChild(d);
+                }
+                if (prot.kegg) {
+                    const d = document.createElement('div');
+                    d.className = 'cp-meta-label';
+                    d.textContent = 'KEGG gene: ' + prot.kegg;
+                    block.appendChild(d);
+                }
+
+                // Vega chart div
+                const safeId = ('prot_' + (rxnId || 'x') + '_p' + pi).replace(/[^a-zA-Z0-9]/g, '_');
+                const vegaDiv = document.createElement('div');
+                vegaDiv.id = 'vega-' + safeId;
+                block.appendChild(vegaDiv);
+                rxnWrapper.appendChild(block);
+
+                // Normalise conditions: support both {condition,mean,std,n} and {name,mean,std_dev,count}
+                const rawConds = prot.conditions || [];
+                pendingCharts.push({
+                    divId:      '#vega-' + safeId,
+                    conditions: rawConds,
+                    title:      prot.protein_id || prot.title || `Protein ${pi + 1}`,
+                    yLabel:     'Abundance',
+                });
+            });
+            protSection.appendChild(rxnWrapper);
+        }
+        content.appendChild(protSection);
+
+        // ── Metabolomics section ──────────────────────────────────────────
+        const metSection = document.createElement('div');
+        metSection.className = 'cp-chart-section';
+        const metH3 = document.createElement('h3');
+        metH3.textContent = cNumbers.length
+            ? `Metabolomics — ${cNumbers.length} compound${cNumbers.length !== 1 ? 's' : ''} in equation`
+            : 'Metabolomics';
+        metSection.appendChild(metH3);
+
+        if (!cNumbers.length) {
+            const p = document.createElement('p');
+            p.className = 'no-data';
+            p.textContent = 'No C-numbers found.';
+            metSection.appendChild(p);
+        } else {
+            let anyData = false;
+            cNumbers.forEach(cId => {
+                const entries = (metByKegg[cId] || []);
+                if (!entries.length) return;
+                anyData = true;
+
+                const cHeader = document.createElement('div');
+                cHeader.className = 'cp-compound-header';
+                const name = (keggNames && keggNames[cId]) || cId;
+                cHeader.textContent = name !== cId ? `${name} (${cId})` : cId;
+                metSection.appendChild(cHeader);
+
+                entries.forEach((metEntry, mi) => {
+                    const rawConds = metEntry.conditions || [];
+                    const validConds = rawConds.filter(c => {
+                        const m = c.mean ?? c.mean;
+                        return m !== null && m !== undefined && isFinite(m);
+                    });
+                    if (!validConds.length) return;
+
+                    // Row label when multiple entries for same C-number
+                    if (entries.length > 1 || metEntry.method) {
+                        const lbl = document.createElement('div');
+                        lbl.className = 'cp-row-label';
+                        lbl.textContent = metEntry.metabolite || metEntry.name || name;
+                        metSection.appendChild(lbl);
+                        if (metEntry.method) {
+                            const ml = document.createElement('div');
+                            ml.className = 'cp-meta-label italic';
+                            ml.textContent = 'Method: ' + metEntry.method;
+                            metSection.appendChild(ml);
+                        }
+                    }
+
+                    const safeId = 'met_' + cId.replace(/[^a-zA-Z0-9]/g, '_') + '_r' + mi;
+                    const vegaDiv = document.createElement('div');
+                    vegaDiv.id = safeId;
+                    metSection.appendChild(vegaDiv);
+                    pendingCharts.push({
+                        divId:      '#' + safeId,
+                        conditions: validConds,
+                        title:      name !== cId ? `${name} (${cId})` : cId,
+                        yLabel:     'Abundance',
+                    });
+                });
+            });
+
+            if (!anyData) {
+                const p = document.createElement('p');
+                p.className = 'no-data';
+                p.textContent = 'No metabolomics data available for any compound in this reaction.';
+                metSection.appendChild(p);
+            }
+        }
+        content.appendChild(metSection);
+
+        // Show panel before rendering Vega (needs DOM dimensions)
+        panel.style.display = 'flex';
+
+        // Render all Vega charts after DOM insertion
+        pendingCharts.forEach(({ divId, conditions, title, yLabel }) => {
+            const spec = EscherVisualizer._buildVegaSpec(conditions, title, yLabel);
+            if (typeof vegaEmbed !== 'undefined') {
+                vegaEmbed(divId, spec, { actions: false }).catch(console.error);
+            }
+        });
+    }
+
+    // =========================================================================
+    //  VEGA-LITE SPEC BUILDER  (static helper)
+    // =========================================================================
+    /**
+     * Build a Vega-Lite horizontal bar chart with error bars and individual dots.
+     * Bars are coloured by n (number of replicates), matching the reference design.
+     *
+     * @param {Array}  conditions - [{condition|name, mean, std|std_dev, n|count, values?, null_columns?}]
+     * @param {string} title
+     * @param {string} yLabel
+     */
+    static _buildVegaSpec(conditions, title, yLabel) {
+        const N_COLORS = ['#e53935', '#fb8c00', '#c0ca33', '#43a047', '#1e88e5', '#8e24aa'];
+        const nColor = n => N_COLORS[Math.min(Math.max((n || 1) - 1, 0), N_COLORS.length - 1)];
+
+        // Normalise field names: support both raw (condition/std/n) and pre-processed (name/std_dev/count)
+        const norm = c => ({
+            condition:   c.condition   ?? c.name        ?? '',
+            mean:        c.mean        ?? 0,
+            std:         c.std         ?? c.std_dev      ?? null,
+            n:           c.n           ?? c.count        ?? 1,
+            values:      c.values      || [],
+            null_columns: c.null_columns || [],
+            columns:     c.columns     || [],
+        });
+
+        const normed = conditions
+            .map(norm)
+            .filter(c => c.mean !== null && isFinite(c.mean));
+
+        const values = normed.map(c => {
+            const nCapped = Math.min(c.n || 1, 6);
+            const hasReps = (c.n || 1) > 1;
+            const stdVal  = hasReps && c.std !== null && isFinite(c.std) ? c.std : null;
+            const cols    = (c.columns.length ? c.columns : c.null_columns).map(col => {
+                if (col == null) return '(null)';
+                return (c.null_columns || []).includes(col) ? col + ' (null)' : col;
+            });
+            return {
+                condition:   c.condition,
+                mean:        c.mean,
+                std:         stdVal,
+                n:           c.n,
+                nCapped,
+                lo:          hasReps ? c.mean - (stdVal || 0) : null,
+                hi:          hasReps ? c.mean + (stdVal || 0) : null,
+                columns:     cols.join('; '),
+                indivValues: c.values.join(', '),
+            };
+        });
+
+        const dotValues = [];
+        normed.forEach(c => {
+            (c.values || []).forEach(v => {
+                if (v !== null && v !== undefined && isFinite(v)) {
+                    dotValues.push({ condition: c.condition, value: v });
+                }
+            });
+        });
+
+        const barHeight  = Math.min(28, Math.max(16, Math.floor(160 / Math.max(values.length, 1))));
+        const chartHeight = values.length * barHeight + 45;
+        const nDomain = [1, 2, 3, 4, 5, 6];
+
+        return {
+            $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+            title:   { text: title, fontSize: 11, color: '#333' },
+            width:   380,
+            height:  chartHeight,
+            config: {
+                axis: { labelLimit: 0 },
+                view: { stroke: 'transparent', continuousWidth: 300, continuousHeight: chartHeight },
+                mark: { tooltip: true },
+                background: '#fafafa',
+            },
+            layer: [
+                {
+                    data: { values },
+                    mark: { type: 'bar', opacity: 0.85, cornerRadiusTopRight: 3, cornerRadiusBottomRight: 3, height: { band: 0.7 } },
+                    encoding: {
+                        y: {
+                            field: 'condition', type: 'nominal',
+                            axis:  { labelFontSize: 9, titleFontSize: 10, title: 'Condition', labelPadding: 8 },
+                            sort:  null,
+                        },
+                        x: {
+                            field: 'mean', type: 'quantitative',
+                            axis:  { title: yLabel, titleFontSize: 10, labelFontSize: 9 },
+                        },
+                        color: {
+                            field: 'nCapped', type: 'ordinal',
+                            scale: { domain: nDomain, range: N_COLORS },
+                            legend: { title: 'n (replicates)', labelExpr: "datum.label == '6' ? '≥6' : datum.label" },
+                        },
+                        tooltip: [
+                            { field: 'condition',   type: 'nominal',      title: 'Condition' },
+                            { field: 'mean',        type: 'quantitative', title: 'Mean',   format: '.4g' },
+                            { field: 'std',         type: 'quantitative', title: 'Std',    format: '.4g' },
+                            { field: 'n',           type: 'quantitative', title: 'n' },
+                            { field: 'indivValues', type: 'nominal',      title: 'Individual values' },
+                            { field: 'columns',     type: 'nominal',      title: 'Replicates' },
+                        ],
+                    },
+                },
+                {
+                    data: { values: values.filter(v => v.lo !== null && v.hi !== null) },
+                    mark: { type: 'errorbar', color: '#333', ticks: true },
+                    encoding: {
+                        y:  { field: 'condition', type: 'nominal' },
+                        x:  { field: 'lo', type: 'quantitative' },
+                        x2: { field: 'hi' },
+                    },
+                },
+                ...(dotValues.length > 0 ? [{
+                    data: { values: dotValues },
+                    mark: { type: 'point', color: '#333', opacity: 0.7, size: 30, filled: true },
+                    encoding: {
+                        y: { field: 'condition', type: 'nominal' },
+                        x: { field: 'value',     type: 'quantitative' },
+                    },
+                }] : []),
+            ],
+        };
     }
 }

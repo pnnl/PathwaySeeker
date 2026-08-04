@@ -440,15 +440,6 @@ class PathwayApp {
             this.visualizer.loadStructureImages(this.initialJsonData, this.config);
         }
 
-        if (chartsChanged) {
-            this.visualizer.clearBarCharts();
-            this.visualizer.createNodeBarCharts(this.initialJsonData, this.config);
-            this.visualizer.createSegmentBarCharts(
-                this.initialJsonData[1].nodes,
-                this.initialJsonData[1].reactions,
-                this.config
-            );
-        }
 
         if (labelsChanged) {
             d3.selectAll('.metabolite-name').remove();
@@ -502,6 +493,9 @@ class PathwayApp {
         this.visualizer.initializeStructures(this.initialJsonData, this.config);
         this.visualizer.setupNaNLabelRemoval();
 
+        // Wire up click-based sidebar charts from BARCHART_DATA
+        this._setupSidebarChartClicks();
+
         this.setupExportButton();
         this.updateSubgraphStatus();
 
@@ -520,6 +514,220 @@ class PathwayApp {
                 if (c) c.style.display = 'block';
             }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SIDEBAR CHART CLICKS  (reads window.PathwayApp.BARCHART_DATA)
+    // ─────────────────────────────────────────────────────────────────────
+    /**
+     * Build lookup dicts from BARCHART_DATA and attach click handlers to
+     * metabolite nodes and midpoint (reaction) nodes so that clicking them
+     * opens the #chart-panel sidebar with relevant bar charts.
+     *
+     * BARCHART_DATA format (produced by app.py load_barchart_data()):
+     * {
+     *   metabolites: { "C00001": [{title, conditions:[{name,mean,std_dev,count}]}] },
+     *   reactions:   { "R00001": [{title, conditions:[{name,mean,std_dev,count}]}] }
+     * }
+     */
+    _setupSidebarChartClicks() {
+        const bcd = (window.PathwayApp && window.PathwayApp.BARCHART_DATA) || {};
+
+        // Raw lookup dicts from barchart_data.json
+        // metabolites: kegg_id -> [{kegg_id, metabolite, conditions:[{condition,mean,std,n,...}]}]
+        // reactions:   rxn_id  -> {reaction_id, proteins:[{protein_id, ko, description, ...conditions}]}
+        const metByKegg  = bcd.metabolites || {};
+        const protByRxn  = bcd.reactions   || {};
+        // kegg_names: kegg_id -> human-readable name (may be present in barchart_data)
+        const keggNames  = bcd.kegg_names  || {};
+
+        const hasAny = Object.keys(metByKegg).length + Object.keys(protByRxn).length;
+        if (!hasAny) {
+            console.log('[PathwayApp] No BARCHART_DATA — sidebar chart clicks disabled');
+            return;
+        }
+        console.log('[PathwayApp] BARCHART_DATA loaded —',
+            Object.keys(metByKegg).length, 'metabolites,',
+            Object.keys(protByRxn).length, 'reactions');
+
+        const viz = this.visualizer;
+
+        // Helper: extract C-numbers from a reaction equation string
+        // e.g. "R00771 - C00001 + C00002 <=> C00003" -> ["C00001","C00002","C00003"]
+        const extractCNumbers = label =>
+            [...new Set((label || '').match(/C\d{5}/g) || [])];
+
+        // Helper: extract R-number from a reaction equation string
+        const extractRNumber = label => {
+            const m = (label || '').match(/\b(R\d{5})\b/);
+            return m ? m[1] : null;
+        };
+
+        // ── Build origin override map from barchart_data ──────────────────
+        // metabolite nodes: kegg_id (bigg_id) -> 'metabolomics'|'proteomics'|'both'
+        // midpoint nodes:   node_id            -> 'proteomics' (if reaction has prot data)
+        const originOverrides    = {};  // bigg_id -> origin (for metabolite nodes)
+        const midpointOrigins    = {};  // node_id -> origin (for midpoint nodes)
+
+        // Mark metabolite nodes that have metabolomics data
+        Object.keys(metByKegg).forEach(keggId => {
+            originOverrides[keggId] = 'metabolomics';
+        });
+
+        // Walk midpoint nodes — the reaction ID is stored in nd.tooltip.reaction_id
+        // (set by build_midpoint_tooltips in experiment_nodes.py).
+        const mapNodesForOrigin = this.initialJsonData[1]?.nodes || {};
+
+        Object.entries(mapNodesForOrigin).forEach(([nid, nd]) => {
+            if (nd.node_type !== 'midpoint') return;
+            const rxnId = nd.tooltip && nd.tooltip.reaction_id;
+            if (!rxnId || !protByRxn[rxnId]) return;
+            midpointOrigins[nid] = 'proteomics';
+        });
+
+        // Mark metabolite nodes connected to midpoints that have proteomics data.
+        // Walk all reaction segments: if a segment connects to a midpoint with
+        // proteomics data, mark the connected metabolite nodes accordingly.
+        const mapRxns = this.initialJsonData[1]?.reactions || {};
+        Object.values(mapRxns).forEach(rxn => {
+            Object.values(rxn.segments || {}).forEach(seg => {
+                [seg.from_node_id, seg.to_node_id].forEach(midNid => {
+                    if (!midNid || !midpointOrigins[midNid]) return;
+                    // This node is a midpoint with proteomics — mark its metabolite neighbours
+                    [seg.from_node_id, seg.to_node_id].forEach(nid => {
+                        if (!nid || nid === midNid) return;
+                        const nd = mapNodesForOrigin[nid];
+                        if (!nd || nd.node_type !== 'metabolite') return;
+                        const biggId = nd.bigg_id || nid;
+                        if (originOverrides[biggId] === 'metabolomics') {
+                            originOverrides[biggId] = 'both';
+                        } else if (!originOverrides[biggId]) {
+                            originOverrides[biggId] = 'proteomics';
+                        }
+                    });
+                });
+            });
+        });
+
+        console.log('[PathwayApp] Origin overrides from barchart_data:',
+            Object.keys(originOverrides).length, 'metabolite nodes,',
+            Object.keys(midpointOrigins).length, 'midpoint nodes with proteomics');
+
+        // Apply the origin colouring now (after Escher has rendered nodes)
+        viz.colourNodesByOrigin(this.config, originOverrides, midpointOrigins);
+
+        // ── Render Vega-Lite charts on the canvas (subgraph view only) ────
+        if (this.viewType === 'subgraph') {
+            const bcdForCanvas = {
+                metabolites: metByKegg,
+                reactions:   protByRxn,
+                kegg_names:  keggNames,
+            };
+            // Delay to let Escher finish positioning nodes before we read transforms
+            setTimeout(() => {
+                viz.createCanvasBarCharts(this.initialJsonData, this.config, bcdForCanvas);
+            }, 800);
+        }
+
+        // ── Metabolite node clicks ────────────────────────────────────────
+        d3.select('#map_container')
+            .selectAll('.node-circle.metabolite-circle')
+            .each((d, i, nodes) => {
+                if (!d) return;
+                const keggId = d.bigg_id;
+                if (!metByKegg[keggId]) return;
+                nodes[i].style.cursor = 'pointer';
+                nodes[i].addEventListener('click', (evt) => {
+                    evt.stopPropagation();
+                    const name = (keggNames[keggId] || d.name || keggId);
+                    viz.showSidebarCharts(
+                        null,                    // rxnId
+                        name,                    // equationLabel / display title
+                        null,                    // protEntry
+                        [keggId],                // cNumbers
+                        metByKegg,
+                        keggNames
+                    );
+                });
+            });
+
+        // ── Build segment -> reaction lookup from Escher map data ─────────
+        // Each reaction in the map has segments; each segment has from/to node IDs.
+        // We also need the reaction's equation label (stored in tooltip or reaction_kegg_ids).
+        const segKeyToRxn = {};  // "fromId:toId" -> {rxnId, equationLabel}
+
+        const mapReactions = this.initialJsonData[1]?.reactions || {};
+        Object.values(mapReactions).forEach(rxn => {
+            // The reaction's KEGG ID and equation may be in bigg_id or tooltip
+            const rxnId = rxn.bigg_id || null;
+            // Build equation label from tooltip if available
+            const equationLabel = rxn.name || rxnId || '';
+            Object.values(rxn.segments || {}).forEach(seg => {
+                const key1 = (seg.from_node_id || '') + ':' + (seg.to_node_id || '');
+                const key2 = (seg.to_node_id   || '') + ':' + (seg.from_node_id || '');
+                segKeyToRxn[key1] = { rxnId, equationLabel };
+                segKeyToRxn[key2] = { rxnId, equationLabel };
+            });
+        });
+
+        // Also build from midpoint nodes (which carry reaction_kegg_ids + equation)
+        const mapNodes = this.initialJsonData[1]?.nodes || {};
+        Object.values(mapNodes).forEach(nd => {
+            if (nd.node_type !== 'midpoint') return;
+            const rxnIds = nd.reaction_kegg_ids || [];
+            const rxnId  = rxnIds[0] || null;
+            // equation label may be on the tooltip
+            const equationLabel = (nd.tooltip && nd.tooltip.reaction_id)
+                ? nd.tooltip.reaction_id
+                : (rxnId || '');
+            if (nd.from_node_id && nd.to_node_id) {
+                const key1 = nd.from_node_id + ':' + nd.to_node_id;
+                const key2 = nd.to_node_id   + ':' + nd.from_node_id;
+                // Only set if not already set by reaction loop (reaction loop is more authoritative)
+                if (!segKeyToRxn[key1]) segKeyToRxn[key1] = { rxnId, equationLabel };
+                if (!segKeyToRxn[key2]) segKeyToRxn[key2] = { rxnId, equationLabel };
+            }
+        });
+
+        // ── Midpoint (reaction) node clicks ──────────────────────────────
+        d3.select('#map_container')
+            .selectAll('.node-circle')
+            .each((d, i, nodes) => {
+                if (!d || d.node_type !== 'midpoint') return;
+                const rxnIds = d.reaction_kegg_ids || [];
+                const rxnId  = rxnIds[0] || null;
+                if (!rxnId) return;
+                const protEntry = protByRxn[rxnId] || null;
+                // Get equation from tooltip
+                const eqLabel = (d.tooltip && d.tooltip.reaction_id) || rxnId || '';
+                const cNums   = extractCNumbers(eqLabel);
+                // Only attach if there's something to show
+                if (!protEntry && !cNums.some(c => metByKegg[c])) return;
+                nodes[i].style.cursor = 'pointer';
+                nodes[i].addEventListener('click', (evt) => {
+                    evt.stopPropagation();
+                    viz.showSidebarCharts(rxnId, eqLabel, protEntry, cNums, metByKegg, keggNames);
+                });
+            });
+
+        // ── Edge (segment) clicks ─────────────────────────────────────────
+        d3.select('#map_container')
+            .selectAll('path.segment')
+            .each((d, i, segs) => {
+                if (!d) return;
+                const key = (d.from_node_id || '') + ':' + (d.to_node_id || '');
+                const hit = segKeyToRxn[key];
+                if (!hit) return;
+                const { rxnId, equationLabel } = hit;
+                const protEntry = rxnId ? (protByRxn[rxnId] || null) : null;
+                const cNums     = extractCNumbers(equationLabel);
+                if (!protEntry && !cNums.some(c => metByKegg[c])) return;
+                segs[i].style.cursor = 'pointer';
+                segs[i].addEventListener('click', (evt) => {
+                    evt.stopPropagation();
+                    viz.showSidebarCharts(rxnId, equationLabel, protEntry, cNums, metByKegg, keggNames);
+                });
+            });
     }
 
     rebuildEscher(newJsonData) {

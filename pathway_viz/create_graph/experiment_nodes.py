@@ -1044,10 +1044,10 @@ def _group_replicate_columns(data_cols):
         Rule: condition = col.split('.')[0]
 
     Pattern 2 – number before _LC  (large metabolomics CSV)
-        Rule: condition = re.sub(r'_\d+(?=_LC)', '', col)
+        Rule: condition = re.sub(r'_\\d+(?=_LC)', '', col)
 
     Pattern 3 – trailing _BioRepN  (JGI proteomics)
-        Rule: condition = re.sub(r'_BioRep\d+$', '', col)
+        Rule: condition = re.sub(r'_BioRep\\d+$', '', col)
 
     Fallback – each column is its own singleton condition.
 
@@ -1607,8 +1607,6 @@ def generate_escher_map_from_graph(
     output_dir,
     kegg_names_file,
     json_output_file,
-    metabolomics_file=None,
-    proteomics_file=None,
     config=None,
     full_graph=None,
     keep_positions=False,
@@ -1623,7 +1621,8 @@ def generate_escher_map_from_graph(
       (plus generated midpoints / coproducts).
     - Every original graph edge  -> one Escher segment
       (split at midpoint into reactant-edge + product-edge pair).
-    - All omics data is validated against the source files before export.
+    - Midpoint nodes carry a ``reaction_kegg_ids`` list so the frontend
+      can look up bar-chart data by reaction ID without any omics CSV.
     """
     cache_path = (
         kegg_names_file
@@ -1664,22 +1663,18 @@ def generate_escher_map_from_graph(
         ),
     )
 
-    # 5b Validate graph structure (omics files checked after integration)
+    # 5b Validate graph structure
     validate_against_graph(graph, nodes, segments)
 
-    # 6  Omics data
-    integrate_metabolomics(nodes, metabolomics_file)
-    integrate_proteomics(segments, proteomics_file, nodes=nodes) 
+    # 6  Stamp each midpoint node with its KEGG reaction ID(s) so the
+    #    frontend can look up bar-chart data without any omics CSV.
+    for nd in nodes.values():
+        if nd.get("node_type") == "midpoint":
+            rxn = nd.get("reaction_name")
+            nd["reaction_kegg_ids"] = [rxn] if rxn else []
 
-    # 6b Midpoint tooltips
+    # 6b Midpoint tooltips (reaction context only — no omics data)
     build_midpoint_tooltips(nodes, segments)
-
-    # 6c Full validation including omics + tooltips
-    validate_against_graph(
-        graph, nodes, segments,
-        metabolomics_file=metabolomics_file,
-        proteomics_file=proteomics_file,
-    )
 
     # 7  Export
     save_kegg_names(kegg_cache, cache_path)
@@ -1724,13 +1719,9 @@ def main():
     json_output_file = (
         os.path.splitext(os.path.basename(graph_file))[0] + "_output.json"
     )
-    met  = "metabolomics_with_C_numbers_curated.csv"
-    prot = "proteomics_with_ko_reactions.csv"
     graph = load_graph(graph_file)
     generate_escher_map_from_graph(
         graph, output_dir, kegg_names_file, json_output_file,
-        metabolomics_file=met  if os.path.exists(met)  else None,
-        proteomics_file=prot   if os.path.exists(prot) else None,
     )
 
 

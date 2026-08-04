@@ -4,6 +4,10 @@
     <title>Escher Structures with Bar Charts</title>
     <script src="static/escher.min.js" charset="utf-8"></script>
     <script src="https://d3js.org/d3.v4.min.js"></script>
+    <!-- Vega / Vega-Lite / Vega-Embed for sidebar bar charts -->
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
     <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
@@ -31,8 +35,7 @@
                 <p><strong>Instructions:</strong></p>
                 <ul>
                     <li>Graph file (.pickle or .json)</li>
-                    <li>Metabolomics CSV (optional)</li>
-                    <li>Proteomics CSV (optional)</li>
+                    <li>Stats JSON (barchart_data.json, optional)</li>
                 </ul>
             </div>
             <form method="POST" action="{{ url_for('upload_files') }}"
@@ -48,20 +51,11 @@
                     {% endif %}
                 </div>
                 <div class="form-group">
-                    {{ upload_form.metabolomics_csv.label }}
-                    {{ upload_form.metabolomics_csv(class="form-control") }}
-                    {% if upload_form.metabolomics_csv.errors %}
+                    {{ upload_form.barchart_data_file.label }}
+                    {{ upload_form.barchart_data_file(class="form-control") }}
+                    {% if upload_form.barchart_data_file.errors %}
                         <div class="form-errors">
-                            {{ upload_form.metabolomics_csv.errors[0] }}
-                        </div>
-                    {% endif %}
-                </div>
-                <div class="form-group">
-                    {{ upload_form.proteomics_csv.label }}
-                    {{ upload_form.proteomics_csv(class="form-control") }}
-                    {% if upload_form.proteomics_csv.errors %}
-                        <div class="form-errors">
-                            {{ upload_form.proteomics_csv.errors[0] }}
+                            {{ upload_form.barchart_data_file.errors[0] }}
                         </div>
                     {% endif %}
                 </div>
@@ -84,7 +78,7 @@
                         <span class="legend-dot"
                             style="background:{{ frontend_config.originColours.proteomics }}">
                         </span>
-                        Proteomics only
+                        Proteomics only (nodes &amp; reactions)
                     </div>
                     <div class="legend-item">
                         <span class="legend-dot"
@@ -385,6 +379,23 @@
 
     <div id="map_container"></div>
 
+    <!-- Sidebar panel for click-triggered bar charts -->
+    <div id="chart-panel" style="display:none;">
+        <div id="chart-panel-header">
+            <div id="chart-panel-header-inner">
+                <strong id="chart-panel-title">—</strong><br>
+                <span id="chart-panel-subtitle">Click an edge or node to see bar charts</span>
+            </div>
+            <button id="chart-panel-close" onclick="document.getElementById('chart-panel').style.display='none';">&times;</button>
+        </div>
+        <div id="chart-panel-body">
+            <div id="chart-panel-placeholder">
+                Click any edge to see bar charts for the reaction (R-number) and all compounds (C-numbers) in its equation.
+            </div>
+            <div id="chart-panel-content" style="display:none;"></div>
+        </div>
+    </div>
+
     <script>
         // Single namespace — read once at boot by app.js
         window.PathwayApp = {
@@ -392,6 +403,7 @@
             CONFIG:          {{ frontend_config|tojson|safe }},
             HIGHLIGHT_PATH:  {{ request.args.get('highlight_path', '') | tojson }},
             VIEW_TYPE:       {{ request.args.get('view', 'full') | tojson }},
+            BARCHART_DATA:   {{ barchart_data|tojson|safe }},
         };
     </script>
     <script src="{{ url_for('static', filename='visualizer.js') }}"></script>

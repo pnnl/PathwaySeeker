@@ -879,23 +879,22 @@ class TestMetabolomicsIntegration:
 
 
 # =============================================================================
-# 5b. METABOLOMICS – PYRUVIC ACID (C00022) REAL-DATA VALUES
+# 5b. METABOLOMICS – PYRUVIC ACID (C00022) SYNTHETIC VALUES
 # =============================================================================
 
 @pytest.fixture
 def metabolomics_csv_pyruvate(tmp_path):
     """
-    Dot-suffix format with four conditions matching the curated dataset.
-    Real replicate values from metabolomics_with_C_numbers_curated.csv.
-    Expected stats for C00022 (pyruvic acid):
-        AgitWAO  : mean=55835211,     std=21681803.403
-        AgitWOAO : mean=79091843,     std=20305218.479
-        StatWAO  : mean=12663298,     std=1737316.917
-        StatWOAO : mean=33729035,     std=5774330.289
+    Dot-suffix format with four synthetic conditions.
+    Synthetic replicate values for C00022 (pyruvic acid):
+        CondA : mean=250,  std=129.099
+        CondB : mean=650,  std=129.099
+        CondC : mean=125,  std=64.550
+        CondD : mean=350,  std=129.099
     """
     content = textwrap.dedent("""\
-        metabolite,AgitWAO,AgitWAO.1,AgitWAO.2,AgitWAO.3,AgitWOAO,AgitWOAO.1,AgitWOAO.2,AgitWOAO.3,StatWAO,StatWAO.1,StatWAO.2,StatWAO.3,StatWOAO,StatWOAO.1,StatWOAO.2,StatWOAO.3,KEGG_C_number
-        pyruvic acid,83831312.0,30900360.0,54095176.0,54513996.0,108778416.0,66324684.0,75606040.0,65658232.0,13483593.0,14492685.0,10465284.0,12211630.0,31030902.0,30228986.0,31292348.0,42363904.0,C00022
+        metabolite,CondA,CondA.1,CondA.2,CondA.3,CondB,CondB.1,CondB.2,CondB.3,CondC,CondC.1,CondC.2,CondC.3,CondD,CondD.1,CondD.2,CondD.3,KEGG_C_number
+        pyruvic acid,100.0,200.0,300.0,400.0,500.0,600.0,700.0,800.0,50.0,100.0,150.0,200.0,200.0,300.0,400.0,500.0,C00022
     """)
     path = str(tmp_path / "metabolomics_pyruvate.csv")
     with open(path, "w") as f:
@@ -906,13 +905,13 @@ def metabolomics_csv_pyruvate(tmp_path):
 class TestPyruvicAcidStats:
     """
     Verify that integrate_metabolomics produces the correct mean and std_dev
-    for pyruvic acid (C00022) across all four conditions.
+    for pyruvic acid (C00022) across all four synthetic conditions.
 
-    Expected values (from Gsub_pellet dataset):
-        AgitWAO  : mean = 55 835 211,   std = 21 681 803.4
-        AgitWOAO : mean = 79 091 843,   std = 20 305 218.48
-        StatWAO  : mean = 12 663 298,   std =  1 737 316.917
-        StatWOAO : mean = 33 729 035,   std =  5 774 330.289
+    Expected values:
+        CondA : mean = 250,   std = 129.099
+        CondB : mean = 650,   std = 129.099
+        CondC : mean = 125,   std =  64.550
+        CondD : mean = 350,   std = 129.099
     """
 
     def _nodes(self, kegg_ids):
@@ -950,76 +949,76 @@ class TestPyruvicAcidStats:
         assert isinstance(gi, list) and len(gi) == 1
         assert len(gi[0]["conditions"]) == 4
 
-    def test_pyruvate_agit_wao_mean(self, metabolomics_csv_pyruvate):
-        """AgitWAO mean should be 55 835 211."""
+    def test_pyruvate_cond_a_mean(self, metabolomics_csv_pyruvate):
+        """CondA mean should be 250."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "AgitWAO")
-        assert abs(stats["average"] - 55_835_211) < 1.0, (
-            f"AgitWAO mean: expected 55835211, got {stats['average']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondA")
+        assert abs(stats["average"] - 250.0) < 1e-3, (
+            f"CondA mean: expected 250.0, got {stats['average']}"
         )
 
-    def test_pyruvate_agit_wao_std(self, metabolomics_csv_pyruvate):
-        """AgitWAO std should be 21 681 803.4."""
+    def test_pyruvate_cond_a_std(self, metabolomics_csv_pyruvate):
+        """CondA std should be ~129.099."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "AgitWAO")
-        assert abs(stats["std_dev"] - 21_681_803.4) < 1.0, (
-            f"AgitWAO std: expected 21681803.4, got {stats['std_dev']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondA")
+        assert abs(stats["std_dev"] - 129.099) < 0.01, (
+            f"CondA std: expected ~129.099, got {stats['std_dev']}"
         )
 
-    def test_pyruvate_agit_woao_mean(self, metabolomics_csv_pyruvate):
-        """AgitWOAO mean should be 79 091 843."""
+    def test_pyruvate_cond_b_mean(self, metabolomics_csv_pyruvate):
+        """CondB mean should be 650."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "AgitWOAO")
-        assert abs(stats["average"] - 79_091_843) < 1.0, (
-            f"AgitWOAO mean: expected 79091843, got {stats['average']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondB")
+        assert abs(stats["average"] - 650.0) < 1e-3, (
+            f"CondB mean: expected 650.0, got {stats['average']}"
         )
 
-    def test_pyruvate_agit_woao_std(self, metabolomics_csv_pyruvate):
-        """AgitWOAO std should be 20 305 218.48."""
+    def test_pyruvate_cond_b_std(self, metabolomics_csv_pyruvate):
+        """CondB std should be ~129.099."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "AgitWOAO")
-        assert abs(stats["std_dev"] - 20_305_218.48) < 1.0, (
-            f"AgitWOAO std: expected 20305218.48, got {stats['std_dev']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondB")
+        assert abs(stats["std_dev"] - 129.099) < 0.01, (
+            f"CondB std: expected ~129.099, got {stats['std_dev']}"
         )
 
-    def test_pyruvate_stat_wao_mean(self, metabolomics_csv_pyruvate):
-        """StatWAO mean should be 12 663 298."""
+    def test_pyruvate_cond_c_mean(self, metabolomics_csv_pyruvate):
+        """CondC mean should be 125."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "StatWAO")
-        assert abs(stats["average"] - 12_663_298) < 1.0, (
-            f"StatWAO mean: expected 12663298, got {stats['average']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondC")
+        assert abs(stats["average"] - 125.0) < 1e-3, (
+            f"CondC mean: expected 125.0, got {stats['average']}"
         )
 
-    def test_pyruvate_stat_wao_std(self, metabolomics_csv_pyruvate):
-        """StatWAO std should be 1 737 316.917."""
+    def test_pyruvate_cond_c_std(self, metabolomics_csv_pyruvate):
+        """CondC std should be ~64.550."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "StatWAO")
-        assert abs(stats["std_dev"] - 1_737_316.917) < 1.0, (
-            f"StatWAO std: expected 1737316.917, got {stats['std_dev']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondC")
+        assert abs(stats["std_dev"] - 64.550) < 0.01, (
+            f"CondC std: expected ~64.550, got {stats['std_dev']}"
         )
 
-    def test_pyruvate_stat_woao_mean(self, metabolomics_csv_pyruvate):
-        """StatWOAO mean should be 33 729 035."""
+    def test_pyruvate_cond_d_mean(self, metabolomics_csv_pyruvate):
+        """CondD mean should be 350."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "StatWOAO")
-        assert abs(stats["average"] - 33_729_035) < 1.0, (
-            f"StatWOAO mean: expected 33729035, got {stats['average']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondD")
+        assert abs(stats["average"] - 350.0) < 1e-3, (
+            f"CondD mean: expected 350.0, got {stats['average']}"
         )
 
-    def test_pyruvate_stat_woao_std(self, metabolomics_csv_pyruvate):
-        """StatWOAO std should be 5 774 330.289."""
+    def test_pyruvate_cond_d_std(self, metabolomics_csv_pyruvate):
+        """CondD std should be ~129.099."""
         nodes = self._nodes(["C00022"])
         integrate_metabolomics(nodes, metabolomics_csv_pyruvate)
-        stats = self._get_cond_stats(nodes, "C00022", "StatWOAO")
-        assert abs(stats["std_dev"] - 5_774_330.289) < 1.0, (
-            f"StatWOAO std: expected 5774330.289, got {stats['std_dev']}"
+        stats = self._get_cond_stats(nodes, "C00022", "CondD")
+        assert abs(stats["std_dev"] - 129.099) < 0.01, (
+            f"CondD std: expected ~129.099, got {stats['std_dev']}"
         )
 
     def test_pyruvate_metabolite_name(self, metabolomics_csv_pyruvate):

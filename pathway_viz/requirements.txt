@@ -1,6 +1,7 @@
 # Web framework
 flask==3.1.1
 flask-wtf==1.2.1
+wtforms
 
 # Flask ecosystem
 Werkzeug
@@ -10,29 +11,26 @@ python-dotenv==1.0.1
 
 # Graph processing
 networkx==3.2.1
-pygraphviz==1.11
+# pygraphviz is NOT installed via pip — install via Homebrew (macOS) or apt (Linux):
+#   macOS:  brew install graphviz && pip install pygraphviz
+#   Linux:  sudo apt-get install graphviz graphviz-dev && pip install pygraphviz
+#   Windows: see README.md
 
 # Data processing
 pandas==2.3.1
-openpyxl          # Excel .xlsx support
-xlrd==2.0.1       # Excel .xls support
-
-# Scientific computing
 numpy
-scipy
-matplotlib
+openpyxl          # Excel .xlsx support (used by build_barchart_json.py)
+xlrd==2.0.1       # Excel .xls support  (used by build_barchart_json.py)
 
-# Image processing
+# Image processing (KEGG structure downloads)
 Pillow
 
 # HTTP client (KEGG + PubChem API calls)
 requests==2.32.4
 
-# Escher map format reference
-escher==1.8.1
-
-# Dev & deployment
+# Dev & testing
 pytest==8.2.0
-gunicorn==21.2.0
-setuptools==70.0.0
 typing-extensions==4.11.0
+
+# Production deployment (optional)
+# gunicorn==21.2.0

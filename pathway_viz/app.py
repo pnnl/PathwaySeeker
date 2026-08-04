@@ -173,9 +173,8 @@ def set_user_frontend_config(updates: dict):
 # =============================================================================
 def get_input_files() -> dict:
     return session.get('input_files', {
-        'graph_pickle':     '',
-        'metabolomics_csv': '',
-        'proteomics_csv':   '',
+        'graph_pickle':      '',
+        'barchart_data_file': '',
     })
 
 
@@ -332,6 +331,127 @@ def download_structure_images():
         return False
 
 
+def load_barchart_data() -> dict:
+    """
+    Load the barchart_data.json uploaded by the user and transform it into
+    the dict-keyed format expected by app.js / visualizer.js.
+
+    build_barchart_json.py produces:
+        {
+          "metabolomics": [
+            { "kegg_id": "C00022", "metabolite": "Pyruvate (RP Positive)",
+              "conditions": [{"condition": "CondA", "mean": 1.2, "std": 0.3, "n": 3, ...}] }
+          ],
+          "proteomics": [
+            { "reaction_id": "R00774",
+              "proteins": [
+                { "protein_id": "jgi|...", "ko": "K01941", "description": "...",
+                  "conditions": [{"condition": "CondA", "mean": 30.1, "std": 0.7, "n": 3, ...}] }
+              ]
+            }
+          ]
+        }
+
+    This function transforms it into:
+        {
+          "metabolites": {
+            "C00022": [
+              { "title": "Pyruvate (RP Positive)",
+                "conditions": [{"name": "CondA", "mean": 1.2, "std_dev": 0.3, "count": 3}] }
+            ]
+          },
+          "reactions": {
+            "R00774": [
+              { "title": "jgi|... (K01941) — ...",
+                "conditions": [{"name": "CondA", "mean": 30.1, "std_dev": 0.7, "count": 3}] }
+            ]
+          }
+        }
+
+    Returns an empty dict if no file has been uploaded or the file cannot be read.
+    """
+    barchart_path = get_input_files().get('barchart_data_file', '')
+    if not barchart_path:
+        return {}
+    p = Path(barchart_path)
+    if not p.exists():
+        return {}
+    try:
+        raw = json.loads(p.read_text())
+    except Exception as e:
+        print(f'[BARCHART] Could not load {p}: {e}')
+        return {}
+
+    def _norm_conditions(conditions):
+        """Normalise condition entries to {condition, mean, std, n, values, columns, null_columns}."""
+        result = []
+        for c in (conditions or []):
+            entry = {
+                'condition': c.get('condition', c.get('name', '')),
+                'mean':      c.get('mean', 0),
+                'std':       c.get('std',  c.get('std_dev', 0)),
+                'n':         c.get('n',    c.get('count', 0)),
+            }
+            # Preserve optional fields used by Vega-Lite spec
+            for opt in ('pvalue', 'null_columns', 'values', 'columns'):
+                if opt in c:
+                    entry[opt] = c[opt]
+            result.append(entry)
+        return result
+
+    # ── Metabolomics: list → dict keyed by kegg_id ────────────────────
+    # Each entry keeps the full metabolite name and normalised conditions.
+    metabolites: dict = {}
+    for rec in raw.get('metabolomics', []):
+        kegg_id = rec.get('kegg_id', '')
+        if not kegg_id:
+            continue
+        entry = {
+            'kegg_id':    kegg_id,
+            'metabolite': rec.get('metabolite', rec.get('name', kegg_id)),
+            'method':     rec.get('method', ''),
+            'conditions': _norm_conditions(rec.get('conditions', [])),
+        }
+        metabolites.setdefault(kegg_id, []).append(entry)
+
+    # ── Proteomics: list → dict keyed by reaction_id ──────────────────
+    # Preserve full protein metadata (ko, description, entry_name, entry, kegg)
+    # so the sidebar panel can display them alongside the Vega-Lite chart.
+    reactions: dict = {}
+    for rec in raw.get('proteomics', []):
+        rxn_id = rec.get('reaction_id', '')
+        if not rxn_id:
+            continue
+        proteins = []
+        for prot in rec.get('proteins', []):
+            prot_entry: dict = {
+                'protein_id': prot.get('protein_id', ''),
+                'conditions': _norm_conditions(prot.get('conditions', [])),
+            }
+            # Preserve optional metadata fields
+            for field in ('ko', 'description', 'entry_name', 'entry', 'kegg'):
+                if field in prot:
+                    prot_entry[field] = prot[field]
+            proteins.append(prot_entry)
+        if proteins:
+            reactions[rxn_id] = {
+                'reaction_id': rxn_id,
+                'proteins':    proteins,
+            }
+
+    # ── KEGG names: kegg_id -> human-readable name ────────────────────
+    # Derived from the metabolomics entries for use in the sidebar header.
+    kegg_names: dict = {}
+    for kegg_id, entries in metabolites.items():
+        for e in entries:
+            name = e.get('metabolite', '')
+            if name and name != kegg_id:
+                kegg_names[kegg_id] = name
+                break
+
+    return {'metabolites': metabolites, 'reactions': reactions, 'kegg_names': kegg_names}
+
+
 def load_or_generate_pathway_data(
     network_graph=None,
     subgraph_nodes=None,
@@ -361,7 +481,6 @@ def load_or_generate_pathway_data(
     is_subgraph     = subgraph_nodes is not None
     output_filename = get_output_filename(is_subgraph=is_subgraph)
     json_dir        = get_json_dir()
-    _, missing, valid_files = validate_input_files(input_files)
 
     print(f'\n[GENERATE] Building {"subgraph" if is_subgraph else "full graph"} map')
 
@@ -370,8 +489,6 @@ def load_or_generate_pathway_data(
         output_dir=str(json_dir),
         kegg_names_file=cfg.SHARED_KEGG_NAMES_FILE,
         json_output_file=output_filename,
-        metabolomics_file=valid_files.get('metabolomics_csv') or None,
-        proteomics_file=valid_files.get('proteomics_csv') or None,
         config=get_backend_config(),
         keep_positions=keep_positions and is_subgraph,
         full_graph=full_graph if is_subgraph else None,
@@ -453,6 +570,7 @@ def build_template_context(json_data, view_type='full') -> dict:
 
     return {
         'json_data':            json_data,
+        'barchart_data':        load_barchart_data(),
         'upload_form':          UploadFilesForm(),
         'path_form':            PathSelectionForm(),
         'multi_node_form':      MultiNodeSelectionForm(),
@@ -540,21 +658,13 @@ def upload_files():
             uploaded_any = True
             summary.append(f"Graph: {path.name}")
 
-    files['metabolomics_csv'] = ''
-    if form.metabolomics_csv.data and form.metabolomics_csv.data.filename:
-        path = save_uploaded_file(form.metabolomics_csv.data, 'metabolomics')
+    files['barchart_data_file'] = files.get('barchart_data_file', '')
+    if form.barchart_data_file.data and form.barchart_data_file.data.filename:
+        path = save_uploaded_file(form.barchart_data_file.data, 'barchart_data')
         if path:
-            files['metabolomics_csv'] = str(path)
+            files['barchart_data_file'] = str(path)
             uploaded_any = True
-            summary.append(f"Metabolomics: {path.name}")
-
-    files['proteomics_csv'] = ''
-    if form.proteomics_csv.data and form.proteomics_csv.data.filename:
-        path = save_uploaded_file(form.proteomics_csv.data, 'proteomics')
-        if path:
-            files['proteomics_csv'] = str(path)
-            uploaded_any = True
-            summary.append(f"Proteomics: {path.name}")
+            summary.append(f"Stats JSON: {path.name}")
 
     if uploaded_any:
         set_input_files(files)

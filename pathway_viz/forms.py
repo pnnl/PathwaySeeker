@@ -20,13 +20,11 @@ ALLOWED_COMBINED_EXTENSIONS = ALLOWED_GRAPH_EXTENSIONS | ALLOWED_CSV_EXTENSIONS
 # FILE UPLOAD
 # =============================================================================
 class UploadFilesForm(FlaskForm):
-    graph_pickle     = FileField('Graph File (.pickle, .pkl, .json)',
-                            validators=[Optional()])
-    metabolomics_csv = FileField('Metabolomics CSV (optional)',
-                            validators=[Optional()])
-    proteomics_csv   = FileField('Proteomics CSV (optional)',
-                            validators=[Optional()])
-    submit           = SubmitField('Upload Files')
+    graph_pickle      = FileField('Graph File (.pickle, .pkl, .json)',
+                             validators=[Optional()])
+    barchart_data_file = FileField('Stats JSON (barchart_data.json)',
+                             validators=[Optional()])
+    submit            = SubmitField('Upload Files')
 
     def validate_graph_pickle(self, field):
         if field.data and field.data.filename:
@@ -36,20 +34,12 @@ class UploadFilesForm(FlaskForm):
                     f'Graph file must be .pickle, .pkl, or .json (got {ext})'
                 )
 
-    def validate_metabolomics_csv(self, field):
+    def validate_barchart_data_file(self, field):
         if field.data and field.data.filename:
             ext = os.path.splitext(field.data.filename)[1].lower()
-            if ext not in ALLOWED_CSV_EXTENSIONS:
+            if ext != '.json':
                 raise ValidationError(
-                    f'Metabolomics file must be .csv, .xlsx, or .xls (got {ext})'
-                )
-
-    def validate_proteomics_csv(self, field):
-        if field.data and field.data.filename:
-            ext = os.path.splitext(field.data.filename)[1].lower()
-            if ext not in ALLOWED_CSV_EXTENSIONS:
-                raise ValidationError(
-                    f'Proteomics file must be .csv, .xlsx, or .xls (got {ext})'
+                    f'Stats file must be a .json file (got {ext})'
                 )
 
 
