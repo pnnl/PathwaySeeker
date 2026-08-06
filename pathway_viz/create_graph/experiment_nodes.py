@@ -564,12 +564,13 @@ def _validate_tooltip_self_consistency(items, item_type):
         t_type = tooltip.get("type")
 
         if t_type == "metabolite":
-            for cond_entry in tooltip.get("conditions", []):
-                label = (
-                    f"{item_type} {item_id}/"
-                    f"{cond_entry.get('name', '?')}"
-                )
-                _check_condition_entry(cond_entry, label)
+            for row_i, tt_row in enumerate(tooltip.get("rows", [])):
+                for cond_entry in tt_row.get("conditions", []):
+                    label = (
+                        f"{item_type} {item_id}/row{row_i}/"
+                        f"{cond_entry.get('name', '?')}"
+                    )
+                    _check_condition_entry(cond_entry, label)
 
         elif t_type == "reaction":
             for prot in tooltip.get("proteins", []):
@@ -1611,6 +1612,8 @@ def generate_escher_map_from_graph(
     full_graph=None,
     keep_positions=False,
     path_order=None,
+    metabolomics_file=None,
+    proteomics_file=None,
 ):
     """
     Build an Escher JSON map from graph.
@@ -1665,6 +1668,12 @@ def generate_escher_map_from_graph(
 
     # 5b Validate graph structure
     validate_against_graph(graph, nodes, segments)
+
+    # 6  Omics integration
+    if metabolomics_file:
+        integrate_metabolomics(nodes, metabolomics_file)
+    if proteomics_file:
+        integrate_proteomics(segments, proteomics_file, nodes=nodes)
 
     # 6  Stamp each midpoint node with its KEGG reaction ID(s) so the
     #    frontend can look up bar-chart data without any omics CSV.

@@ -1308,7 +1308,7 @@ class TestOriginAndTooltips:
         nodes, _ = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        assert len(nodes["C08317"]["tooltip"]["conditions"]) == 5
+        assert len(nodes["C08317"]["tooltip"]["rows"][0]["conditions"]) == 5
 
     def test_metabolite_tooltip_has_replicates(
         self, kegg_cache_path, metabolomics_csv_dot
@@ -1320,7 +1320,7 @@ class TestOriginAndTooltips:
         nodes, _ = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        for cond_entry in nodes["C08317"]["tooltip"]["conditions"]:
+        for cond_entry in nodes["C08317"]["tooltip"]["rows"][0]["conditions"]:
             assert len(cond_entry["replicates"]) == 4
 
     def test_metabolite_tooltip_mean_matches_replicates(
@@ -1333,7 +1333,7 @@ class TestOriginAndTooltips:
         nodes, _ = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        for ce in nodes["C08317"]["tooltip"]["conditions"]:
+        for ce in nodes["C08317"]["tooltip"]["rows"][0]["conditions"]:
             expected = float(np.mean(ce["replicates"]))
             assert abs(ce["mean"] - expected) < 1e-3
 
@@ -1453,7 +1453,7 @@ class TestOriginAndTooltips:
         nodes, segs = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        nodes["C08317"]["tooltip"]["conditions"][0]["mean"] = -999.0
+        nodes["C08317"]["tooltip"]["rows"][0]["conditions"][0]["mean"] = -999.0
         with pytest.raises(AssertionError, match="tooltip mean mismatch"):
             validate_against_graph(
                 G, nodes, segs,
@@ -1470,7 +1470,7 @@ class TestOriginAndTooltips:
         nodes, segs = _full_pipeline(
             G, kegg_cache_path, metabolomics_file=metabolomics_csv_dot
         )
-        nodes["C08317"]["tooltip"]["conditions"][0]["replicates"] = []
+        nodes["C08317"]["tooltip"]["rows"][0]["conditions"][0]["replicates"] = []
         with pytest.raises(AssertionError, match="no replicates"):
             validate_against_graph(
                 G, nodes, segs,
@@ -2213,7 +2213,7 @@ class TestKeggNameLookup:
         """
         content = textwrap.dedent("""\
             metabolite,CondA,CondA.1,CondA.2,CondB,CondB.1,CondB.2,KEGG_C_number
-            MetA,100.0,200.0,300.0,,,C00001
+            MetA,100.0,200.0,300.0,,,,C00001
         """)
         path = str(tmp_path / "all_nan.csv")
         with open(path, "w") as f:

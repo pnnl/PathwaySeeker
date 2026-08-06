@@ -1014,4 +1014,27 @@ document.addEventListener('DOMContentLoaded', () => {
     app.initialize();
     window.pathwayApp = app;  // debug access only
     console.log('[PathwayApp] Boot complete');
+
+    // Fetch barchart data asynchronously so large files don't block page load
+    // or hit Flask's MAX_CONTENT_LENGTH limit on the HTML response.
+    fetch('/api/barchart-data')
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            if (data && (Object.keys(data).length > 0)) {
+                window.PathwayApp.BARCHART_DATA = data;
+                console.log('[PathwayApp] Barchart data loaded async —',
+                    Object.keys(data.reactions  || {}).length, 'reactions,',
+                    Object.keys(data.metabolites|| {}).length, 'metabolites');
+                // Re-run sidebar setup now that data is available
+                app._setupSidebarChartClicks();
+            } else {
+                console.log('[PathwayApp] No barchart data available from server.');
+            }
+        })
+        .catch(err => {
+            console.warn('[PathwayApp] Could not load barchart data:', err.message);
+        });
 });

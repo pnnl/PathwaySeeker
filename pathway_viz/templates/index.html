@@ -403,7 +403,7 @@
             CONFIG:          {{ frontend_config|tojson|safe }},
             HIGHLIGHT_PATH:  {{ request.args.get('highlight_path', '') | tojson }},
             VIEW_TYPE:       {{ request.args.get('view', 'full') | tojson }},
-            BARCHART_DATA:   {{ barchart_data|tojson|safe }},
+            BARCHART_DATA:   null,  // loaded async via /api/barchart-data
         };
     </script>
     <script src="{{ url_for('static', filename='visualizer.js') }}"></script>

@@ -1865,22 +1865,157 @@ class EscherVisualizer {
      */
     static _buildVegaSpec(conditions, title, yLabel) {
         const N_COLORS = ['#e53935', '#fb8c00', '#c0ca33', '#43a047', '#1e88e5', '#8e24aa'];
-        const nColor = n => N_COLORS[Math.min(Math.max((n || 1) - 1, 0), N_COLORS.length - 1)];
 
         // Normalise field names: support both raw (condition/std/n) and pre-processed (name/std_dev/count)
         const norm = c => ({
-            condition:   c.condition   ?? c.name        ?? '',
-            mean:        c.mean        ?? 0,
-            std:         c.std         ?? c.std_dev      ?? null,
-            n:           c.n           ?? c.count        ?? 1,
-            values:      c.values      || [],
+            condition:    c.condition    ?? c.name     ?? '',
+            mean:         c.mean         ?? 0,
+            std:          c.std          ?? c.std_dev  ?? null,
+            n:            c.n            ?? c.count    ?? 1,
+            values:       c.values       || [],
             null_columns: c.null_columns || [],
-            columns:     c.columns     || [],
+            columns:      c.columns      || [],
+            subgroups:    c.subgroups    || [],   // [{subgroup, mean, std, n, values}, ...]
         });
 
-        const normed = conditions
-            .map(norm)
-            .filter(c => c.mean !== null && isFinite(c.mean));
+        const normed = conditions.map(norm).filter(c => c.mean !== null && isFinite(c.mean));
+
+        // ── Check whether any condition has subgroups ──────────────────────
+        const hasSubgroups = normed.some(c => Array.isArray(c.subgroups) && c.subgroups.length > 0);
+
+        if (hasSubgroups) {
+            // ── Subgroup mode: faceted by condition, bioreps as grouped bars ─
+            // Each condition gets its own facet row; bioreps are the y-axis within it.
+            const sgValues = [];
+            const sgDots   = [];
+            const conditionOrder = [];
+
+            normed.forEach(c => {
+                conditionOrder.push(c.condition);
+                if (Array.isArray(c.subgroups) && c.subgroups.length > 0) {
+                    c.subgroups.forEach(sg => {
+                        const hasReps = (sg.n || 1) > 1;
+                        const stdVal  = hasReps && sg.std !== null && isFinite(sg.std) ? sg.std : null;
+                        sgValues.push({
+                            condition: c.condition,
+                            subgroup:  sg.subgroup,
+                            mean:      sg.mean,
+                            std:       stdVal,
+                            n:         sg.n,
+                            lo:        hasReps ? sg.mean - (stdVal || 0) : null,
+                            hi:        hasReps ? sg.mean + (stdVal || 0) : null,
+                        });
+                        (sg.values || []).forEach(v => {
+                            if (v !== null && v !== undefined && isFinite(v))
+                                sgDots.push({ condition: c.condition, subgroup: sg.subgroup, value: v });
+                        });
+                    });
+                } else {
+                    // condition has no subgroups — show as single bar
+                    const hasReps = (c.n || 1) > 1;
+                    const stdVal  = hasReps && c.std !== null && isFinite(c.std) ? c.std : null;
+                    sgValues.push({
+                        condition: c.condition, subgroup: c.condition,
+                        mean: c.mean, std: stdVal, n: c.n,
+                        lo: hasReps ? c.mean - (stdVal || 0) : null,
+                        hi: hasReps ? c.mean + (stdVal || 0) : null,
+                    });
+                    (c.values || []).forEach(v => {
+                        if (v !== null && v !== undefined && isFinite(v))
+                            sgDots.push({ condition: c.condition, subgroup: c.condition, value: v });
+                    });
+                }
+            });
+
+            // Unique subgroup names for colour scale
+            const sgNames      = [...new Set(sgValues.map(d => d.subgroup).filter(Boolean))];
+            const sgColorRange = ['#1e88e5', '#43a047', '#fb8c00', '#e53935', '#8e24aa', '#00acc1'];
+            const numSg        = sgNames.length || 1;
+            const facetRowH    = numSg * 18 + 28;   // height per facet panel
+            const chartH       = conditionOrder.length * facetRowH + 40;
+
+            const colorEncoding = sgNames.length > 0 ? {
+                field: 'subgroup', type: 'nominal',
+                scale: { domain: sgNames, range: sgColorRange.slice(0, sgNames.length) },
+                legend: { title: 'Biorep', labelFontSize: 9 },
+            } : { value: '#1e88e5' };
+
+            const tooltipFields = [
+                { field: 'condition', type: 'nominal',      title: 'Condition' },
+                { field: 'subgroup',  type: 'nominal',      title: 'Biorep' },
+                { field: 'mean',      type: 'quantitative', title: 'Mean',  format: '.4g' },
+                { field: 'std',       type: 'quantitative', title: 'Std',   format: '.4g' },
+                { field: 'n',         type: 'quantitative', title: 'n' },
+            ];
+
+            return {
+                $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+                title:  { text: title, fontSize: 11, color: '#333' },
+                width:  320,
+                data:   { values: sgValues },
+                config: {
+                    axis:       { labelLimit: 120 },
+                    view:       { stroke: '#ddd' },
+                    mark:       { tooltip: true },
+                    background: '#fafafa',
+                    header:     { labelFontSize: 9, labelLimit: 160, titleFontSize: 0 },
+                    facet:      { spacing: 4 },
+                },
+                facet: {
+                    row: {
+                        field: 'condition', type: 'nominal',
+                        sort:  conditionOrder,
+                        header: { labelFontSize: 9, labelAngle: 0, labelAlign: 'left', labelLimit: 160, titleFontSize: 0 },
+                    },
+                },
+                spec: {
+                    height: facetRowH,
+                    layer: [
+                        {
+                            mark: { type: 'bar', opacity: 0.85, cornerRadiusTopRight: 3, cornerRadiusBottomRight: 3 },
+                            encoding: {
+                                y: {
+                                    field: 'subgroup', type: 'nominal',
+                                    axis:  { labelFontSize: 8, title: null, labelPadding: 4 },
+                                    sort:  sgNames,
+                                },
+                                x: {
+                                    field: 'mean', type: 'quantitative',
+                                    axis:  { title: yLabel || 'Abundance', titleFontSize: 9, labelFontSize: 8 },
+                                },
+                                color: colorEncoding,
+                                tooltip: tooltipFields,
+                            },
+                        },
+                        {
+                            transform: [{ filter: 'datum.lo !== null && datum.hi !== null' }],
+                            mark: { type: 'errorbar', color: '#555', ticks: true },
+                            encoding: {
+                                y:  { field: 'subgroup', type: 'nominal' },
+                                x:  { field: 'lo',       type: 'quantitative' },
+                                x2: { field: 'hi' },
+                            },
+                        },
+                        ...(sgDots.length > 0 ? [{
+                            data: { values: sgDots },
+                            mark: { type: 'point', color: '#333', opacity: 0.6, size: 20, filled: true },
+                            encoding: {
+                                y: { field: 'subgroup', type: 'nominal' },
+                                x: { field: 'value',    type: 'quantitative' },
+                                tooltip: [
+                                    { field: 'condition', type: 'nominal',      title: 'Condition' },
+                                    { field: 'subgroup',  type: 'nominal',      title: 'Biorep' },
+                                    { field: 'value',     type: 'quantitative', title: 'Value', format: '.4g' },
+                                ],
+                            },
+                        }] : []),
+                    ],
+                },
+            };
+        }
+
+        // ── Standard mode (no subgroups): one bar per condition ────────────
+        const nDomain = [1, 2, 3, 4, 5, 6];
 
         const values = normed.map(c => {
             const nCapped = Math.min(c.n || 1, 6);
@@ -1912,9 +2047,8 @@ class EscherVisualizer {
             });
         });
 
-        const barHeight  = Math.min(28, Math.max(16, Math.floor(160 / Math.max(values.length, 1))));
+        const barHeight   = Math.min(28, Math.max(16, Math.floor(160 / Math.max(values.length, 1))));
         const chartHeight = values.length * barHeight + 45;
-        const nDomain = [1, 2, 3, 4, 5, 6];
 
         return {
             $schema: 'https://vega.github.io/schema/vega-lite/v5.json',

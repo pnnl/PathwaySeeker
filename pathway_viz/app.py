@@ -67,7 +67,7 @@ class FrontendConfig(TypedDict):
 # =============================================================================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
 app.config['SERVER_INSTANCE_ID'] = str(uuid.uuid4())
 
 # Flask-Caching — simple in-memory cache (swap to Redis for multi-process)
@@ -393,7 +393,7 @@ def load_barchart_data() -> dict:
                 'n':         c.get('n',    c.get('count', 0)),
             }
             # Preserve optional fields used by Vega-Lite spec
-            for opt in ('pvalue', 'null_columns', 'values', 'columns'):
+            for opt in ('pvalue', 'null_columns', 'values', 'columns', 'subgroups'):
                 if opt in c:
                     entry[opt] = c[opt]
             result.append(entry)
@@ -570,7 +570,6 @@ def build_template_context(json_data, view_type='full') -> dict:
 
     return {
         'json_data':            json_data,
-        'barchart_data':        load_barchart_data(),
         'upload_form':          UploadFilesForm(),
         'path_form':            PathSelectionForm(),
         'multi_node_form':      MultiNodeSelectionForm(),
@@ -977,6 +976,28 @@ def update_frontend_config():
         'success': True,
         'updatedConfig': get_user_frontend_config(),
     }), 200
+
+
+@app.route('/api/barchart-data')
+def get_barchart_data():
+    """
+    Serve the barchart data as a streaming JSON response so it is never
+    embedded inline in the HTML page (which would exceed browser/server
+    entity-size limits for large datasets).
+    """
+    from flask import Response
+    barchart_path = get_input_files().get('barchart_data_file', '')
+    if not barchart_path:
+        return jsonify({}), 200
+    p = Path(barchart_path)
+    if not p.exists():
+        return jsonify({}), 200
+    try:
+        data = load_barchart_data()
+        return jsonify(data), 200
+    except Exception as e:
+        print(f'[BARCHART API] Error: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/health')

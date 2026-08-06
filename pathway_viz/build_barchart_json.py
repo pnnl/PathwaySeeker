@@ -232,7 +232,8 @@ def load_column_groups(column_groups_path: str) -> dict:
             continue
 
         groups = {}
-        groups_pvalue = {}  # rename -> pvalue_column name (optional)
+        groups_pvalue = {}   # rename -> pvalue_column name (optional)
+        groups_subgroups = {}  # rename -> [{rename, columns}, ...]
         for i, entry in enumerate(entries):
             if not isinstance(entry, dict):
                 errors.append(
@@ -243,6 +244,7 @@ def load_column_groups(column_groups_path: str) -> dict:
             rename = entry.get("rename")
             columns = entry.get("columns")
             pvalue_column = entry.get("pvalue_column")  # optional
+            subgroups = entry.get("subgroups")           # optional list of {rename, columns}
             if not rename:
                 errors.append(
                     f"column_groups JSON {section}[{i}] missing 'rename' key."
@@ -262,9 +264,18 @@ def load_column_groups(column_groups_path: str) -> dict:
             groups[rename] = columns
             if pvalue_column:
                 groups_pvalue[rename] = pvalue_column
+            if subgroups and isinstance(subgroups, list):
+                # validate each subgroup entry minimally
+                valid_sgs = []
+                for sg in subgroups:
+                    if isinstance(sg, dict) and sg.get("rename") and isinstance(sg.get("columns"), list):
+                        valid_sgs.append({"rename": sg["rename"], "columns": sg["columns"]})
+                if valid_sgs:
+                    groups_subgroups[rename] = valid_sgs
 
         result[section] = groups
-        result[section + "_pvalue"] = groups_pvalue  # may be empty dict
+        result[section + "_pvalue"] = groups_pvalue       # may be empty dict
+        result[section + "_subgroups"] = groups_subgroups  # may be empty dict
 
     if errors:
         raise ValueError(
@@ -369,7 +380,8 @@ def collect_values_and_null_cols(row: pd.Series, cols: list, df_columns: list) -
 METABOLOMICS_META_COLS = {"metabolite", "Tags", "KEGG_C_number", "method"}
 
 
-def process_metabolomics(filepath: str, groups: dict) -> list:
+def process_metabolomics(filepath: str, groups: dict,
+                         groups_subgroups: dict = None) -> list:
     """
     Load the metabolomics CSV/XLSX and compute per-condition mean/std for every
     row that has a valid KEGG C-number, using the explicit column groups from
@@ -470,12 +482,33 @@ def process_metabolomics(filepath: str, groups: dict) -> list:
                     context=f"{kegg_id} / {met_name} / {cond_rename}"
                 )
                 if stats:
-                    conditions.append({
+                    cond_entry = {
                         "condition": cond_rename,
-                        "columns": cols,  # store original column names for tooltip
-                        "null_columns": null_cols,  # columns that had NaN values
+                        "columns": cols,
+                        "null_columns": null_cols,
                         **stats
-                    })
+                    }
+                    # Compute per-subgroup stats if subgroups defined
+                    if groups_subgroups and cond_rename in groups_subgroups:
+                        sg_list = []
+                        for sg in groups_subgroups[cond_rename]:
+                            sg_vals, sg_null = collect_values_and_null_cols(
+                                row, sg["columns"], df_columns)
+                            if sg_vals:
+                                sg_stats = compute_stats(
+                                    sg_vals,
+                                    context=f"{kegg_id}/{cond_rename}/{sg['rename']}"
+                                )
+                                if sg_stats:
+                                    sg_list.append({
+                                        "subgroup": sg["rename"],
+                                        "columns": sg["columns"],
+                                        "null_columns": sg_null,
+                                        **sg_stats
+                                    })
+                        if sg_list:
+                            cond_entry["subgroups"] = sg_list
+                    conditions.append(cond_entry)
 
         if not conditions:
             skipped_no_data += 1
@@ -514,7 +547,8 @@ PROTEOMICS_META_COLS = {"proteinID", "KO", "description", "Reaction", "Tags",
 
 
 def process_proteomics(filepath: str, ko_map: dict, groups: dict,
-                       groups_pvalue: dict = None) -> list:
+                       groups_pvalue: dict = None,
+                       groups_subgroups: dict = None) -> list:
     """
     Load the proteomics CSV and compute per-condition mean/std grouped by
     reaction_id, with each protein kept as a SEPARATE entry within the
@@ -644,19 +678,26 @@ def process_proteomics(filepath: str, ko_map: dict, groups: dict,
         )
         df = df[~mask_nan_id]
 
-    # Step 3: any remaining duplicate proteinID is an error — stop and report.
-    protein_counts = df["proteinID"].astype(str).str.strip().value_counts()
+    # Step 3: any remaining duplicate proteinID gets a _rowN suffix so each
+    # occurrence is kept as a separate entry (rather than raising an error).
+    df["proteinID"] = df["proteinID"].astype(str).str.strip()
+    protein_counts = df["proteinID"].value_counts()
     dup_proteins = protein_counts[protein_counts > 1].index.tolist()
     if dup_proteins:
-        errors = []
-        for pid in dup_proteins:
-            dup_rows = df[df["proteinID"].astype(str).str.strip() == pid]
-            errors.append(
-                f"proteinID={pid!r} appears {len(dup_rows)} times. "
-                f"Each locus_tag must be unique — please resolve manually."
-            )
-        raise ValueError(
-            "Duplicate proteinIDs found:\n  " + "\n  ".join(errors)
+        row_counter: dict = {}
+        new_ids = []
+        for pid in df["proteinID"]:
+            if pid in dup_proteins:
+                row_counter[pid] = row_counter.get(pid, 0) + 1
+                new_ids.append(f"{pid}_row{row_counter[pid]}")
+            else:
+                new_ids.append(pid)
+        df = df.copy()
+        df["proteinID"] = new_ids
+        print(
+            f"  [INFO] {len(dup_proteins)} duplicate proteinID(s) found; "
+            f"each occurrence renamed with _rowN suffix so all rows are kept: "
+            f"{dup_proteins}"
         )
 
     n_dropped = n_before - len(df)
@@ -720,6 +761,26 @@ def process_proteomics(filepath: str, ko_map: dict, groups: dict,
                                 cond_entry["pvalue"] = round(pval, 8) if math.isfinite(pval) else None
                             except (TypeError, ValueError):
                                 cond_entry["pvalue"] = None
+                    # Compute per-subgroup stats if subgroups defined
+                    if groups_subgroups and cond_rename in groups_subgroups:
+                        sg_list = []
+                        for sg in groups_subgroups[cond_rename]:
+                            sg_vals, sg_null = collect_values_and_null_cols(
+                                row, sg["columns"], df_columns)
+                            if sg_vals:
+                                sg_stats = compute_stats(
+                                    sg_vals,
+                                    context=f"{protein_id}/{cond_rename}/{sg['rename']}"
+                                )
+                                if sg_stats:
+                                    sg_list.append({
+                                        "subgroup": sg["rename"],
+                                        "columns": sg["columns"],
+                                        "null_columns": sg_null,
+                                        **sg_stats
+                                    })
+                        if sg_list:
+                            cond_entry["subgroups"] = sg_list
                     conditions.append(cond_entry)
 
         if not conditions:
@@ -1004,19 +1065,30 @@ def build_barchart_json(
     met_groups       = all_groups.get("metabolomics", {})
     prot_groups      = all_groups.get("proteomics", {})
     prot_groups_pval = all_groups.get("proteomics_pvalue", {})
+    met_subgroups    = all_groups.get("metabolomics_subgroups", {})
+    prot_subgroups   = all_groups.get("proteomics_subgroups", {})
+
+    if met_subgroups:
+        print(f"[Subgroups] metabolomics: {sum(len(v) for v in met_subgroups.values())} subgroup entries across {len(met_subgroups)} conditions")
+    if prot_subgroups:
+        print(f"[Subgroups] proteomics:   {sum(len(v) for v in prot_subgroups.values())} subgroup entries across {len(prot_subgroups)} conditions")
 
     # Step 3: Metabolomics (one record per CSV row with valid KEGG ID)
     if skip_metabolomics:
         print("\n[Metabolomics] Skipped (skip_metabolomics=True).")
         metabolomics_records = []
     else:
-        metabolomics_records = process_metabolomics(metabolomics, groups=met_groups)
+        metabolomics_records = process_metabolomics(
+            metabolomics, groups=met_groups,
+            groups_subgroups=met_subgroups or None,
+        )
 
     # Step 4: Proteomics (grouped by reaction, separate per protein)
     proteomics_records = process_proteomics(
         proteomics, ko_map,
         groups=prot_groups,
         groups_pvalue=prot_groups_pval or None,
+        groups_subgroups=prot_subgroups or None,
     )
 
     # Step 5: Sanity tests (skip metabolomics checks when no metabolomics data)
