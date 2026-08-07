@@ -8,8 +8,8 @@ metabolomics and proteomics bar-chart overlays.
 ## Quick Start
 
 ```bash
-# 1. Activate your environment
-source pathway_viz_env/bin/activate   # macOS/Linux
+# 1. Activate your environment  
+# macOS/Linux
 # pathway_viz_env\Scripts\activate   # Windows
 
 # 2. Start the app
@@ -142,15 +142,28 @@ The app takes **two files** that you upload via the browser:
 If you have metabolomics and/or proteomics data, run the pre-processing script
 **once** before starting the app:
 
+**With both metabolomics and proteomics:**
 ```bash
 cd PathwaySeeker/pathway_viz
 
-python build_barchart_json.py \
+pathway_viz_env/bin/python build_barchart_json.py \
     --metabolomics  metabolomics_with_C_numbers.csv \
     --proteomics    proteomics_with_ko.csv \
     --ko-reactions  ko_to_reactions.csv \
     --column-groups column_groups.json \
     --output        barchart_data.json
+```
+
+**Proteomics only (no metabolomics data):**
+```bash
+cd PathwaySeeker/pathway_viz
+
+pathway_viz_env/bin/python build_barchart_json.py \
+    --proteomics    proteomics_with_ko.csv \
+    --ko-reactions  ko_to_reactions.csv \
+    --column-groups column_groups.json \
+    --output        barchart_data.json \
+    --skip-metabolomics
 ```
 
 **Input files:**
@@ -204,30 +217,12 @@ count for every metabolite (keyed by KEGG C-number) and every reaction (keyed
 by reaction ID, one entry per protein).  It validates all inputs and prints a
 summary.  The resulting `barchart_data.json` is what you upload to the app.
 
-#### Running multiple experiments at once
-
-Use `run_all.py` to process multiple column-group configurations in one step:
-
-```bash
-cd PathwaySeeker/pathway_viz/html_files
-python run_all.py
-```
-
-> **Note:** `run_all.py` imports `build_barchart_json` from the main
-> `pathway_viz` directory.  Make sure `pathway_viz` is on your `PYTHONPATH`
-> (or run `run_all.py` from the `pathway_viz` directory) so the import resolves.
-
-Edit the `EXPERIMENTS` list at the top of `run_all.py` to add or change
-experiments.  Each entry specifies a label, a `column_groups_*.json` file,
-an output `barchart_data_*.json`, and an output HTML file.  `run_all.py` also
-calls `update_kegg_names.py` (to refresh KEGG name lookups) and `bundle_html.py`
-(to embed the data into a self-contained HTML file).
 
 > **Proteomics only (no metabolomics)?**
-> Pass `--skip-metabolomics` to skip metabolomics processing entirely
-> (run from `PathwaySeeker/pathway_viz`):
+> Pass `--skip-metabolomics` to skip metabolomics processing entirely.
+> The `--metabolomics` argument can be omitted when this flag is set.
 > ```bash
-> python build_barchart_json.py \
+> pathway_viz_env/bin/python build_barchart_json.py \
 >     --proteomics    proteomics_with_ko.csv \
 >     --ko-reactions  ko_to_reactions.csv \
 >     --column-groups column_groups.json \
@@ -341,12 +336,21 @@ automatically.
    ```bash
    cd PathwaySeeker/pathway_viz
 
-   python build_barchart_json.py \
+   # With metabolomics + proteomics:
+   pathway_viz_env/bin/python build_barchart_json.py \
        --metabolomics  new_metabolomics.csv \
        --proteomics    new_proteomics.csv \
        --ko-reactions  ko_to_reactions.csv \
        --column-groups column_groups.json \
        --output        barchart_data.json
+
+   # Proteomics only:
+   pathway_viz_env/bin/python build_barchart_json.py \
+       --proteomics    new_proteomics.csv \
+       --ko-reactions  ko_to_reactions.csv \
+       --column-groups column_groups.json \
+       --output        barchart_data.json \
+       --skip-metabolomics
    ```
 
 2. Open the sidebar → **Upload Files**.

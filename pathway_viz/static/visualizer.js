@@ -1965,6 +1965,7 @@ class EscherVisualizer {
                     row: {
                         field: 'condition', type: 'nominal',
                         sort:  conditionOrder,
+                        scale: { domain: conditionOrder },
                         header: { labelFontSize: 9, labelAngle: 0, labelAlign: 'left', labelLimit: 160, titleFontSize: 0 },
                     },
                 },
@@ -2016,6 +2017,9 @@ class EscherVisualizer {
 
         // ── Standard mode (no subgroups): one bar per condition ────────────
         const nDomain = [1, 2, 3, 4, 5, 6];
+        
+        // Build conditionOrder to preserve input order
+        const conditionOrder = normed.map(c => c.condition);
 
         const values = normed.map(c => {
             const nCapped = Math.min(c.n || 1, 6);
@@ -2050,6 +2054,10 @@ class EscherVisualizer {
         const barHeight   = Math.min(28, Math.max(16, Math.floor(160 / Math.max(values.length, 1))));
         const chartHeight = values.length * barHeight + 45;
 
+        // Build a domain sort spec that preserves the input condition order
+        // by explicitly specifying each condition value in order
+        const conditionSortSpec = conditionOrder.length > 0 ? conditionOrder : undefined;
+
         return {
             $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
             title:   { text: title, fontSize: 11, color: '#333' },
@@ -2069,7 +2077,8 @@ class EscherVisualizer {
                         y: {
                             field: 'condition', type: 'nominal',
                             axis:  { labelFontSize: 9, titleFontSize: 10, title: 'Condition', labelPadding: 8 },
-                            sort:  null,
+                            sort:  conditionSortSpec,
+                            scale: { domain: conditionOrder },
                         },
                         x: {
                             field: 'mean', type: 'quantitative',
