@@ -11,6 +11,7 @@ python-dotenv==1.0.1
 
 # Graph processing
 networkx==3.2.1
+scipy
 # pygraphviz is NOT installed via pip — install via Homebrew (macOS) or apt (Linux):
 #   macOS:  brew install graphviz && pip install pygraphviz
 #   Linux:  sudo apt-get install graphviz graphviz-dev && pip install pygraphviz
