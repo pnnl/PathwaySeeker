@@ -285,32 +285,45 @@ def _canvas_size(num_nodes):
 # =====================================================================
 def _parse_reaction_side(side_str, main):
     """
-    Parse one side of a reaction equation into a list of coproduct dicts,
-    preserving stoichiometric coefficients.
+    Parse one side of a reaction equation into two lists:
+    (coproducts, mains) where:
+      - coproducts: list of {"id", "coefficient"} (compounds NOT in `main` and NOT common cofactors)
+      - mains: set of compound IDs found on this side that ARE in `main`
 
     "C00811 + 2 C00001 + C00003"
-        -> [{"id": "C00001", "coefficient": 2},
-            {"id": "C00003", "coefficient": 1}]   (C00811 in `main` -> dropped)
+        with main = {"C00811"}
+        -> ([{"id": "C00003", "coefficient": 1}],      # C00001 (water) excluded
+            {"C00811"})
 
     A term is an optional integer coefficient (default 1) followed by a
-    KEGG compound ID.  Compounds in `main` (the reaction's source/target)
-    are excluded.
+    KEGG compound ID. Compounds in `main` (the reaction's source/target)
+    are collected separately to allow caller to determine which endpoint
+    corresponds to which chemical role (reactant vs product).
+    
+    Common cofactors like water (C00001) are excluded from coproducts.
     """
+    # Common cofactors that should not appear as standalone coproducts
+    EXCLUDED_COFACTORS = {
+        "C00001",  # H2O (water)
+    }
+    
     coproducts = []
+    mains = set()
     # optional integer coefficient, then a C-number
     for m in re.finditer(r"(?:(\d+)\s+)?(C\d+)", side_str):
         coeff = int(m.group(1)) if m.group(1) else 1
         cid   = m.group(2)
         if cid in main:
-            continue
-        coproducts.append(dict(id=cid, coefficient=coeff))
-    return coproducts
+            mains.add(cid)
+        elif cid not in EXCLUDED_COFACTORS:
+            coproducts.append(dict(id=cid, coefficient=coeff))
+    return coproducts, mains
 
 
 def _parse_reaction(edge_data, src=None, tgt=None):
     """
     Parse an edge's title field ("R12345 - A + B <=> C + D") and
-    return reaction name + coproduct lists, or None.
+    return reaction name + coproduct lists + main metabolite sets, or None.
 
     `src` / `tgt` are the actual graph endpoints for this edge
     (i.e. the JSON 'source'/'target').  They are excluded from the
@@ -318,8 +331,17 @@ def _parse_reaction(edge_data, src=None, tgt=None):
     twice.  Legacy 'from_node'/'to_node' edge attributes are also
     honoured for backward compatibility.
 
-    Coproduct lists preserve stoichiometry as a list of dicts:
-        [{"id": "C00001", "coefficient": 2}, ...]
+    Returns dict with:
+        reaction_name         – the R-number
+        title                 – original edge title
+        reactant_coproducts   – list of {"id", "coefficient"}
+        product_coproducts    – list of {"id", "coefficient"}
+        reactant_mains        – set of main metabolite IDs on reactant side
+        product_mains         – set of main metabolite IDs on product side
+    
+    The reactant_mains and product_mains sets are used to determine which
+    edge endpoint corresponds to which chemical role, even when the 
+    undirected graph returns edge endpoints in reverse order.
     """
     title = edge_data.get("title", "")
     main  = {
@@ -331,11 +353,15 @@ def _parse_reaction(edge_data, src=None, tgt=None):
     m = re.search(r"(R\d+) - (.+?) <=> (.+)", title)
     if not m:
         return None
+    react_cpds, react_mains = _parse_reaction_side(m.group(2), main)
+    prod_cpds,  prod_mains  = _parse_reaction_side(m.group(3), main)
     return dict(
         reaction_name=m.group(1),
         title=title,
-        reactant_coproducts=_parse_reaction_side(m.group(2), main),
-        product_coproducts=_parse_reaction_side(m.group(3), main),
+        reactant_coproducts=react_cpds,
+        product_coproducts=prod_cpds,
+        reactant_mains=react_mains,   # e.g. {"C00082"}
+        product_mains=prod_mains,     # e.g. {"C00811"}
     )
 
 
@@ -411,13 +437,24 @@ def _make_escher_segments(G):
 #  7. MIDPOINTS & COPRODUCTS
 # =====================================================================
 def _coproduct_pos(start, end, idx, is_reactant):
-    """Calculate position for a coproduct node offset from the pathway."""
+    """Calculate position for a coproduct node offset from the pathway.
+    
+    Args:
+        start: Starting point (midpoint for both reactants and products)
+        end: Ending point (source node for reactants, target node for products)
+        idx: Index of the coproduct (for stacking multiple coproducts)
+        is_reactant: True if this is a reactant coproduct, False if product
+    
+    For reactant coproducts: positioned between source and midpoint
+    For product coproducts: positioned between midpoint and target
+    """
     dx, dy = end["x"] - start["x"], end["y"] - start["y"]
     length = max(np.hypot(dx, dy), 1e-9)
     ux, uy = dx / length, dy / length
     px, py = -uy, ux
     off    = cfg.COPRODUCT_OFFSET * (idx + 1)
     rad    = cfg.COPRODUCT_RADIUS * (idx + 1)
+    
     base   = (
         dict(x=end["x"] - ux * off, y=end["y"] - uy * off)
         if is_reactant
@@ -519,20 +556,34 @@ def _add_midpoints_and_coproducts(
         # ── coproducts ───────────────────────────────────────────────
         if rxn:
             mid_pos = dict(x=mx, y=my)
-            # Role-based placement (independent of vertical orientation):
-            #   reactants  live on the SOURCE half  (source  -> midpoint)
-            #   products   live on the TARGET half  (midpoint -> target)
+
+            # Which physical endpoint is the reactant-side main metabolite,
+            # and which is the product-side one?  The undirected graph may
+            # have handed us (fid, tid) in either order, so map by matching
+            # the parsed equation mains rather than trusting fp/tp.
+            react_mains = rxn.get("reactant_mains", set())
+            prod_mains  = rxn.get("product_mains",  set())
+
+            if fid in react_mains or tid in prod_mains:
+                react_endpoint, prod_endpoint = fp, tp     # equation order == edge order
+            elif fid in prod_mains or tid in react_mains:
+                react_endpoint, prod_endpoint = tp, fp     # edge order reversed
+            else:
+                react_endpoint, prod_endpoint = fp, tp     # fallback: assume as-is
+
             for is_react, cpds in [
                 (True,  rxn.get("reactant_coproducts", [])),
                 (False, rxn.get("product_coproducts",  [])),
             ]:
-                rs  = fp      if is_react else mid_pos
-                re_ = mid_pos if is_react else tp
+                # Coproducts are placed relative to their chemical role:
+                #   reactant coproducts: from source to midpoint
+                #   product coproducts:  from midpoint to target
+                endpoint = react_endpoint if is_react else prod_endpoint
                 for i, cpd in enumerate(cpds):
                     cpd_id = cpd["id"]
                     coeff  = cpd.get("coefficient", 1)
                     name   = get_kegg_name(cpd_id, kegg_cache, cache_path)
-                    pos, bez = _coproduct_pos(rs, re_, i, is_react)
+                    pos, bez = _coproduct_pos(mid_pos, endpoint, i, is_react)
                     cid      = _next_id(nodes)
                     nodes[cid] = dict(
                         node_type="coproduct",
