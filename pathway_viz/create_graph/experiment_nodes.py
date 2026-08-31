@@ -287,12 +287,13 @@ def _parse_reaction_side(side_str, main):
     """
     Parse one side of a reaction equation into two lists:
     (coproducts, mains) where:
-      - coproducts: list of {"id", "coefficient"} (compounds NOT in `main` and NOT common cofactors)
+      - coproducts: list of {"id", "coefficient"} (compounds NOT in `main`)
       - mains: set of compound IDs found on this side that ARE in `main`
 
     "C00811 + 2 C00001 + C00003"
         with main = {"C00811"}
-        -> ([{"id": "C00003", "coefficient": 1}],      # C00001 (water) excluded
+        -> ([{"id": "C00001", "coefficient": 2},
+             {"id": "C00003", "coefficient": 1}],
             {"C00811"})
 
     A term is an optional integer coefficient (default 1) followed by a
@@ -300,13 +301,9 @@ def _parse_reaction_side(side_str, main):
     are collected separately to allow caller to determine which endpoint
     corresponds to which chemical role (reactant vs product).
     
-    Common cofactors like water (C00001) are excluded from coproducts.
+    Note: Water and other coproducts ARE included with their stoichiometric
+    coefficients (e.g., "2 H2O" becomes {"id": "C00001", "coefficient": 2}).
     """
-    # Common cofactors that should not appear as standalone coproducts
-    EXCLUDED_COFACTORS = {
-        "C00001",  # H2O (water)
-    }
-    
     coproducts = []
     mains = set()
     # optional integer coefficient, then a C-number
@@ -315,7 +312,7 @@ def _parse_reaction_side(side_str, main):
         cid   = m.group(2)
         if cid in main:
             mains.add(cid)
-        elif cid not in EXCLUDED_COFACTORS:
+        else:
             coproducts.append(dict(id=cid, coefficient=coeff))
     return coproducts, mains
 
@@ -452,18 +449,29 @@ def _coproduct_pos(start, end, idx, is_reactant):
     length = max(np.hypot(dx, dy), 1e-9)
     ux, uy = dx / length, dy / length
     px, py = -uy, ux
-    off    = cfg.COPRODUCT_OFFSET * (idx + 1)
+    
+    # Make offset proportional to edge length (fraction of distance)
+    # but cap it so coproducts don't get too close or too far
+    offset_fraction = min(0.3, max(0.1, 50.0 / length))  # 10-30% of edge length
+    off    = length * offset_fraction * (idx + 1)
+    
+    # Radius is perpendicular offset (thickness of spacing)
     rad    = cfg.COPRODUCT_RADIUS * (idx + 1)
     
-    base   = (
-        dict(x=end["x"] - ux * off, y=end["y"] - uy * off)
-        if is_reactant
-        else dict(x=start["x"] + ux * off, y=start["y"] + uy * off)
-    )
+    # Anchor at the midpoint and step toward this role's endpoint.
+    # The endpoint argument already differs per role (react_endpoint vs prod_endpoint),
+    # so the direction vector u already points the correct way for each role.
+    # A single "+ u*off" formula sends reactants toward the reactant side and
+    # products toward the product side (because u_reactant ≈ -u_product).
+    base = dict(x=start["x"] + ux * off, y=start["y"] + uy * off)
+    
+    # For product coproducts, negate perpendicular offset direction
+    # This ensures both reactant and product coproducts are on same side
+    perp_mult = 1.0 if is_reactant else -1.0
+    
     node_pos = dict(
-        x=base["x"] + px * rad,
-        y=base["y"] + py * rad
-        + (cfg.COPRODUCT_REACTANT_Y_OFFSET if is_reactant else 0),
+        x=base["x"] + perp_mult * px * rad,
+        y=base["y"] + perp_mult * py * rad,
     )
     return node_pos, base
 

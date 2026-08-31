@@ -39,9 +39,9 @@ MIN_CANVAS_HEIGHT = 1500
 CANVAS_PADDING    = 500
 
 # Coproduct positioning
-COPRODUCT_RADIUS            = 30
+COPRODUCT_RADIUS            = 20   # Reduced from 30 for closer positioning
 COPRODUCT_OFFSET            = 50
-COPRODUCT_REACTANT_Y_OFFSET = 15     # NEW: was hardcoded as `+ 15`
+COPRODUCT_REACTANT_Y_OFFSET = 0    # Removed asymmetric offset (now symmetric)
 
 # Midpoint placement along each edge (0.0 = at source, 1.0 = at target)
 MIDPOINT_FRACTION_VERTICAL   = 0.33  # NEW: was hardcoded `0.33`
