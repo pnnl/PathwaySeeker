@@ -527,9 +527,13 @@ class EscherVisualizer {
             }
 
             const update = () => {
+                // Get stoichiometry coefficient if present (not 1)
+                const stoich = data.stoichiometry;
+                const stoichPrefix = (stoich !== undefined && stoich !== 1) ? `${stoich} ` : '';
+                const baseName = (data.name || data.bigg_id || 'Unknown').replace(/;\s*$/, '');
                 label
                     .style('font-size', config.metaboliteLabelFontSize + 'px')
-                    .text((data.name || data.bigg_id || 'Unknown').replace(/;\s*$/, ''));
+                    .text(stoichPrefix + baseName);
                 const transform = circle.attr('transform');
                 if (transform) {
                     const m = transform.match(/translate\(([^,]+),([^)]+)\)/);
@@ -567,11 +571,14 @@ class EscherVisualizer {
             }
 
             const update = () => {
-                const text = (config.defaultToBiggId
+                // Get stoichiometry coefficient if present (not 1)
+                const stoich = data.stoichiometry;
+                const stoichPrefix = (stoich !== undefined && stoich !== 1) ? `${stoich} ` : '';
+                const baseName = (config.defaultToBiggId
                     ? (data.bigg_id || data.name || 'Coproduct')
                     : (data.name    || data.bigg_id || 'Coproduct')
                 ).replace(/;\s*$/, '');
-                label.style('font-size', config.coproductLabelFontSize + 'px').text(text);
+                label.style('font-size', config.coproductLabelFontSize + 'px').text(stoichPrefix + baseName);
                 const transform = circle.attr('transform');
                 if (transform) {
                     const m = transform.match(/translate\(([^,]+),([^)]+)\)/);
