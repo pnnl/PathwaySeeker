@@ -616,18 +616,8 @@ class PathwayApp {
         // Apply the origin colouring now (after Escher has rendered nodes)
         viz.colourNodesByOrigin(this.config, originOverrides, midpointOrigins);
 
-        // ── Render Vega-Lite charts on the canvas (subgraph view only) ────
-        if (this.viewType === 'subgraph') {
-            const bcdForCanvas = {
-                metabolites: metByKegg,
-                reactions:   protByRxn,
-                kegg_names:  keggNames,
-            };
-            // Delay to let Escher finish positioning nodes before we read transforms
-            setTimeout(() => {
-                viz.createCanvasBarCharts(this.initialJsonData, this.config, bcdForCanvas);
-            }, 800);
-        }
+        // ── Canvas bar charts removed — charts only appear in the sidebar
+        //    panel when the user clicks an edge or node.
 
         // ── Metabolite node clicks ────────────────────────────────────────
         d3.select('#map_container')
