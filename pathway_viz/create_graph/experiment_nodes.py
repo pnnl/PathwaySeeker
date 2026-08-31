@@ -283,25 +283,59 @@ def _canvas_size(num_nodes):
 # =====================================================================
 #  4. REACTION PARSING
 # =====================================================================
-def _parse_reaction(edge_data):
+def _parse_reaction_side(side_str, main):
+    """
+    Parse one side of a reaction equation into a list of coproduct dicts,
+    preserving stoichiometric coefficients.
+
+    "C00811 + 2 C00001 + C00003"
+        -> [{"id": "C00001", "coefficient": 2},
+            {"id": "C00003", "coefficient": 1}]   (C00811 in `main` -> dropped)
+
+    A term is an optional integer coefficient (default 1) followed by a
+    KEGG compound ID.  Compounds in `main` (the reaction's source/target)
+    are excluded.
+    """
+    coproducts = []
+    # optional integer coefficient, then a C-number
+    for m in re.finditer(r"(?:(\d+)\s+)?(C\d+)", side_str):
+        coeff = int(m.group(1)) if m.group(1) else 1
+        cid   = m.group(2)
+        if cid in main:
+            continue
+        coproducts.append(dict(id=cid, coefficient=coeff))
+    return coproducts
+
+
+def _parse_reaction(edge_data, src=None, tgt=None):
     """
     Parse an edge's title field ("R12345 - A + B <=> C + D") and
     return reaction name + coproduct lists, or None.
+
+    `src` / `tgt` are the actual graph endpoints for this edge
+    (i.e. the JSON 'source'/'target').  They are excluded from the
+    coproduct lists so the main pathway metabolites are never drawn
+    twice.  Legacy 'from_node'/'to_node' edge attributes are also
+    honoured for backward compatibility.
+
+    Coproduct lists preserve stoichiometry as a list of dicts:
+        [{"id": "C00001", "coefficient": 2}, ...]
     """
     title = edge_data.get("title", "")
-    main  = {edge_data.get("from_node", ""), edge_data.get("to_node", "")}
-    m     = re.search(r"(R\d+) - (.+?) <=> (.+)", title)
+    main  = {
+        str(src) if src is not None else "",
+        str(tgt) if tgt is not None else "",
+        str(edge_data.get("from_node", "")),
+        str(edge_data.get("to_node",   "")),
+    }
+    m = re.search(r"(R\d+) - (.+?) <=> (.+)", title)
     if not m:
         return None
     return dict(
         reaction_name=m.group(1),
         title=title,
-        reactant_coproducts=[
-            c for c in re.findall(r"C\d+", m.group(2)) if c not in main
-        ],
-        product_coproducts=[
-            c for c in re.findall(r"C\d+", m.group(3)) if c not in main
-        ],
+        reactant_coproducts=_parse_reaction_side(m.group(2), main),
+        product_coproducts=_parse_reaction_side(m.group(3), main),
     )
 
 
@@ -353,13 +387,16 @@ def _make_escher_segments(G):
     One Escher segment per original graph edge.
     Each segment records the parsed reaction (if any) so that midpoints
     and coproducts can be added later.
+
+    The edge's actual source/target are handed to _parse_reaction so
+    the main pathway metabolites are excluded from the coproduct lists.
     """
     segs = {}
     for i, (src, tgt, data) in enumerate(G.edges(data=True)):
         segs[str(i)] = dict(
             from_node_id=str(src),
             to_node_id=str(tgt),
-            reaction_dict=_parse_reaction(data),
+            reaction_dict=_parse_reaction(data, src, tgt),
             edge_type=None,
             b1=None, b2=None,
             graph_info={},
@@ -412,6 +449,13 @@ def _add_midpoints_and_coproducts(
         from_node_id  – the original source node ID
         to_node_id    – the original target node ID
         reaction_name – the KEGG reaction ID (if parsed from edge title)
+
+    Coproduct placement is tied to chemical role, NOT vertical position:
+        reactant coproducts -> source side  (source -> midpoint)
+        product  coproducts -> target side  (midpoint -> target)
+
+    Each coproduct node stores its stoichiometric coefficient in the
+    'stoichiometry' field.
 
     nodes is mutated in place.  Returns a new segments dict.
     """
@@ -475,24 +519,29 @@ def _add_midpoints_and_coproducts(
         # ── coproducts ───────────────────────────────────────────────
         if rxn:
             mid_pos = dict(x=mx, y=my)
-            ns, ne  = (fp, tp) if fp["y"] <= tp["y"] else (tp, fp)
+            # Role-based placement (independent of vertical orientation):
+            #   reactants  live on the SOURCE half  (source  -> midpoint)
+            #   products   live on the TARGET half  (midpoint -> target)
             for is_react, cpds in [
                 (True,  rxn.get("reactant_coproducts", [])),
                 (False, rxn.get("product_coproducts",  [])),
             ]:
-                rs  = ns      if is_react else mid_pos
-                re_ = mid_pos if is_react else ne
+                rs  = fp      if is_react else mid_pos
+                re_ = mid_pos if is_react else tp
                 for i, cpd in enumerate(cpds):
-                    name     = get_kegg_name(cpd, kegg_cache, cache_path)
+                    cpd_id = cpd["id"]
+                    coeff  = cpd.get("coefficient", 1)
+                    name   = get_kegg_name(cpd_id, kegg_cache, cache_path)
                     pos, bez = _coproduct_pos(rs, re_, i, is_react)
                     cid      = _next_id(nodes)
                     nodes[cid] = dict(
                         node_type="coproduct",
                         cofactor=True,
                         is_cofactor=is_react,
+                        stoichiometry=coeff,
                         x=pos["x"], y=pos["y"],
                         label_x=pos["x"], label_y=pos["y"],
-                        bigg_id=cpd, name=name,
+                        bigg_id=cpd_id, name=name,
                         node_is_primary=False,
                         graph_info={},
                         tooltip=None,
@@ -502,6 +551,7 @@ def _add_midpoints_and_coproducts(
                         from_node_id=cid if is_react else mid_id,
                         to_node_id=mid_id if is_react else cid,
                         edge_type="coproduct",
+                        stoichiometry=coeff,
                         b1=dict(x=bez["x"], y=bez["y"]),
                         b2=dict(x=bez["x"], y=bez["y"]),
                         graph_info={},
@@ -564,12 +614,13 @@ def _validate_tooltip_self_consistency(items, item_type):
         t_type = tooltip.get("type")
 
         if t_type == "metabolite":
-            for cond_entry in tooltip.get("conditions", []):
-                label = (
-                    f"{item_type} {item_id}/"
-                    f"{cond_entry.get('name', '?')}"
-                )
-                _check_condition_entry(cond_entry, label)
+            for row_i, tt_row in enumerate(tooltip.get("rows", [])):
+                for cond_entry in tt_row.get("conditions", []):
+                    label = (
+                        f"{item_type} {item_id}/row{row_i}/"
+                        f"{cond_entry.get('name', '?')}"
+                    )
+                    _check_condition_entry(cond_entry, label)
 
         elif t_type == "reaction":
             for prot in tooltip.get("proteins", []):
@@ -1623,6 +1674,8 @@ def generate_escher_map_from_graph(
       (plus generated midpoints / coproducts).
     - Every original graph edge  -> one Escher segment
       (split at midpoint into reactant-edge + product-edge pair).
+    - Coproduct nodes carry their stoichiometric coefficient in the
+      'stoichiometry' field.
     - All omics data is validated against the source files before export.
     """
     cache_path = (
@@ -1669,7 +1722,7 @@ def generate_escher_map_from_graph(
 
     # 6  Omics data
     integrate_metabolomics(nodes, metabolomics_file)
-    integrate_proteomics(segments, proteomics_file, nodes=nodes) 
+    integrate_proteomics(segments, proteomics_file, nodes=nodes)
 
     # 6b Midpoint tooltips
     build_midpoint_tooltips(nodes, segments)
