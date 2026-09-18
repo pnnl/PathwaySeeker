@@ -677,6 +677,55 @@ class EscherVisualizer {
     // =========================================================================
 
     /**
+     * Convert a metabolite row's conditions (raw abundances) into log2
+     * z-scores computed over the ENTIRE row — i.e. the mean/std are taken
+     * across every replicate value of every condition in the row, then each
+     * replicate is z-scored against that single row-level mean/std.
+     *
+     * Rules:
+     *   - Each replicate value is log2-transformed (values <= 0 are dropped).
+     *   - Conditions with fewer than `minCount` valid replicates are dropped.
+     *   - If nothing usable remains, returns [] (chart is skipped).
+     *
+     * @param {object} conditionsObj - { cond: {average, std_dev, count, values} }
+     * @param {number} minCount      - minimum replicates required (>= 2)
+     * @returns {Array} [{ cond, zMean, zStd, zValues }]
+     */
+    _zscoreRowConditions(conditionsObj, minCount) {
+        const minN = Math.max(minCount || 2, 2);
+
+        // Collect log2 replicate values per usable condition.
+        const usable = [];
+        Object.keys(conditionsObj || {}).forEach(cond => {
+            const entry = conditionsObj[cond] || {};
+            const vals  = (entry.values || [])
+                .filter(v => v !== null && v !== undefined && isFinite(v) && v > 0)
+                .map(v => Math.log2(v));
+            if (vals.length >= minN) usable.push({ cond, logVals: vals });
+        });
+        if (!usable.length) return [];
+
+        // Row-level mean/std over ALL log2 replicate values.
+        const allLog = [];
+        usable.forEach(u => u.logVals.forEach(v => allLog.push(v)));
+        const rowMean = allLog.reduce((a, b) => a + b, 0) / allLog.length;
+        const rowVar  = allLog.length > 1
+            ? allLog.reduce((a, b) => a + (b - rowMean) * (b - rowMean), 0) / (allLog.length - 1)
+            : 0;
+        const rowStd = Math.sqrt(rowVar);
+        const zOf = v => (rowStd > 0 ? (v - rowMean) / rowStd : 0);
+
+        return usable.map(({ cond, logVals }) => {
+            const zValues = logVals.map(zOf);
+            const zMean = zValues.reduce((a, b) => a + b, 0) / zValues.length;
+            const zVar  = zValues.length > 1
+                ? zValues.reduce((a, b) => a + (b - zMean) * (b - zMean), 0) / (zValues.length - 1)
+                : 0;
+            return { cond, zMean, zStd: Math.sqrt(zVar), zValues };
+        });
+    }
+
+    /**
      * Render one panel of a metabolite bar chart for a single CSV row.
      *
      * @param {d3.Selection} parentNode  - SVG group to append into
@@ -699,23 +748,28 @@ class EscherVisualizer {
 
         const conditionsObj = rowEntry.conditions || {};
         const minCount = config.barMinCount ?? 1;
-        // Only include conditions that have a real average (not null/undefined/NaN)
-        // AND whose replicate count meets the minimum threshold
-        const conditions = Object.keys(conditionsObj).filter(k => {
-            const entry = conditionsObj[k];
-            const avg   = entry?.average;
-            if (avg === null || avg === undefined || !isFinite(avg)) return false;
-            const cnt = entry?.count ?? entry?.n ?? Infinity;
-            return cnt >= minCount;
-        });
-        if (!conditions.length) return 0;
 
-        const values  = conditions.map(k => conditionsObj[k]?.average ?? 0);
-        const stdDevs = conditions.map(k => conditionsObj[k]?.std_dev ?? 0);
-        const maxVal  = Math.max(...values.map((v, i) => v + stdDevs[i]), 1e-9);
+        // Convert raw abundances to log2 z-scores computed over the ENTIRE row
+        // (all replicate values across all conditions of this metabolite+method).
+        // Conditions with fewer than `minCount` (>= 2) replicates are dropped.
+        // Returns { cond, zMean, zStd, zValues } per usable condition.
+        const zData = this._zscoreRowConditions(conditionsObj, Math.max(minCount, 2));
+        if (!zData.length) return 0;
+
+        const conditions = zData.map(d => d.cond);
+        // x-domain spans the min/max of individual replicate z-scores and the
+        // mean±std error bars, and always includes 0 (the row-mean reference).
+        const allX = [0];
+        zData.forEach(d => {
+            d.zValues.forEach(v => allX.push(v));
+            allX.push(d.zMean - d.zStd, d.zMean + d.zStd);
+        });
+        const xMin = Math.min(...allX);
+        const xMax = Math.max(...allX);
         const chartH = cfg.barHeight * conditions.length;
         const drawW  = cfg.chartWidth - cfg.axisPadding;
-        const xScale = d3.scaleLinear().domain([0, maxVal]).range([0, drawW]);
+        const xScale = d3.scaleLinear().domain([xMin, xMax]).nice().range([0, drawW]);
+        const xZero  = xScale(0);
 
         const panel = parentNode.append('g')
             .attr('transform', `translate(0,${yOffset})`);
@@ -756,21 +810,45 @@ class EscherVisualizer {
         barsGroup.append('g')
             .attr('class',     'x-axis')
             .attr('transform', `translate(0,${chartH})`)
-            .call(d3.axisBottom(xScale).ticks(3).tickFormat(d => d3.format('.1e')(d).replace(/\.0(e)/, '$1')))
+            .call(d3.axisBottom(xScale).ticks(4).tickFormat(d3.format('.2g')))
             .selectAll('text')
             .style('font-size', config.chartLabelFontSize + 'px')
             .style('fill',      '#555');
 
-        conditions.forEach((cond, i) => {
-            const avg  = conditionsObj[cond]?.average ?? 0;
-            const std  = conditionsObj[cond]?.std_dev ?? 0;
-            const barW = xScale(avg);
+        // X-axis title (placed below the tick labels)
+        const tickLabelH = config.chartLabelFontSize + 4;
+        barsGroup.append('text')
+            .attr('class', 'x-axis-title')
+            .attr('x', drawW / 2)
+            .attr('y', chartH + tickLabelH + config.chartLabelFontSize + 4)
+            .style('text-anchor', 'middle')
+            .style('font-size', config.chartLabelFontSize + 'px')
+            .style('fill', '#555')
+            .text('log2 z-score');
+
+        // Zero reference line (z-score = 0 = row mean)
+        barsGroup.append('line')
+            .attr('class', 'zero-line')
+            .attr('x1', xZero).attr('x2', xZero)
+            .attr('y1', 0).attr('y2', chartH)
+            .attr('stroke', '#999')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,3')
+            .style('pointer-events', 'none');
+
+        zData.forEach((d, i) => {
+            const zMean = d.zMean;
+            const zStd  = d.zStd;
+            const xMean = xScale(zMean);
             const barColor = cfg.barColor;
             const hoverColor = cfg.hoverColor;
+            // Bar spans between the zero baseline and the mean z-score.
+            const barX = Math.min(xZero, xMean);
+            const barW = Math.abs(xMean - xZero);
 
             barsGroup.append('rect')
                 .attr('class',  'bar')
-                .attr('x',       0)
+                .attr('x',       barX)
                 .attr('y',       i * cfg.barHeight)
                 .attr('width',   Math.max(barW, 0))
                 .attr('height',  cfg.barHeight - 2)
@@ -778,25 +856,27 @@ class EscherVisualizer {
                 .on('mouseover', function () {
                     d3.select(this).attr('fill', hoverColor);
                     barsGroup.append('text').attr('class', 'value-label')
-                        .attr('x',  barW + 3)
+                        .attr('x',  xMean + (zMean >= 0 ? 3 : -3))
                         .attr('y',  i * cfg.barHeight + cfg.barHeight / 2)
                         .attr('dy', '0.35em')
+                        .style('text-anchor', zMean >= 0 ? 'start' : 'end')
                         .style('font-size',   config.chartLabelFontSize + 'px')
                         .style('fill',        '#111')
                         .style('font-weight', 'bold')
-                        .text(`${d3.format('.1e')(avg)} ± ${d3.format('.1e')(std)}`);
+                        .text(`${d3.format('.2f')(zMean)} ± ${d3.format('.2f')(zStd)}`);
                 })
                 .on('mouseout', function () {
                     d3.select(this).attr('fill', barColor);
                     barsGroup.selectAll('.value-label').remove();
                 });
 
-            // Error bar
-            if (std > 0) {
-                const cy       = i * cfg.barHeight + (cfg.barHeight - 2) / 2;
+            const cy = i * cfg.barHeight + (cfg.barHeight - 2) / 2;
+
+            // Error bar (± std of z-scores)
+            if (zStd > 0) {
                 const capH     = Math.min(cfg.barHeight - 4, 6);
-                const errEnd   = xScale(avg + std);
-                const errStart = xScale(Math.max(avg - std, 0));
+                const errEnd   = xScale(zMean + zStd);
+                const errStart = xScale(zMean - zStd);
                 // horizontal line
                 barsGroup.append('line')
                     .attr('x1', errStart).attr('x2', errEnd)
@@ -816,9 +896,23 @@ class EscherVisualizer {
                     .attr('stroke', '#333').attr('stroke-width', 1.5)
                     .style('pointer-events', 'none');
             }
+
+            // Individual replicate dots
+            d.zValues.forEach(v => {
+                barsGroup.append('circle')
+                    .attr('class', 'replicate-dot')
+                    .attr('cx', xScale(v))
+                    .attr('cy', cy)
+                    .attr('r',  2)
+                    .attr('fill', '#222')
+                    .attr('fill-opacity', 0.7)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 0.5)
+                    .style('pointer-events', 'none');
+            });
         });
 
-        return labelH + chartH + bc.barHeight; // panel height incl. axis space
+        return labelH + chartH + tickLabelH + config.chartLabelFontSize + 8; // incl. tick labels + axis title
     }
 
     /**

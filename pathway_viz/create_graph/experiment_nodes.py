@@ -1441,7 +1441,10 @@ def integrate_metabolomics(nodes, filepath):
         kegg_lookup[kid] = [
             {
                 "metabolite_name": entry["metabolite_name"],
-                "conditions":      _strip_raw_values(entry["stats"]),
+                # Keep per-replicate 'values' alongside average/std_dev/count
+                # so downstream consumers (e.g. log2 z-score charts) have the
+                # individual replicate points, not just summary stats.
+                "conditions":      entry["stats"],
             }
             for entry in row_list
         ]
