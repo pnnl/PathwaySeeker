@@ -1,110 +1,159 @@
 """
 Shared configuration constants for pathway visualization.
-Centralizes all hardcoded values and file paths used across the application.
 
 Configuration is separated into two categories:
-1. BACKEND CONFIGURATION - Affects graph generation, layout, and data processing
-   (Changes require graph recalculation)
-2. FRONTEND CONFIGURATION - Affects only visualization and styling
-   (Changes only affect rendering, no recalculation needed)
+1. BACKEND  - Affects graph generation/layout (changes require recalculation)
+2. FRONTEND - Affects only visualization/styling (changes only affect rendering)
 """
-
 import os
 
 # =============================================================================
-# BACKEND CONFIGURATION - GRAPH GENERATION & LAYOUT
-# (Changes here require regenerating the pathway graph)
+# BACKEND CONFIGURATION
 # =============================================================================
 
-# Small graph layout orientation
-SMALL_GRAPH_LAYOUT_VERTICAL = False # False # True = top-to-bottom, False = left-to-right
+SMALL_GRAPH_LAYOUT_VERTICAL = True  # True = top-to-bottom, False = left-to-right
 
-# Canvas dimensions for different graph complexities
-SMALL_GRAPH_WIDTH = 900 # 3500 #900   # Canvas width for small graphs (< 10 nodes) - narrow for vertical layout
-SMALL_GRAPH_HEIGHT = 3500 #900 #4000  # Canvas height for small graphs - tall for vertical layout
-MEDIUM_GRAPH_WIDTH = 30000  # Canvas width for medium graphs (10-50 nodes)
-MEDIUM_GRAPH_HEIGHT = 4000  # Canvas height for medium graphs
-LARGE_GRAPH_WIDTH = 70000  # Canvas width for large graphs (> 50 nodes)
-LARGE_GRAPH_HEIGHT = 3000  # Canvas height for large graphs
+SHARED_KEGG_NAMES_FILE = os.path.join('static', 'kegg_names.json')
 
-# Deprecated - kept for backward compatibility
-DEFAULT_CONFIG = {
-    'small_width': SMALL_GRAPH_WIDTH,
-    'small_height': SMALL_GRAPH_HEIGHT,
-    'medium_width': MEDIUM_GRAPH_WIDTH,
-    'medium_height': MEDIUM_GRAPH_HEIGHT,
-    'large_width': LARGE_GRAPH_WIDTH,
-    'large_height': LARGE_GRAPH_HEIGHT
-}
+# Canvas dimensions per graph size
+SMALL_GRAPH_WIDTH   = 900
+SMALL_GRAPH_HEIGHT  = 3500
+MEDIUM_GRAPH_WIDTH  = 30000
+MEDIUM_GRAPH_HEIGHT = 4000
+LARGE_GRAPH_WIDTH   = 200000
+LARGE_GRAPH_HEIGHT  = 2000
 
-# File paths for input/output data
-INPUT_FILES = {
-    'graph_pickle': os.path.join('static', 'uploads', 'metabolite_graph.json'),
-    'metabolomics_csv': os.path.join('static', 'uploads', 'metabolomics_with_C_numbers_curated.csv'),
-    'proteomics_csv': os.path.join('static', 'uploads', 'proteomics_with_ko_reactions.csv')
-}
+# Node count thresholds
+NODE_THRESHOLD_SMALL  = 20
+NODE_THRESHOLD_MEDIUM = 50
 
+# Aspect ratio constraints
+MAX_ASPECT_RATIO = 8
+MIN_ASPECT_RATIO = 0.25
+
+# Canvas padding — extra space around the node bounding box so that
+# bar charts, structure images, and labels that extend beyond the node
+# centre are not clipped at the canvas edge.
+MIN_CANVAS_WIDTH  = 2200
+MIN_CANVAS_HEIGHT = 1500
+CANVAS_PADDING    = 500
+
+# Coproduct positioning
+COPRODUCT_RADIUS            = 30
+COPRODUCT_OFFSET            = 50
+COPRODUCT_REACTANT_Y_OFFSET = 15     # NEW: was hardcoded as `+ 15`
+
+# Midpoint placement along each edge (0.0 = at source, 1.0 = at target)
+MIDPOINT_FRACTION_VERTICAL   = 0.33  # NEW: was hardcoded `0.33`
+MIDPOINT_FRACTION_HORIZONTAL = 0.5   # NEW: was hardcoded `0.5`
+
+# Spring layout fallback parameters
+SPRING_LAYOUT_K          = 1.0       # NEW: was hardcoded `k=1`
+SPRING_LAYOUT_ITERATIONS = 50        # NEW: was hardcoded `iterations=50`
+
+# Default node color (when graph data doesn't specify one)
+DEFAULT_NODE_COLOR = "#2a9d8f"       # NEW: was hardcoded string
+
+# Base paths (used to construct per-user paths at runtime)
+BASE_DATA_DIR = os.path.join('static', 'user_data')
 OUTPUT_PATHS = {
-    'json_dir': 'static/json_pathway',
-    'images_dir': 'static/structure_imgs',
-    'kegg_names_file': 'kegg_names.json'
+    'json_dir':        'json_pathway',   # relative to user dir
+    'images_dir':      'structure_imgs', # relative to user dir
+    'kegg_names_file': 'kegg_names.json',
 }
 
-UPLOAD_FOLDER = os.path.join('static', 'uploads')
+# Global structure images dir (shared across users - same molecules)
+GLOBAL_IMAGES_DIR = os.path.join('static', 'structure_imgs')
 
-# Canvas dimension constraints for layout calculation
-MIN_CANVAS_WIDTH = 2200  # Minimum canvas width
-MIN_CANVAS_HEIGHT = 1500  # Minimum canvas height
-CANVAS_PADDING = 500  # Padding around graph content
+# Session lifetime for cleanup (seconds)
+SESSION_LIFETIME = 60 * 60 * 24  # 24 hours
 
-# Node count thresholds for determining default canvas size
-NODE_THRESHOLD_SMALL = 10  # Threshold between small and medium graphs
-NODE_THRESHOLD_MEDIUM = 50  # Threshold between medium and large graphs
+# API
+API_SAVE_INTERVAL = 10
+KEGG_API_BASE_URL = "http://rest.kegg.jp"
 
-# Aspect ratio constraints for layout correction
-MAX_ASPECT_RATIO = 4  # Too wide threshold - will increase height
-MIN_ASPECT_RATIO = 0.25  # Too tall threshold - will increase width
-
-# Coproduct node positioning (affects graph layout)
-COPRODUCT_RADIUS = 30  # Radius for coproduct positioning
-COPRODUCT_RADIUS_2 = 40  # Secondary radius for coproduct positioning
-COPRODUCT_OFFSET = 50 #80#50  # Offset distance for coproduct placement
-
-# API constants for KEGG database
-API_SAVE_INTERVAL = 10  # Save KEGG names every N entries
-KEGG_API_BASE_URL = "http://rest.kegg.jp"  # KEGG REST API endpoint
-
-# File extension allowlists
+# Allowed extensions
 ALLOWED_GRAPH_EXTENSIONS = {'.pickle', '.pkl', '.json'}
-ALLOWED_CSV_EXTENSIONS = {'.csv'}
+ALLOWED_CSV_EXTENSIONS   = {'.csv', '.xlsx', '.xls'}
 
 # =============================================================================
-# FRONTEND CONFIGURATION - VISUALIZATION & STYLING ONLY
-# (Changes here only affect how the graph is displayed, no recalculation needed)
+# FRONTEND CONFIGURATION
+# (module-level defaults — can be overridden per-request via session)
 # =============================================================================
 
-# Node styling (visualization only)
-NODE_RADIUS = 10  # Default node radius (px)
-METABOLITE_RADIUS = 10  # Radius for metabolite nodes (px)
-REACTION_RADIUS = 8  # Radius for reaction/coproduct nodes (px)
-STRUCTURE_IMAGE_SIZE = 400  # Display size for structure images in the visualization (px)
+NODE_RADIUS          = 10
+METABOLITE_RADIUS    = 10
+REACTION_RADIUS      = 8
+STRUCTURE_IMAGE_SIZE = 300
 
-# Label positioning (visualization only)
-LABEL_OFFSET_Y = 30  # Vertical offset for node labels below nodes (px)
-COPRODUCT_LABEL_OFFSET_Y = -18  # Vertical offset for coproduct labels above nodes (px)
-BAR_CHART_OFFSET_Y = 120  # Vertical offset for bar charts below nodes (px)
+LABEL_OFFSET_Y           = 40
+COPRODUCT_LABEL_OFFSET_Y = -18
+BAR_CHART_OFFSET_X       = 20
+BAR_CHART_OFFSET_Y       = -50
 
-# Font size configuration (visualization only)
-METABOLITE_LABEL_FONT_SIZE = 40  # Font size for metabolite node labels (px)
-COPRODUCT_LABEL_FONT_SIZE = 15  # Font size for coproduct node labels (px)
-CHART_TITLE_FONT_SIZE = 18  # Font size for chart titles (px)
-CHART_LABEL_FONT_SIZE = 18  # Font size for chart axis labels (px)
+METABOLITE_LABEL_FONT_SIZE  = 40
+COPRODUCT_LABEL_FONT_SIZE  = 15
+CHART_TITLE_FONT_SIZE      = 18
+CHART_LABEL_FONT_SIZE      = 18
 
-# Bar chart styling (visualization only)
-BAR_CHART_WIDTH = 180  # Width of bar chart (px)
-BAR_CHART_HEIGHT = 100  # Height of bar chart (px)
-BAR_HEIGHT = 15  # Height of each individual bar in the chart (px)
-BAR_CHART_AXIS_PADDING = 20  # Padding for chart axes (px)
-BAR_CHART_TITLE = ""  # Title for bar charts (set to "" to hide)
-BAR_CHART_X_LABEL = "Abundance"  # X-axis label for bar charts
-BAR_CHART_Y_LABEL = ""  # Y-axis label for bar charts (set to "" to hide)
+BAR_CHART_WIDTH        = 200
+BAR_CHART_HEIGHT       = 100
+BAR_HEIGHT             = 15
+BAR_CHART_AXIS_PADDING = 20
+BAR_CHART_TITLE        = ""
+BAR_CHART_X_LABEL      = "Abundance"
+BAR_CHART_Y_LABEL      = ""
+BAR_MIN_COUNT          = 1   # Only render a bar if its replicate count >= this value
+# Origin colours for metabolite nodes
+ORIGIN_COLOURS = {
+    "metabolomics": "#2a9d8f",
+    "proteomics":   "#e76f51",
+    "both":         "#9b5de5",
+    "unknown":      "#aaaaaa",
+}
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_backend_config():
+    """Return current backend config as a dict (used by canvas generation)."""
+    return {
+        'small_width':   SMALL_GRAPH_WIDTH,
+        'small_height':  SMALL_GRAPH_HEIGHT,
+        'medium_width':  MEDIUM_GRAPH_WIDTH,
+        'medium_height': MEDIUM_GRAPH_HEIGHT,
+        'large_width':   LARGE_GRAPH_WIDTH,
+        'large_height':  LARGE_GRAPH_HEIGHT,
+    }
+
+def get_frontend_config():
+    """Return current frontend config as a dict (passed to template as window.CONFIG)."""
+    return {
+        # Node styling
+        'nodeRadius':       NODE_RADIUS,
+        'metaboliteRadius': METABOLITE_RADIUS,
+        'reactionRadius':   REACTION_RADIUS,
+        'imageSize':        STRUCTURE_IMAGE_SIZE,
+         "originColours": ORIGIN_COLOURS,
+        # Labels
+        'labelOffsetY':              LABEL_OFFSET_Y,
+        'coproductLabelOffsetY':     COPRODUCT_LABEL_OFFSET_Y,
+        'barChartOffsetX':           BAR_CHART_OFFSET_X,
+        'barChartOffsetY':           BAR_CHART_OFFSET_Y,
+        'metaboliteLabelFontSize':   METABOLITE_LABEL_FONT_SIZE,
+        'coproductLabelFontSize':    COPRODUCT_LABEL_FONT_SIZE,
+        'chartTitleFontSize':        CHART_TITLE_FONT_SIZE,
+        'chartLabelFontSize':        CHART_LABEL_FONT_SIZE,
+        # Bar charts
+        'barChartWidth':       BAR_CHART_WIDTH,
+        'barChartHeight':      BAR_CHART_HEIGHT,
+        'barHeight':           BAR_HEIGHT,
+        'barChartAxisPadding': BAR_CHART_AXIS_PADDING,
+        'barChartTitle':       BAR_CHART_TITLE,
+        'barChartXLabel':      BAR_CHART_X_LABEL,
+        'barChartYLabel':      BAR_CHART_Y_LABEL,
+        'barMinCount':         BAR_MIN_COUNT,
+        # Layout hints needed by frontend
+        'smallGraphLayoutVertical': SMALL_GRAPH_LAYOUT_VERTICAL,
+        'nodeThresholdSmall':       NODE_THRESHOLD_SMALL,
+    }

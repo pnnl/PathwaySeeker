@@ -1,1594 +1,1861 @@
 """
 Escher Pathway Map Generator
+Converts a NetworkX graph into an Escher-compatible JSON map.
 
-This script generates interactive Escher pathway maps from NetworkX graphs by:
-1. Loading a metabolite network graph from a pickle file
-2. Positioning nodes using pygraphviz layout algorithms
-3. Adding coproduct nodes and reaction metadata
-4. Integrating metabolomics and proteomics data
-5. Exporting to Escher-compatible JSON format
+Column naming convention (proteomics & metabolomics):
+    ConditionName_1, ConditionName_2, ConditionName_3, ...
+    Everything before the last underscore  = condition name
+    Everything after  the last underscore  = replicate number (integer)
 
-Dependencies: networkx, matplotlib, numpy, requests, pandas, pygraphviz
+Pipeline (see generate_escher_map_from_graph):
+  1. Layout       – compute node positions
+  2. Canvas       – size the drawing area
+  3. Nodes        – one Escher node per original graph node
+  4. Segments     – one Escher segment per original graph edge
+  5. Midpoints & coproducts – split segments, add reaction detail
+  5b. Validate    – confirm original nodes/edges are preserved
+  6. Omics        – attach metabolomics / proteomics data
+  6b. Midpoint tooltips – build reaction tooltips on midpoint nodes
+  7. Export       – write JSON
 """
-
 import networkx as nx
-import matplotlib.pyplot as plt
 import numpy as np
 import requests
 import re
 import os
 import json
-import uuid
 import pickle
 import logging
 from networkx.drawing.nx_agraph import pygraphviz_layout
 import pandas as pd
 
-# ===== LOGGING SETUP =====
-LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pathway_debug.log')
+# ── Logging ──────────────────────────────────────────────────────────
+LOG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "pathway_debug.log"
+)
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()  # Also print to console
-    ]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
-# Import shared configuration as module so runtime updates propagate
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config as cfg
 
-# ===== CONFIGURATION CONSTANTS =====
-IMG_SIZE = 1/10
 
-# Default canvas dimensions - will be overridden by config if provided
-DEFAULT_CANVAS_WIDTH = 10000
-DEFAULT_CANVAS_HEIGHT = 3000
-DEFAULT_LAYOUT_SCALE_FACTOR = 5
+# =====================================================================
+#  1. GRAPH LOADING
+# =====================================================================
+def load_graph(path):
+    """Load a NetworkX graph from a *.pickle / *.pkl / *.json file."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".pickle", ".pkl"):
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    if ext == ".json":
+        with open(path) as f:
+            data = json.load(f)
+        G = nx.Graph()
+        for n in data.get("nodes", []):
+            nid = n.pop("id", None)
+            if nid:
+                G.add_node(nid, **n)
+        for e in data.get("edges", []):
+            s, t = e.pop("source", None), e.pop("target", None)
+            if s and t:
+                if "label" in e:
+                    e["title"] = e.pop("label")
+                G.add_edge(s, t, **e)
+        return G
+    raise ValueError(f"Unsupported format: {ext}")
 
-def get_default_canvas_dimensions(num_nodes, config=None):
-    """
-    Get default canvas dimensions based on number of nodes.
-    
-    Args:
-        num_nodes (int): Number of nodes in the graph
-        config (dict, optional): Configuration dict with canvas dimensions
-        
-    Returns:
-        tuple: (default_width, default_height)
-    """
-    if config is None:
-        # Fallback to module defaults
-        if num_nodes < cfg.NODE_THRESHOLD_SMALL:
-            return 3000, 1500
-        elif num_nodes < cfg.NODE_THRESHOLD_MEDIUM:
-            return 6000, 2000
-        else:
-            return DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT
-    else:
-        # Use provided config values
-        if num_nodes < cfg.NODE_THRESHOLD_SMALL:
-            return config.get('small_width', 3000), config.get('small_height', 1500)
-        elif num_nodes < cfg.NODE_THRESHOLD_MEDIUM:
-            return config.get('medium_width', 6000), config.get('medium_height', 2000)
-        else:
-            return config.get('large_width', DEFAULT_CANVAS_WIDTH), config.get('large_height', DEFAULT_CANVAS_HEIGHT)
 
-def calculate_canvas_dimensions(positions, num_nodes, config=None):
-    """
-    Calculate appropriate canvas dimensions based on node positions and graph size.
-    
-    Args:
-        positions (dict): Dictionary mapping node IDs to (x, y) coordinates
-        num_nodes (int): Number of nodes in the graph
-        config (dict, optional): Configuration dict with canvas dimensions. If None, uses module constants.
-        
-    Returns:
-        tuple: (canvas_width, canvas_height)
-    """
-    if not positions:
-        default_width, default_height = get_default_canvas_dimensions(num_nodes, config)
-        return default_width, default_height
-    
-    bounds = get_position_bounds(positions)
-    
-    # Get size-appropriate defaults
-    default_width, default_height = get_default_canvas_dimensions(num_nodes, config)
-    
-    # Debug: Log input bounds and defaults
-    logger.info(f"\n=== CALCULATE_CANVAS_DIMENSIONS DEBUG ===")
-    logger.info(f"Num nodes: {num_nodes}")
-    logger.info(f"Input bounds - X range: {bounds['min_x']:.6f} to {bounds['max_x']:.6f} (range: {bounds['x_range']:.6f})")
-    logger.info(f"Input bounds - Y range: {bounds['min_y']:.6f} to {bounds['max_y']:.6f} (range: {bounds['y_range']:.6f})")
-    logger.info(f"Default canvas dimensions: {default_width} x {default_height}")
-    
-    # Scale based on layout scale factor and add padding
-    base_width = (bounds['x_range'] * default_width) + (2 * cfg.CANVAS_PADDING)
-    base_height = (bounds['y_range'] * default_height) + (2 * cfg.CANVAS_PADDING)
-    
-    logger.info(f"Base width calculation: ({bounds['x_range']:.6f} * {default_width}) + {2 * cfg.CANVAS_PADDING} = {base_width:.2f}")
-    logger.info(f"Base height calculation: ({bounds['y_range']:.6f} * {default_height}) + {2 * cfg.CANVAS_PADDING} = {base_height:.2f}")
-    
-    # Use size-appropriate canvas dimensions from config
-    if num_nodes < 10:
-        canvas_width = default_width
-        canvas_height = default_height
-        logger.info(f"Small graph (< 10 nodes): canvas {canvas_width} x {canvas_height}")
-    elif num_nodes < cfg.NODE_THRESHOLD_MEDIUM:
-        canvas_width = default_width
-        canvas_height = default_height
-        logger.info(f"Medium graph (< {cfg.NODE_THRESHOLD_MEDIUM} nodes): canvas {canvas_width} x {canvas_height}")
-    else:
-        canvas_width = default_width
-        canvas_height = default_height
-        logger.info(f"Large graph (>= {cfg.NODE_THRESHOLD_MEDIUM} nodes): canvas {canvas_width} x {canvas_height}")
-    
-    logger.info(f"Canvas before aspect ratio adjustment: {canvas_width:.2f} x {canvas_height:.2f}")
-    
-    # Ensure reasonable aspect ratio
-    aspect_ratio = canvas_width / canvas_height
-    if aspect_ratio > cfg.MAX_ASPECT_RATIO:  # Too wide
-        canvas_height = canvas_width / cfg.MAX_ASPECT_RATIO
-        logger.info(f"Aspect ratio too wide ({aspect_ratio:.2f} > {cfg.MAX_ASPECT_RATIO}), adjusted height to {canvas_height:.2f}")
-    elif aspect_ratio < cfg.MIN_ASPECT_RATIO:  # Too tall
-        canvas_width = canvas_height * cfg.MIN_ASPECT_RATIO
-        logger.info(f"Aspect ratio too tall ({aspect_ratio:.2f} < {cfg.MIN_ASPECT_RATIO}), adjusted width to {canvas_width:.2f}")
-    
-    final_width = int(canvas_width)
-    final_height = int(canvas_height)
-    logger.info(f"Final canvas dimensions: {final_width} x {final_height}")
-    logger.info(f"=== END CALCULATE_CANVAS_DIMENSIONS DEBUG ===\n")
-    
-    return final_width, final_height
-
-# ===== KEGG API FUNCTIONS =====
-
-def get_name_from_kegg_id(kegg_id):
-    """Fetch metabolite name from KEGG database using compound ID."""
-    url = f"{cfg.KEGG_API_BASE_URL}/get/{kegg_id}"
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        
-        for line in response.text.splitlines():
-            if line.startswith("NAME"):
-                return line.split("NAME")[1].strip()
-                
-        return f"Unknown_{kegg_id}"
-        
-    except requests.RequestException:
-        return f"Unknown_{kegg_id}"
-
-def load_or_create_kegg_names(output_file_path):
-    """Load existing KEGG names from file or create empty dictionary."""
-    if os.path.exists(output_file_path):
+# =====================================================================
+#  2. KEGG NAME CACHE
+# =====================================================================
+def load_kegg_names(path):
+    """Load existing KEGG names from JSON file or return empty dict."""
+    if os.path.exists(path):
         try:
-            with open(output_file_path, "r") as f:
+            with open(path) as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             pass
-    
     return {}
 
-def save_kegg_names(kegg_names, output_file_path):
-    """Save KEGG names dictionary to JSON file."""
+
+def save_kegg_names(names, path):
+    """Persist KEGG names dict to JSON."""
     try:
-        with open(output_file_path, "w") as f:
-            json.dump(kegg_names, f, indent=2)
+        with open(path, "w") as f:
+            json.dump(names, f, indent=2)
     except IOError:
         pass
 
-# ===== GRAPH LAYOUT AND POSITIONING =====
 
-def get_position_bounds(positions):
+def get_kegg_name(kegg_id, cache, cache_path):
     """
-    Extract min/max bounds and ranges from node positions.
-    
-    Args:
-        positions (dict): Dictionary mapping node IDs to (x, y) coordinates
-        
-    Returns:
-        dict: Contains 'min_x', 'max_x', 'min_y', 'max_y', 'x_range', 'y_range'
+    Return a human-readable name for a KEGG ID.
+
+    Lookup order:
+      1. In-memory cache
+      2. KEGG REST API  https://rest.kegg.jp/get/{kegg_id}
+
+    The NAME field in KEGG flat-files looks like:
+        NAME        Pyruvic acid;
+                    Pyroracemic acid
+
+    We take only the first synonym and strip the trailing semicolon.
     """
+    if kegg_id in cache:
+        return cache[kegg_id]
+
+    name = kegg_id   # fallback: show the raw ID, not "Unknown_Cxxxxx"
+
+    try:
+        r = requests.get(
+            f"{cfg.KEGG_API_BASE_URL}/get/{kegg_id}",
+            timeout=10,
+        )
+        r.raise_for_status()
+        for line in r.text.splitlines():
+            if line.startswith("NAME"):
+                # "NAME        Pyruvic acid;"  or  "NAME        Pyruvate"
+                raw = line.split("NAME", 1)[1].strip()
+                # Take the first synonym only (before any semicolon)
+                name = raw.split(";")[0].strip()
+                break
+    except requests.RequestException as e:
+        logger.warning(f"KEGG API lookup failed for {kegg_id}: {e}")
+
+    cache[kegg_id] = name
+
+    # Save periodically
+    if len(cache) % cfg.API_SAVE_INTERVAL == 0:
+        save_kegg_names(cache, cache_path)
+
+    return name
+
+# =====================================================================
+#  3. LAYOUT / POSITIONING
+# =====================================================================
+def _get_bounds(positions):
+    """Min / max / range for x and y."""
     if not positions:
-        return {
-            'min_x': 0, 'max_x': 0,
-            'min_y': 0, 'max_y': 0,
-            'x_range': 1, 'y_range': 1
-        }
-    
-    x_positions = [pos[0] for pos in positions.values()]
-    y_positions = [pos[1] for pos in positions.values()]
-    
-    min_x, max_x = min(x_positions), max(x_positions)
-    min_y, max_y = min(y_positions), max(y_positions)
-    
-    x_range = max_x - min_x if max_x != min_x else 1
-    y_range = max_y - min_y if max_y != min_y else 1
-    
-    return {
-        'min_x': min_x,
-        'max_x': max_x,
-        'min_y': min_y,
-        'max_y': max_y,
-        'x_range': x_range,
-        'y_range': y_range
-    }
+        return dict(min_x=0, max_x=0, min_y=0, max_y=0, x_range=1, y_range=1)
+    xs = [p[0] for p in positions.values()]
+    ys = [p[1] for p in positions.values()]
+    mn_x, mx_x = min(xs), max(xs)
+    mn_y, mx_y = min(ys), max(ys)
+    return dict(
+        min_x=mn_x, max_x=mx_x, min_y=mn_y, max_y=mx_y,
+        x_range=max(mx_x - mn_x, 1),
+        y_range=max(mx_y - mn_y, 1),
+    )
 
-def scale_positions(positions, config=None, num_nodes=None):
-    """
-    Normalize node positions to 0-1 range.
-    (Actual canvas scaling is done when creating Escher nodes)
-    
-    Args:
-        positions (dict): Dictionary mapping node IDs to (x, y) coordinates
-        config (dict, optional): Configuration dict (kept for compatibility)
-        num_nodes (int, optional): Number of nodes (kept for compatibility)
-        
-    Returns:
-        dict: Normalized positions (0-1 range)
-    """
+
+def _normalize(positions):
+    """Rescale positions into [0, 1]."""
     if not positions:
         return {}
-    
-    bounds = get_position_bounds(positions)
-    
-    # Debug: Log bounds before normalization
-    logger.info(f"\n=== SCALE_POSITIONS DEBUG ===")
-    logger.info(f"Input positions - X range: {bounds['min_x']:.2f} to {bounds['max_x']:.2f} (range: {bounds['x_range']:.2f})")
-    logger.info(f"Input positions - Y range: {bounds['min_y']:.2f} to {bounds['max_y']:.2f} (range: {bounds['y_range']:.2f})")
-    
-    # Normalize to 0-1 range
-    scaled_pos = {
-        node: (
-            (pos[0] - bounds['min_x']) / bounds['x_range'] if bounds['x_range'] > 0 else 0.5,
-            (pos[1] - bounds['min_y']) / bounds['y_range'] if bounds['y_range'] > 0 else 0.5
+    b = _get_bounds(positions)
+    return {
+        n: (
+            (p[0] - b["min_x"]) / b["x_range"],
+            (p[1] - b["min_y"]) / b["y_range"],
         )
-        for node, pos in positions.items()
+        for n, p in positions.items()
     }
-    
-    # Debug: Log normalized positions
-    scaled_bounds = get_position_bounds(scaled_pos)
-    logger.info(f"Normalized positions - X range: {scaled_bounds['min_x']:.6f} to {scaled_bounds['max_x']:.6f}")
-    logger.info(f"Normalized positions - Y range: {scaled_bounds['min_y']:.6f} to {scaled_bounds['max_y']:.6f}")
-    logger.info(f"=== END SCALE_POSITIONS DEBUG ===\n")
-    
-    return scaled_pos
 
 
-def is_graph_linear(graph):
-    """
-    Check if a graph is linear (no branches - forms a simple path).
-    A linear graph has all nodes with degree <= 2.
-    
-    Args:
-        graph (nx.Graph): NetworkX graph to check
-        
-    Returns:
-        bool: True if graph is linear, False if it has branches
-    """
-    if graph.number_of_nodes() <= 1:
-        return True
-    
-    # Count nodes with degree > 2 (branches)
-    for node in graph.nodes():
-        if graph.degree(node) > 2:
-            return False
-    
-    return True
+def _is_linear(G):
+    """Every node has degree <= 2 (simple path or cycle)."""
+    return all(G.degree(n) <= 2 for n in G.nodes())
 
-def _find_path_start_node(graph):
-    """
-    Find the correct start node for a linear path through the graph.
-    
-    Uses edge direction to determine the true source: the endpoint node
-    that appears as an edge source but not as a target (i.e. has no incoming
-    edges in the original directed sense). Falls back to the first node
-    in insertion order if direction can't be determined.
-    
-    Args:
-        graph (nx.Graph): NetworkX graph (linear path)
-        
-    Returns:
-        node: The start node for the path
-    """
-    num_nodes = graph.number_of_nodes()
-    if num_nodes == 0:
-        return None
-    if num_nodes == 1:
-        return list(graph.nodes())[0]
-    
-    # Collect endpoint nodes (degree <= 1) — these are the two ends of the path
-    endpoints = [node for node in graph.nodes() if graph.degree(node) <= 1]
-    
-    if len(endpoints) == 0:
-        # Cycle — just use first node in insertion order
-        return list(graph.nodes())[0]
-    
-    if len(endpoints) == 1:
-        return endpoints[0]
-    
-    # We have 2+ endpoints. Use edge direction to pick the true source.
-    # Walk edges to build a directed sense: for each edge (u,v) as stored,
-    # 'u' is the source side. Count how often each endpoint is a source vs target.
-    # In nx.Graph, graph.edges() returns edges in insertion order with (source, target)
-    # matching the order they were added via add_edge(source, target).
-    target_set = set()
-    source_set = set()
-    for u, v in graph.edges():
-        source_set.add(u)
-        target_set.add(v)
-    
-    # The true start node is an endpoint that appears as source but NOT as target
+
+def _path_start(G):
+    """Pick the source end of a linear graph using edge-insertion order."""
+    nodes = list(G.nodes())
+    if len(nodes) <= 1:
+        return nodes[0] if nodes else None
+    endpoints = [n for n in nodes if G.degree(n) <= 1]
+    if len(endpoints) <= 1:
+        return endpoints[0] if endpoints else nodes[0]
+    targets = {v for _, v in G.edges()}
     for ep in endpoints:
-        if ep in source_set and ep not in target_set:
+        if ep not in targets:
             return ep
-    
-    # If that didn't resolve (e.g. undirected data), use insertion order:
-    # the endpoint that appears first in graph.nodes() (preserves JSON nodes order)
-    node_order = list(graph.nodes())
-    endpoints_by_order = sorted(endpoints, key=lambda n: node_order.index(n))
-    return endpoints_by_order[0]
+    return endpoints[0]
 
-def _walk_path(graph, start_node):
-    """
-    Walk a linear path through the graph starting from start_node.
-    
-    Args:
-        graph (nx.Graph): Linear NetworkX graph
-        start_node: Node to start from
-        
-    Returns:
-        list: Ordered list of nodes along the path
-    """
-    path = []
-    visited = set()
-    current = start_node
-    
-    while current is not None:
-        path.append(current)
-        visited.add(current)
-        next_node = None
-        for neighbor in graph.neighbors(current):
-            if neighbor not in visited:
-                next_node = neighbor
-                break
-        current = next_node
-    
+
+def _walk(G, start):
+    """Return an ordered node list by walking the linear path."""
+    path, visited, cur = [], set(), start
+    while cur is not None:
+        path.append(cur)
+        visited.add(cur)
+        cur = next((nb for nb in G.neighbors(cur) if nb not in visited), None)
     return path
 
-def create_linear_positions(graph, path_order=None):
+
+def _spring_layout(G):
+    """Spring layout using cfg-controlled parameters."""
+    return nx.spring_layout(
+        G, k=cfg.SPRING_LAYOUT_K, iterations=cfg.SPRING_LAYOUT_ITERATIONS
+    )
+
+
+def _raw_layout(G, path_order=None):
     """
-    Create horizontal line positions for a linear graph.
-    Nodes are arranged in a horizontal line from left to right,
-    starting from the true source node of the pathway.
-    
-    Args:
-        graph (nx.Graph): Linear NetworkX graph
-        path_order (list, optional): Explicit ordered list of nodes (e.g. from shortest_path).
-            If provided, this order is used directly instead of auto-detecting the start node.
-        
-    Returns:
-        dict: Positions with x from 0 to num_nodes, y=0 for all
+    Choose the best layout algorithm and return raw positions
+    (not yet normalised).
     """
-    if graph.number_of_nodes() == 0:
+    n = G.number_of_nodes()
+    if n == 0:
         return {}
-    
-    if path_order:
-        # Use the explicit order (e.g. from shortest path)
-        return {node: (i, 0) for i, node in enumerate(path_order) if node in graph.nodes()}
-    
-    start_node = _find_path_start_node(graph)
-    path = _walk_path(graph, start_node)
-    
-    return {node: (i, 0) for i, node in enumerate(path)}
+    vertical = cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
+    if _is_linear(G):
+        ordered = (
+            [nd for nd in path_order if nd in G.nodes()]
+            if path_order
+            else _walk(G, _path_start(G))
+        )
+        return {
+            node: ((0, i) if vertical else (i, 0))
+            for i, node in enumerate(ordered)
+        }
+    if n < cfg.NODE_THRESHOLD_SMALL:
+        try:
+            return pygraphviz_layout(
+                G, prog="dot", args="-Grankdir=TB" if vertical else ""
+            )
+        except Exception:
+            return _spring_layout(G)
+    try:
+        return pygraphviz_layout(G, prog="dot")
+    except Exception:
+        return _spring_layout(G)
 
-def create_vertical_positions(graph, path_order=None):
-    """
-    Create vertical line positions for a linear graph.
-    Nodes are arranged in a vertical line from top to bottom,
-    starting from the true source node of the pathway.
-    
-    Args:
-        graph (nx.Graph): Linear NetworkX graph
-        path_order (list, optional): Explicit ordered list of nodes (e.g. from shortest_path).
-            If provided, this order is used directly instead of auto-detecting the start node.
-        
-    Returns:
-        dict: Positions with x=0 for all, y from 0 to num_nodes
-    """
-    if graph.number_of_nodes() == 0:
-        return {}
-    
-    if path_order:
-        # Use the explicit order (e.g. from shortest path)
-        return {node: (0, i) for i, node in enumerate(path_order) if node in graph.nodes()}
-    
-    start_node = _find_path_start_node(graph)
-    path = _walk_path(graph, start_node)
-    
-    return {node: (0, i) for i, node in enumerate(path)}
 
-def calculate_coproduct_position(start_pos, end_pos, index, is_reactant=True):
+def compute_layout(G, path_order=None, full_graph=None):
     """
-    Calculate position for coproduct nodes along reaction pathway.
-    
-    Args:
-        start_pos (dict): Starting position with 'x' and 'y' keys
-        end_pos (dict): Ending position with 'x' and 'y' keys
-        index (int): Index of coproduct for positioning
-        is_reactant (bool): True if coproduct is a reactant, False if product
-        
-    Returns:
-        tuple: (coproduct_position, bezier_position) as dictionaries with 'x', 'y'
+    Return normalised [0, 1] positions for every node in G.
+    If full_graph is given the layout is computed on the full graph
+    first so the sub-graph keeps its spatial context.
     """
-    # Calculate direction vector
-    dx = end_pos['x'] - start_pos['x']
-    dy = end_pos['y'] - start_pos['y']
-    length = np.sqrt(dx**2 + dy**2)
-    
-    # Avoid division by zero
-    if length == 0:
-        offset_x = offset_y = 0
-        perp_x = perp_y = 0
+    if full_graph is not None:
+        raw = _raw_layout(full_graph)
+        logger.info(f"[LAYOUT] full_graph raw positions: {raw}")
+        full_norm = _normalize(raw)
+        logger.info(f"[LAYOUT] full_graph normalized positions: {full_norm}")
+        pos = {n: full_norm[n] for n in G.nodes() if n in full_norm}
+        missing = [n for n in G.nodes() if n not in pos]
+        if missing:
+            pos.update(_normalize(_spring_layout(G.subgraph(missing))))
+        return pos
+    raw = _raw_layout(G, path_order)
+    logger.info(f"[LAYOUT] raw positions (n={G.number_of_nodes()}): {raw}")
+    norm = _normalize(raw)
+    logger.info(f"[LAYOUT] normalized positions: {norm}")
+    return norm
+
+
+def _canvas_size(num_nodes):
+    """Return (width, height) from cfg, appropriate for the graph size."""
+    if num_nodes < cfg.NODE_THRESHOLD_SMALL:
+        w, h = cfg.SMALL_GRAPH_WIDTH, cfg.SMALL_GRAPH_HEIGHT
+    elif num_nodes < cfg.NODE_THRESHOLD_MEDIUM:
+        w, h = cfg.MEDIUM_GRAPH_WIDTH, cfg.MEDIUM_GRAPH_HEIGHT
     else:
-        # Calculate offset along the reaction direction
-        offset_multiplier = 1.2 if is_reactant else 1.0
-        offset_x = dx / length * cfg.COPRODUCT_OFFSET * (index + 1) 
-        offset_y = dy / length * cfg.COPRODUCT_OFFSET * (index + 1) 
-        
-        # Calculate perpendicular vector for spacing multiple coproducts
-        # Use COPRODUCT_RADIUS_2 for reactants, COPRODUCT_RADIUS for products
-        radius =  cfg.COPRODUCT_RADIUS
-        perp_x = -dy / length * radius * (index + 1)
-        if is_reactant:
-            perp_y = dx / length * radius * (index + 1) + 15
-        else: 
-            perp_y = dx / length * radius * (index + 1) 
-    
-    # Position coproduct based on whether it's reactant or product
-    if is_reactant:
-        base_x = end_pos['x'] - offset_x
-        base_y = end_pos['y'] - offset_y
-    else:
-        base_x = start_pos['x'] + offset_x
-        base_y = start_pos['y'] + offset_y
-    
-    coproduct_position = {
-        "x": base_x + perp_x,
-        "y": base_y + perp_y
-    }
-    
-    bezier_position = {
-        "x": base_x,
-        "y": base_y
-    }
-    
-    return coproduct_position, bezier_position
+        w, h = cfg.LARGE_GRAPH_WIDTH, cfg.LARGE_GRAPH_HEIGHT
+    ratio = w / h
+    if ratio > cfg.MAX_ASPECT_RATIO:
+        h = int(w / cfg.MAX_ASPECT_RATIO)
+    elif ratio < cfg.MIN_ASPECT_RATIO:
+        w = int(h * cfg.MIN_ASPECT_RATIO)
+    return w, h
 
-# ===== REACTION PARSING FUNCTIONS =====
 
-def extract_reaction_info(edge_data):
+# =====================================================================
+#  4. REACTION PARSING
+# =====================================================================
+def _parse_reaction_side(side_str, main):
     """
-    Extract reaction information from edge data title.
-    
-    Args:
-        edge_data (dict): Edge data containing 'title' field
-        
-    Returns:
-        dict or None: Reaction information including name and coproducts
+    Parse one side of a reaction equation into two lists:
+    (coproducts, mains) where:
+      - coproducts: list of {"id", "coefficient"} (compounds NOT in `main`)
+      - mains: set of compound IDs found on this side that ARE in `main`
+
+    "C00811 + 2 C00001 + C00003"
+        with main = {"C00811"}
+        -> ([{"id": "C00001", "coefficient": 2},
+             {"id": "C00003", "coefficient": 1}],
+            {"C00811"})
+
+    A term is an optional integer coefficient (default 1) followed by a
+    KEGG compound ID. Compounds in `main` (the reaction's source/target)
+    are collected separately so the caller can determine which endpoint
+    corresponds to which chemical role (reactant vs product).
+
+    Note: Water and other coproducts ARE included with their stoichiometric
+    coefficients (e.g., "2 H2O" becomes {"id": "C00001", "coefficient": 2}).
+    """
+    coproducts = []
+    mains = set()
+    # optional integer coefficient, then a C-number
+    for m in re.finditer(r"(?:(\d+)\s+)?(C\d+)", side_str):
+        coeff = int(m.group(1)) if m.group(1) else 1
+        cid   = m.group(2)
+        if cid in main:
+            mains.add(cid)
+        else:
+            coproducts.append(dict(id=cid, coefficient=coeff))
+    return coproducts, mains
+
+
+def _parse_reaction(edge_data, src=None, tgt=None):
+    """
+    Parse an edge's title field ("R12345 - A + B <=> C + D") and
+    return reaction name + coproduct lists + main metabolite sets, or None.
+
+    `src` / `tgt` are the actual graph endpoints for this edge
+    (i.e. the JSON 'source'/'target').  They are excluded from the
+    coproduct lists so the main pathway metabolites are never drawn
+    twice.  Legacy 'from_node'/'to_node' edge attributes are also
+    honoured for backward compatibility.
+
+    Returns dict with:
+        reaction_name         – the R-number
+        title                 – original edge title
+        reactant_coproducts   – list of {"id", "coefficient"}
+        product_coproducts    – list of {"id", "coefficient"}
+        reactant_mains        – set of main metabolite IDs on reactant side
+        product_mains         – set of main metabolite IDs on product side
+
+    The reactant_mains and product_mains sets are used to determine which
+    edge endpoint corresponds to which chemical role, even when the
+    undirected graph returns edge endpoints in reverse order.
     """
     title = edge_data.get("title", "")
-    from_product = edge_data.get("from_node", "")
-    to_product = edge_data.get("to_node", "")
-
-    # Parse reaction format: "R12345 - reactants <=> products"
-    reaction_match = re.search(r'(R\d+) - (.+?) <=> (.+)', title)
-    if not reaction_match:
+    main  = {
+        str(src) if src is not None else "",
+        str(tgt) if tgt is not None else "",
+        str(edge_data.get("from_node", "")),
+        str(edge_data.get("to_node",   "")),
+    }
+    m = re.search(r"(R\d+) - (.+?) <=> (.+)", title)
+    if not m:
         return None
-
-    reaction_name = reaction_match.group(1)
-    reactants = reaction_match.group(2)
-    products = reaction_match.group(3)
-
-    # Extract KEGG compound IDs
-    reactant_components = re.findall(r'C\d+', reactants)
-    product_components = re.findall(r'C\d+', products)
-
-    # Identify coproducts (compounds not in main pathway)
-    reactant_coproducts = [
-        comp for comp in reactant_components 
-        if comp not in [from_product, to_product]
-    ]
-    product_coproducts = [
-        comp for comp in product_components 
-        if comp not in [from_product, to_product]
-    ]
-
-    return {
-        "reaction_name": reaction_name,
-        "title": title,
-        "reactant_coproducts": reactant_coproducts,
-        "product_coproducts": product_coproducts
-    }
-
-# ===== COPRODUCT NODE CREATION =====
-
-def create_coproduct_nodes(coproducts, start_pos, end_pos, midpoint_pos, 
-                          midpoint_id, nodes_dict, segments_dict, 
-                          kegg_names, output_file_path, is_reactant=True):
-    """Create coproduct nodes and connect them to the reaction pathway."""
-    for i, coproduct_id in enumerate(coproducts):
-        if coproduct_id not in kegg_names:
-            kegg_names[coproduct_id] = get_name_from_kegg_id(coproduct_id)
-            
-            if len(kegg_names) % cfg.API_SAVE_INTERVAL == 0:
-                save_kegg_names(kegg_names, output_file_path)
-
-        if is_reactant:
-            position, bezier_pos = calculate_coproduct_position(
-                start_pos, midpoint_pos, i, is_reactant=True
-            )
-        else:
-            position, bezier_pos = calculate_coproduct_position(
-                midpoint_pos, end_pos, i, is_reactant=False
-            )
-
-        coproduct_node_id = str(len(nodes_dict) + 1)
-        nodes_dict[coproduct_node_id] = {
-            "node_type": "coproduct",
-            "cofactor": True,
-            "is_cofactor": is_reactant,  # Flag to identify reactant coproducts
-            "x": position['x'],
-            "y": position['y'],
-            "label_x": position['x'],
-            "label_y": position['y'],
-            "bigg_id": coproduct_id,
-            "name": kegg_names[coproduct_id],
-            "node_is_primary": False,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-
-        segment_id = len(segments_dict) + 1
-        segments_dict[segment_id] = {
-            "from_node_id": coproduct_node_id if is_reactant else midpoint_id,
-            "to_node_id": midpoint_id if is_reactant else coproduct_node_id,
-            "edge_type": "coproduct",
-            "b1": {"x": bezier_pos['x'], "y": bezier_pos['y']},
-            "b2": {"x": bezier_pos['x'], "y": bezier_pos['y']},
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-
-# ===== PATHWAY SEGMENTATION =====
-
-def create_reaction_midpoints(segments, nodes, kegg_names, output_file_path, midpoint_fraction=0.5):
-    """
-    Split reaction edges into multiple segments with midpoint nodes for coproducts.
-    Updates the provided dictionaries directly instead of creating new ones.
-    
-    Args:
-        segments (dict): Original reaction segments to process
-        nodes (dict): Nodes dictionary to update with midpoints and coproducts
-        kegg_names (dict): KEGG ID to name mapping
-        output_file_path (str): Path to save KEGG names
-        midpoint_fraction (float): Where to place the midpoint between nodes
-            (0.0 = at start, 0.5 = halfway, 1.0 = at end). Default 0.5.
-    """
-    # Create lookup for node positions - ensure all keys are strings
-    node_positions = {
-        str(node_id): {'x': node_data['x'], 'y': node_data['y']} 
-        for node_id, node_data in nodes.items()
-    }
-    
-    # Store original segments to process
-    original_segments = segments.copy()
-    segments.clear()  # Clear the dictionary to rebuild it
-
-    for segment_data in original_segments.values():
-        from_node_id = str(segment_data['from_node_id'])  # Ensure string
-        to_node_id = str(segment_data['to_node_id'])      # Ensure string
-        reaction_info = segment_data.get('reaction_dict')
-        
-        # Get node positions
-        from_pos = node_positions[from_node_id]
-        to_pos = node_positions[to_node_id]
-        
-        # Calculate midpoint (fraction along the edge from start to end)
-        # For non-default fractions, always measure from the topmost node (smallest y)
-        # so the midpoint is consistently placed closer to the top in vertical layouts.
-        if midpoint_fraction != 0.5 and from_pos['y'] > to_pos['y']:
-            # from_node is below to_node; flip so we measure from the top
-            frac = 1.0 - midpoint_fraction
-        else:
-            frac = midpoint_fraction
-        
-        midpoint_pos = {
-            "x": from_pos['x'] + (to_pos['x'] - from_pos['x']) * frac,
-            "y": from_pos['y'] + (to_pos['y'] - from_pos['y']) * frac
-        }
-
-        # Create midpoint node with string ID based on current count
-        midpoint_id = str(len(nodes) + 1)
-        nodes[midpoint_id] = {
-            "node_type": "midpoint",
-            "cofactor": False,
-            "x": midpoint_pos['x'],
-            "y": midpoint_pos['y'],
-            "label_x": midpoint_pos['x'],
-            "label_y": midpoint_pos['y'],
-            "bigg_id": f"midpoint_{midpoint_id}",
-            "name": f"Midpoint_{midpoint_id}",
-            "node_is_primary": False,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-
-        # Create segments to and from midpoint with IDs based on current count
-        reaction_name = reaction_info['reaction_name'] if reaction_info else None
-        
-        segment_to_mid_id = len(segments) + 1
-        segments[segment_to_mid_id] = {
-            "from_node_id": from_node_id,
-            "to_node_id": midpoint_id,
-            "reaction_name": reaction_name,
-            "edge_type": "reactant_edge",
-            "b1": None,
-            "b2": None,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-        
-        segment_from_mid_id = len(segments) + 1
-        segments[segment_from_mid_id] = {
-            "from_node_id": midpoint_id,
-            "to_node_id": to_node_id,
-            "reaction_name": reaction_name,
-            "edge_type": "product_edge",
-            "b1": None,
-            "b2": None,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-
-        # Add coproduct nodes if reaction information exists
-        if reaction_info:
-            reactant_coproducts = reaction_info.get("reactant_coproducts", [])
-            product_coproducts = reaction_info.get("product_coproducts", [])
-
-            # Normalize direction for consistent coproduct placement:
-            # Always pass positions in top-to-bottom order so the
-            # perpendicular offset points consistently to the same side.
-            if from_pos['y'] <= to_pos['y']:
-                norm_start, norm_end = from_pos, to_pos
-            else:
-                norm_start, norm_end = to_pos, from_pos
-
-            # Create reactant coproduct nodes (updates nodes and segments directly)
-            create_coproduct_nodes(
-                reactant_coproducts, norm_start, norm_end, midpoint_pos,
-                midpoint_id, nodes, segments, kegg_names, 
-                output_file_path, is_reactant=True
-            )
-
-            # Create product coproduct nodes (updates nodes and segments directly)
-            create_coproduct_nodes(
-                product_coproducts, norm_start, norm_end, midpoint_pos,
-                midpoint_id, nodes, segments, kegg_names, 
-                output_file_path, is_reactant=False
-            )
-    
-    return segments, nodes
-
-# ===== OMICS DATA INTEGRATION FUNCTIONS =====
-
-def integrate_metabolomics_data(nodes, metabolomics_file):
-    """
-    Add metabolomics data to nodes with matching KEGG IDs.
-    Supports two data formats:
-    1. Wide format: Multiple columns per condition (e.g., AgitWAO, AgitWAO.1, AgitWAO.2)
-    2. Long format: Experiment_Name and Experiment_Value columns
-    
-    Args:
-        nodes (dict): Nodes dictionary to update
-        metabolomics_file (str): Path to metabolomics CSV file
-    """
-    try:
-        metabolomics_data = pd.read_csv(metabolomics_file)
-        print(f"Loaded metabolomics data with columns: {list(metabolomics_data.columns)}")
-        
-        # Check if data is in long format (Experiment_Name and Experiment_Value columns)
-        has_experiment_name = "Experiment_Name" in metabolomics_data.columns
-        has_experiment_value = "Experiment_Value" in metabolomics_data.columns
-        
-        if has_experiment_name and has_experiment_value:
-            print("Detected long format data (Experiment_Name and Experiment_Value)")
-            integrate_metabolomics_long_format(nodes, metabolomics_data)
-        else:
-            print("Detected wide format data (multiple columns per condition)")
-            integrate_metabolomics_wide_format(nodes, metabolomics_data)
-            
-    except FileNotFoundError:
-        print(f"Warning: Metabolomics file {metabolomics_file} not found")
-    except Exception as e:
-        print(f"Warning: Error processing metabolomics data: {e}")
-
-def integrate_metabolomics_wide_format(nodes, metabolomics_data):
-    """
-    Process metabolomics data in wide format (multiple columns per condition).
-    
-    Args:
-        nodes (dict): Nodes dictionary to update
-        metabolomics_data (pd.DataFrame): Metabolomics data
-    """
-    # Identify data columns (exclude metadata columns)
-    metadata_cols = {"metabolite", "KEGG_C_number"}
-    metadata_cols.update({col for col in metabolomics_data.columns if col.lower().startswith("remove")})
-    
-    data_columns = [
-        col.split(".")[0] for col in metabolomics_data.columns 
-        if col not in metadata_cols
-    ]
-    data_columns = list(set(data_columns))  # Remove duplicates
-    
-    print(f"Found metabolomics data columns: {data_columns}")
-    
-    # Add data to matching nodes
-    for _, row in metabolomics_data.iterrows():
-        kegg_id = row["KEGG_C_number"]
-        
-        for node_id, node_data in nodes.items():
-            if node_data.get("bigg_id") == kegg_id:
-                # Calculate statistics for each experimental condition
-                graph_info = {}
-                for condition in data_columns:
-                    condition_cols = [
-                        col for col in metabolomics_data.columns 
-                        if col.startswith(condition) and col != condition
-                    ]
-                    
-                    if condition_cols:
-                        values = row[condition_cols]
-                        valid_values = values.dropna()
-                        if len(valid_values) > 0:
-                            graph_info[condition] = {
-                                "average": float(valid_values.mean()),
-                                "std_dev": float(valid_values.std()) if len(valid_values) > 1 else 0.0,
-                                "count": len(valid_values)
-                            }
-                            # Ensure NaN values are replaced with 0.0 for JSON compatibility
-                            if pd.isna(graph_info[condition]["std_dev"]):
-                                graph_info[condition]["std_dev"] = 0.0
-                
-                if graph_info:
-                    nodes[node_id]["graph_info"] = graph_info
-
-def integrate_metabolomics_long_format(nodes, metabolomics_data):
-    """
-    Process metabolomics data in long format (Experiment_Name and Experiment_Value columns).
-    Groups experiment names by base name (split by '.') like the wide format.
-    
-    Args:
-        nodes (dict): Nodes dictionary to update
-        metabolomics_data (pd.DataFrame): Metabolomics data
-    """
-    print("Processing long format metabolomics data...")
-    
-    # Add base experiment name column by splitting on '.'
-    metabolomics_data = metabolomics_data.copy()
-    metabolomics_data['Base_Experiment_Name'] = metabolomics_data['Experiment_Name'].str.split('.').str[0]
-    
-    # Group by KEGG_C_number and Base_Experiment_Name to calculate statistics
-    grouped_data = metabolomics_data.groupby(['KEGG_C_number', 'Base_Experiment_Name'])['Experiment_Value'].agg([
-        'mean', 'std', 'count'
-    ]).reset_index()
-    
-    # Rename columns for consistency
-    grouped_data = grouped_data.rename(columns={
-        'mean': 'average',
-        'std': 'std_dev',
-        'count': 'count'
-    })
-    
-    print(f"Found {len(grouped_data)} KEGG ID - base experiment combinations")
-    
-    # Create a nested dictionary structure: KEGG_ID -> {base_experiment_name: {average, std_dev, count}}
-    kegg_experiment_data = {}
-    for _, row in grouped_data.iterrows():
-        kegg_id = row['KEGG_C_number']
-        base_experiment_name = row['Base_Experiment_Name']
-        
-        if kegg_id not in kegg_experiment_data:
-            kegg_experiment_data[kegg_id] = {}
-        
-        kegg_experiment_data[kegg_id][base_experiment_name] = {
-            "average": float(row['average']) if not pd.isna(row['average']) else 0.0,
-            "std_dev": float(row['std_dev']) if not pd.isna(row['std_dev']) else 0.0,
-            "count": int(row['count'])
-        }
-    
-    # Add data to matching nodes
-    for kegg_id, experiment_data in kegg_experiment_data.items():
-        for node_id, node_data in nodes.items():
-            if node_data.get("bigg_id") == kegg_id:
-                nodes[node_id]["graph_info"] = experiment_data
-                print(f"Added data for {kegg_id}: {list(experiment_data.keys())}")
-                break
-
-def integrate_proteomics_data(segments, proteomics_file):
-    """
-    Add proteomics data to segments with matching reaction names.
-    Supports two data formats:
-    1. Wide format: Multiple columns per condition (e.g., AgitWAO, AgitWAO.1, AgitWAO.2)
-    2. Long format: Experiment_Name and Experiment_Value columns
-    
-    Args:
-        segments (dict): Segments dictionary to update
-        proteomics_file (str): Path to proteomics CSV file
-    """
-    try:
-        proteomics_data = pd.read_csv(proteomics_file)
-        print(f"Loaded proteomics data with columns: {list(proteomics_data.columns)}")
-        
-        # Check if data is in long format (Experiment_Name and Experiment_Value columns)
-        has_experiment_name = "Experiment_Name" in proteomics_data.columns
-        has_experiment_value = "Experiment_Value" in proteomics_data.columns
-        
-        if has_experiment_name and has_experiment_value:
-            print("Detected long format data (Experiment_Name and Experiment_Value)")
-            integrate_proteomics_long_format(segments, proteomics_data)
-        else:
-            print("Detected wide format data (multiple columns per condition)")
-            integrate_proteomics_wide_format(segments, proteomics_data)
-            
-    except FileNotFoundError:
-        print(f"Warning: Proteomics file {proteomics_file} not found")
-    except Exception as e:
-        print(f"Warning: Error processing proteomics data: {e}")
-
-def integrate_proteomics_wide_format(segments, proteomics_data):
-    """
-    Process proteomics data in wide format (multiple columns per condition).
-    Matches reactions by splitting semicolon-separated reaction names.
-    
-    Args:
-        segments (dict): Segments dictionary to update
-        proteomics_data (pd.DataFrame): Proteomics data
-    """
-    # Identify data columns (exclude metadata columns)
-    metadata_cols = {"proteinID", "KO", "description", "Reaction"}
-    metadata_cols.update({col for col in proteomics_data.columns if col.lower().startswith("remove")})
-    
-    data_columns = [
-        col.split(".")[0] for col in proteomics_data.columns 
-        if col not in metadata_cols
-    ]
-    data_columns = list(set(data_columns))  # Remove duplicates
-    
-    print(f"Found proteomics data columns: {data_columns}")
-    
-    # Add data to matching segments
-    for _, row in proteomics_data.iterrows():
-        reaction_name = row["Reaction"]
-        
-        for segment_id, segment_data in segments.items():
-            segment_reaction = segment_data.get("reaction_name")
-            if segment_reaction and segment_data.get('edge_type') == "reactant_edge":
-                # Handle semicolon-separated reaction names
-                reaction_ids = [r.strip() for r in segment_reaction.split(';')]
-                
-                if reaction_name in reaction_ids:
-                    # Calculate statistics for each experimental condition
-                    graph_info = {}
-                    for condition in data_columns:
-                        condition_cols = [
-                            col for col in proteomics_data.columns 
-                            if col.startswith(condition) and col != condition
-                        ]
-                        
-                        if condition_cols:
-                            values = row[condition_cols]
-                            valid_values = values.dropna()
-                            if len(valid_values) > 0:
-                                graph_info[condition] = {
-                                    "average": float(valid_values.mean()),
-                                    "std_dev": float(valid_values.std()) if len(valid_values) > 1 else 0.0,
-                                    "count": len(valid_values)
-                                }
-                                # Ensure NaN values are replaced with 0.0 for JSON compatibility
-                                if pd.isna(graph_info[condition]["std_dev"]):
-                                    graph_info[condition]["std_dev"] = 0.0
-                    
-                    if graph_info:
-                        segments[segment_id]["graph_info"] = graph_info
-                    break
-
-def integrate_proteomics_long_format(segments, proteomics_data):
-    """
-    Process proteomics data in long format (Experiment_Name and Experiment_Value columns).
-    Groups experiment names by base name (split by '.') like the wide format.
-    Matches reactions by splitting semicolon-separated reaction names.
-    
-    Args:
-        segments (dict): Segments dictionary to update
-        proteomics_data (pd.DataFrame): Proteomics data
-    """
-    print("Processing long format proteomics data...")
-    
-    # Add base experiment name column by splitting on '.'
-    proteomics_data = proteomics_data.copy()
-    proteomics_data['Base_Experiment_Name'] = proteomics_data['Experiment_Name'].str.split('.').str[0]
-    
-    # Group by Reaction and Base_Experiment_Name to calculate statistics
-    grouped_data = proteomics_data.groupby(['Reaction', 'Base_Experiment_Name'])['Experiment_Value'].agg([
-        'mean', 'std', 'count'
-    ]).reset_index()
-    
-    # Rename columns for consistency
-    grouped_data = grouped_data.rename(columns={
-        'mean': 'average',
-        'std': 'std_dev',
-        'count': 'count'
-    })
-    
-    print(f"Found {len(grouped_data)} Reaction - base experiment combinations")
-    
-    # Create a nested dictionary structure: Reaction -> {base_experiment_name: {average, std_dev, count}}
-    reaction_experiment_data = {}
-    for _, row in grouped_data.iterrows():
-        reaction_name = row['Reaction']
-        base_experiment_name = row['Base_Experiment_Name']
-        
-        if reaction_name not in reaction_experiment_data:
-            reaction_experiment_data[reaction_name] = {}
-        
-        reaction_experiment_data[reaction_name][base_experiment_name] = {
-            "average": float(row['average']) if not pd.isna(row['average']) else 0.0,
-            "std_dev": float(row['std_dev']) if not pd.isna(row['std_dev']) else 0.0,
-            "count": int(row['count'])
-        }
-    
-    # Add data to matching segments
-    for reaction_name, experiment_data in reaction_experiment_data.items():
-        for segment_id, segment_data in segments.items():
-            segment_reaction = segment_data.get("reaction_name")
-            if segment_reaction and segment_data.get('edge_type') == "reactant_edge":
-                # Handle semicolon-separated reaction names
-                reaction_ids = [r.strip() for r in segment_reaction.split(';')]
-                
-                if reaction_name in reaction_ids:
-                    segments[segment_id]["graph_info"] = experiment_data
-                    print(f"Added data for {reaction_name}: {list(experiment_data.keys())}")
-                    break
-
-def integrate_metabolomics_wide_format(nodes, metabolomics_data):
-    """Process metabolomics data in wide format (multiple columns per condition)."""
-    metadata_cols = {"metabolite", "KEGG_C_number"}
-    metadata_cols.update({col for col in metabolomics_data.columns if col.lower().startswith("remove")})
-    
-    data_columns = list(set([
-        col.split(".")[0] for col in metabolomics_data.columns 
-        if col not in metadata_cols
-    ]))
-    
-    for _, row in metabolomics_data.iterrows():
-        kegg_id = row["KEGG_C_number"]
-        
-        for node_id, node_data in nodes.items():
-            if node_data.get("bigg_id") == kegg_id:
-                graph_info = {}
-                for condition in data_columns:
-                    condition_cols = [
-                        col for col in metabolomics_data.columns 
-                        if col.startswith(condition) and col != condition
-                    ]
-                    
-                    if condition_cols:
-                        values = row[condition_cols].dropna()
-                        if len(values) > 0:
-                            graph_info[condition] = {
-                                "average": float(values.mean()),
-                                "std_dev": float(values.std()) if len(values) > 1 else 0.0,
-                                "count": len(values)
-                            }
-                            if pd.isna(graph_info[condition]["std_dev"]):
-                                graph_info[condition]["std_dev"] = 0.0
-                
-                if graph_info:
-                    nodes[node_id]["graph_info"] = graph_info
-
-def integrate_metabolomics_long_format(nodes, metabolomics_data):
-    """Process metabolomics data in long format."""
-    metabolomics_data = metabolomics_data.copy()
-    metabolomics_data['Base_Experiment_Name'] = metabolomics_data['Experiment_Name'].str.split('.').str[0]
-    
-    grouped_data = metabolomics_data.groupby(['KEGG_C_number', 'Base_Experiment_Name'])['Experiment_Value'].agg([
-        'mean', 'std', 'count'
-    ]).reset_index()
-    
-    grouped_data = grouped_data.rename(columns={
-        'mean': 'average',
-        'std': 'std_dev',
-        'count': 'count'
-    })
-    
-    kegg_experiment_data = {}
-    for _, row in grouped_data.iterrows():
-        kegg_id = row['KEGG_C_number']
-        base_experiment_name = row['Base_Experiment_Name']
-        
-        if kegg_id not in kegg_experiment_data:
-            kegg_experiment_data[kegg_id] = {}
-        
-        kegg_experiment_data[kegg_id][base_experiment_name] = {
-            "average": float(row['average']) if not pd.isna(row['average']) else 0.0,
-            "std_dev": float(row['std_dev']) if not pd.isna(row['std_dev']) else 0.0,
-            "count": int(row['count'])
-        }
-    
-    for kegg_id, experiment_data in kegg_experiment_data.items():
-        for node_id, node_data in nodes.items():
-            if node_data.get("bigg_id") == kegg_id:
-                nodes[node_id]["graph_info"] = experiment_data
-                break
-
-def integrate_proteomics_data(segments, proteomics_file):
-    """Add proteomics data to segments with matching reaction names."""
-    # Delegate to format-specific functions
-    try:
-        proteomics_data = pd.read_csv(proteomics_file)
-        print(f"Loaded proteomics data with columns: {list(proteomics_data.columns)}")
-        
-        # Check if data is in long format (Experiment_Name and Experiment_Value columns)
-        has_experiment_name = "Experiment_Name" in proteomics_data.columns
-        has_experiment_value = "Experiment_Value" in proteomics_data.columns
-        
-        if has_experiment_name and has_experiment_value:
-            print("Detected long format data (Experiment_Name and Experiment_Value)")
-            integrate_proteomics_long_format(segments, proteomics_data)
-        else:
-            print("Detected wide format data (multiple columns per condition)")
-            integrate_proteomics_wide_format(segments, proteomics_data)
-            
-    except FileNotFoundError:
-        print(f"Warning: Proteomics file {proteomics_file} not found")
-    except Exception as e:
-        print(f"Warning: Error processing proteomics data: {e}")
-
-
-# ===== ESCHER MAP GENERATION =====
-
-def create_escher_nodes(graph, positions, kegg_names, output_file_path, canvas_width=None, canvas_height=None):
-    """
-    Create Escher-formatted nodes from NetworkX graph.
-    
-    Args:
-        graph (nx.Graph): NetworkX graph object
-        positions (dict): Node positions
-        kegg_names (dict): KEGG ID to name mapping
-        output_file_path (str): Path to save KEGG names
-        canvas_width (int, optional): Canvas width for coordinate scaling
-        canvas_height (int, optional): Canvas height for coordinate scaling
-        
-    Returns:
-        dict: Escher-formatted nodes
-    """
-    # Use provided canvas dimensions or fall back to defaults
-    if canvas_width is None:
-        canvas_width = DEFAULT_CANVAS_WIDTH
-    if canvas_height is None:
-        canvas_height = DEFAULT_CANVAS_HEIGHT
-    
-    # Normalize positions to fit within usable canvas area
-    bounds = get_position_bounds(positions)
-    
-    # Usable canvas area (accounting for margins)
-    usable_width = canvas_width - 400  # 200px margin on each side
-    usable_height = canvas_height - 400  # 200px margin on top and bottom
-    
-    # Debug: Log canvas and usable dimensions
-    logger.info(f"\n=== CREATE_ESCHER_NODES DEBUG ===")
-    logger.info(f"Canvas dimensions: {canvas_width} x {canvas_height}")
-    logger.info(f"Usable dimensions (with 200px margins): {usable_width} x {usable_height}")
-    logger.info(f"Position bounds - X: {bounds['min_x']:.6f} to {bounds['max_x']:.6f}")
-    logger.info(f"Position bounds - Y: {bounds['min_y']:.6f} to {bounds['max_y']:.6f}")
-    
-    escher_nodes = {}
-    
-    # Collect node coordinates for min/max reporting
-    all_x_coords = []
-    all_y_coords = []
-    
-    for node_id, pos in positions.items():
-        # Get or fetch node name
-        if str(node_id) not in kegg_names:
-            name = get_name_from_kegg_id(str(node_id))
-            if name:
-                kegg_names[str(node_id)] = name
-                
-                # Periodically save KEGG names
-                if len(kegg_names) % 100 == 0:
-                    save_kegg_names(kegg_names, output_file_path)
-        else:
-            name = kegg_names[str(node_id)]
-
-        # Get node color from graph data
-        node_color = graph.nodes[node_id].get("color", "#2a9d8f")
-        
-        # Normalize position to 0-1 range within the position bounds
-        normalized_x = (pos[0] - bounds['min_x']) / bounds['x_range']
-        normalized_y = (pos[1] - bounds['min_y']) / bounds['y_range']
-        
-        # Scale to canvas with margins
-        escher_x = 200 + normalized_x * usable_width
-        escher_y = 200 + normalized_y * usable_height
-        
-        all_x_coords.append(escher_x)
-        all_y_coords.append(escher_y)
-        
-        escher_nodes[str(node_id)] = {
-            "node_type": "metabolite",
-            "color": node_color,
-            "cofactor": False,
-            "x": escher_x,
-            "y": escher_y,
-            "label_x": escher_x,
-            "label_y": escher_y,
-            "bigg_id": str(node_id),
-            "name": name,
-            "node_is_primary": False,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-    
-    # Debug: Log final node coordinate ranges
-    if all_x_coords and all_y_coords:
-        logger.info(f"Final node X range: {min(all_x_coords):.2f} to {max(all_x_coords):.2f}")
-        logger.info(f"Final node Y range: {min(all_y_coords):.2f} to {max(all_y_coords):.2f}")
-        logger.info(f"Total nodes created: {len(escher_nodes)}")
-    logger.info(f"=== END CREATE_ESCHER_NODES DEBUG ===\n")
-    
-    return escher_nodes
-
-def create_escher_segments(graph):
-    """
-    Create Escher-formatted segments from NetworkX graph edges.
-    
-    Args:
-        graph (nx.Graph): NetworkX graph object
-        
-    Returns:
-        dict: Escher-formatted segments
-    """
-    escher_segments = {}
-    
-    for edge_counter, edge in enumerate(graph.edges(data=True)):
-        from_node_id = str(edge[0])
-        to_node_id = str(edge[1])
-        
-        # Extract reaction information from edge data
-        reaction_info = extract_reaction_info(edge[2])
-        
-        escher_segments[str(edge_counter)] = {
-            "from_node_id": from_node_id,
-            "to_node_id": to_node_id,
-            "reaction_dict": reaction_info,
-            "edge_type": None,
-            "b1": None,
-            "b2": None,
-            "graph_info": {},
-            "data": None,
-            "data_string": ""
-        }
-    
-    return escher_segments
-
-def load_graph(graph_file):
-    """
-    Load a graph from either a pickle file or JSON file.
-    
-    Args:
-        graph_file (str): Path to graph file (pickle or JSON)
-        
-    Returns:
-        nx.Graph: NetworkX graph
-        
-    Raises:
-        FileNotFoundError: If file doesn't exist
-        ValueError: If file format is not supported
-    """
-    if not os.path.exists(graph_file):
-        raise FileNotFoundError(f"Graph file {graph_file} not found")
-    
-    file_ext = os.path.splitext(graph_file)[1].lower()
-    
-    if file_ext == '.pickle' or file_ext == '.pkl':
-        # Load from pickle file
-        with open(graph_file, 'rb') as f:
-            graph = pickle.load(f)
-        return graph
-    
-    elif file_ext == '.json':
-        # Load from JSON file
-        with open(graph_file, 'r') as f:
-            data = json.load(f)
-        
-        # Create empty graph
-        graph = nx.Graph()
-        
-        # Add nodes with optional attributes
-        if 'nodes' in data:
-            for node in data['nodes']:
-                node_id = node.get('id')
-                if node_id:
-                    # Add node with any additional attributes (except 'id')
-                    node_attrs = {k: v for k, v in node.items() if k != 'id'}
-                    graph.add_node(node_id, **node_attrs)
-        
-        # Add edges with optional title attribute
-        if 'edges' in data:
-            for edge in data['edges']:
-                source = edge.get('source')
-                target = edge.get('target')
-                if source and target:
-                    # Add edge with title/label as edge attribute
-                    edge_attrs = {}
-                    if 'label' in edge:
-                        edge_attrs['title'] = edge['label']
-                    elif 'title' in edge:
-                        edge_attrs['title'] = edge['title']
-                    
-                    # Add any other attributes except source/target
-                    for k, v in edge.items():
-                        if k not in ('source', 'target', 'label'):
-                            edge_attrs[k] = v
-                    
-                    graph.add_edge(source, target, **edge_attrs)
-        
-        return graph
-    
-    else:
-        raise ValueError(f"Unsupported file format: {file_ext}. Use .pickle, .pkl, or .json")
-
-    # For small graphs (< 20 nodes), use hierarchical layout with top-to-bottom flow
-    num_nodes = graph.number_of_nodes()
-    if num_nodes < 20:
-        # Use hierarchical layout for small graphs with top-to-bottom flow and branches
-        try:
-            positions = pygraphviz_layout(graph, prog="dot", args="-Grankdir=TB")
-            scaled_positions = scale_positions(positions, config)
-        except Exception:
-            # Fallback to spring layout if pygraphviz fails
-            positions = nx.spring_layout(graph, k=1, iterations=50)
-            small_graph_config = config.copy() if config else {}
-            small_graph_config['layout_scale_factor'] = 1
-            scaled_positions = scale_positions(positions, small_graph_config)
-    else:
-        # Use pygraphviz for larger graphs
-        try:
-            positions = pygraphviz_layout(graph, prog="dot")
-            scaled_positions = scale_positions(positions, config)
-        except Exception:
-            positions = nx.spring_layout(graph, k=1, iterations=50)
-            scaled_positions = scale_positions(positions, config)
-    
-    # Calculate canvas dimensions dynamically
-    canvas_width, canvas_height = calculate_canvas_dimensions(scaled_positions, num_nodes, config)
-    
-    # Create initial Escher components
-    escher_nodes = create_escher_nodes(graph, scaled_positions, kegg_names, kegg_names_path, canvas_width, canvas_height)
-    escher_segments = create_escher_segments(graph)
-    
-    # Process segments to add midpoints and coproducts
-    final_segments, final_nodes = create_reaction_midpoints(
-        escher_segments, escher_nodes, kegg_names, kegg_names_path
+    react_cpds, react_mains = _parse_reaction_side(m.group(2), main)
+    prod_cpds,  prod_mains  = _parse_reaction_side(m.group(3), main)
+    return dict(
+        reaction_name=m.group(1),
+        title=title,
+        reactant_coproducts=react_cpds,
+        product_coproducts=prod_cpds,
+        reactant_mains=react_mains,   # e.g. {"C00082"}
+        product_mains=prod_mains,     # e.g. {"C00811"}
     )
-    
-    if metabolomics_file and os.path.exists(metabolomics_file):
-        integrate_metabolomics_data(final_nodes, metabolomics_file)
 
-    if proteomics_file and os.path.exists(proteomics_file):
-        integrate_proteomics_data(final_segments, proteomics_file)
-    
-    save_kegg_names(kegg_names, kegg_names_path)
-    
-    escher_map = [
-        {
-            "map_name": "Metabolic Pathway Map",
-            "map_id": "generated_pathway",
-            "map_description": "Auto-generated pathway map with integrated omics data",
-            "homepage": "",
-            "schema": "https://escher.github.io/escher/jsonschema/1-0-0#"
-        },
-        {
-            "nodes": final_nodes,
-            "reactions": {
-                "0": {
-                    "name": "Combined Reactions",
-                    "bigg_id": "",
-                    "reversibility": False,
-                    "label_x": 0.0,
-                    "label_y": 0.0,
-                    "gene_reaction_rule": "",
-                    "genes": [],
-                    "segments": final_segments,
-                    "metabolites": []
-                }
-            },
-            "text_labels": {},
-            "canvas": {
-                "x": 0,
-                "y": 0,
-                "width": canvas_width,
-                "height": canvas_height
-            }
-        }
-    ]
-    
-    with open(json_output_path, "w") as f:
-        json.dump(escher_map, f, indent=2)
-    
-    return escher_map
 
-def generate_escher_map_from_graph(graph, output_dir, kegg_names_file, json_output_file, metabolomics_file=None, proteomics_file=None, config=None, full_graph=None, keep_positions=False, path_order=None):
-    """Generate complete Escher map from a pre-loaded NetworkX graph.
-    
-    Args:
-        graph: The NetworkX graph to generate the map from
-        output_dir: Output directory for files
-        kegg_names_file: Filename for KEGG names JSON
-        json_output_file: Filename for Escher JSON output
-        metabolomics_file: Path to metabolomics CSV (optional)
-        proteomics_file: Path to proteomics CSV (optional)
-        config: Configuration dict with canvas dimensions and layout_scale_factor
-        full_graph: The full original graph (used when keep_positions=True)
-        keep_positions: If True, reuse positions from full_graph for matching nodes
-        path_order: Explicit ordered list of nodes for linear layout (e.g. from shortest_path)
+# =====================================================================
+#  5. ESCHER NODES  (from original graph nodes)
+# =====================================================================
+def _make_escher_nodes(G, positions, kegg_cache, cache_path, cw, ch):
     """
-    
-    kegg_names_path = os.path.join(output_dir, kegg_names_file)
-    json_output_path = os.path.join(output_dir, json_output_file)
-    
-    os.makedirs(output_dir, exist_ok=True)
-    
-    kegg_names = load_or_create_kegg_names(kegg_names_path)
-    
-    # Get number of nodes early for use in layout decisions
-    num_nodes = graph.number_of_nodes()
-    
-    # If keep_positions is True, load positions from full graph
-    if keep_positions and full_graph is not None:
-        try:
-            # Get positions from full graph
-            full_num_nodes = full_graph.number_of_nodes()
-            if full_num_nodes < 20:
-                if is_graph_linear(full_graph):
-                    if cfg.SMALL_GRAPH_LAYOUT_VERTICAL and full_num_nodes < cfg.NODE_THRESHOLD_SMALL:
-                        full_positions = create_vertical_positions(full_graph)
-                    else:
-                        full_positions = create_linear_positions(full_graph)
-                else:
-                    if cfg.SMALL_GRAPH_LAYOUT_VERTICAL and full_num_nodes < cfg.NODE_THRESHOLD_SMALL:
-                        try:
-                            full_positions = pygraphviz_layout(full_graph, prog="dot", args="-Grankdir=TB")
-                        except Exception:
-                            full_positions = nx.spring_layout(full_graph, k=1, iterations=50)
-                    else:
-                        full_positions = nx.spring_layout(full_graph, k=1, iterations=50)
-            else:
-                try:
-                    full_positions = pygraphviz_layout(full_graph, prog="dot")
-                except Exception:
-                    full_positions = nx.spring_layout(full_graph, k=1, iterations=50)
-            
-            full_graph_config = config.copy() if config else {}
-            full_scaled_positions = scale_positions(full_positions, full_graph_config, full_num_nodes)
-            
-            # Reuse positions for nodes that exist in both graphs
-            positions = {}
-            for node in graph.nodes():
-                if node in full_scaled_positions:
-                    positions[node] = full_scaled_positions[node]
-            
-            # For any missing nodes, use spring layout
-            missing_nodes = [node for node in graph.nodes() if node not in positions]
-            if missing_nodes:
-                temp_graph = graph.subgraph(missing_nodes)
-                temp_positions = nx.spring_layout(temp_graph, k=1, iterations=50)
-                positions.update(temp_positions)
-            
-            scaled_positions = positions
-        except Exception:
-            # Fall back to normal layout if keep_positions fails
-            keep_positions = False
-    
-    # Normal layout if keep_positions is False or failed
-    if not keep_positions:
-        num_nodes = graph.number_of_nodes()
-        if num_nodes < 20:
-            # Check if graph is linear
-            if is_graph_linear(graph):
-                # Use vertical layout for small graphs if configured
-                if cfg.SMALL_GRAPH_LAYOUT_VERTICAL and num_nodes < cfg.NODE_THRESHOLD_SMALL:
-                    positions = create_vertical_positions(graph, path_order=path_order)
-                else:
-                    # Linear graph - arrange as horizontal line
-                    positions = create_linear_positions(graph, path_order=path_order)
-                scaled_positions = scale_positions(positions, config, num_nodes)
-            else:
-                # Graph has branches
-                if cfg.SMALL_GRAPH_LAYOUT_VERTICAL and num_nodes < cfg.NODE_THRESHOLD_SMALL:
-                    try:
-                        positions = pygraphviz_layout(graph, prog="dot", args="-Grankdir=TB")
-                    except Exception:
-                        positions = nx.spring_layout(graph, k=1, iterations=50)
-                else:
-                    positions = nx.spring_layout(graph, k=1, iterations=50)
-                scaled_positions = scale_positions(positions, config, num_nodes)
-        else:
-            # Use pygraphviz for larger graphs
-            try:
-                positions = pygraphviz_layout(graph, prog="dot")
-                scaled_positions = scale_positions(positions, config, num_nodes)
-            except Exception:
-                positions = nx.spring_layout(graph, k=1, iterations=50)
-                scaled_positions = scale_positions(positions, config, num_nodes)
-    
-    canvas_width, canvas_height = calculate_canvas_dimensions(scaled_positions, num_nodes, config)
-    
-    escher_nodes = create_escher_nodes(graph, scaled_positions, kegg_names, kegg_names_path, canvas_width, canvas_height)
-    escher_segments = create_escher_segments(graph)
-    
-    # Midpoint fraction for reaction placement (0.5 = halfway between nodes)
-    is_small_vertical = cfg.SMALL_GRAPH_LAYOUT_VERTICAL and num_nodes < cfg.NODE_THRESHOLD_SMALL
-    midpoint_frac = 0.33 if is_small_vertical else 0.5
-    
-    final_segments, final_nodes = create_reaction_midpoints(
-        escher_segments, escher_nodes, kegg_names, kegg_names_path,
-        midpoint_fraction=midpoint_frac
-    )
-    
-    if metabolomics_file and os.path.exists(metabolomics_file):
-        integrate_metabolomics_data(final_nodes, metabolomics_file)
-
-    if proteomics_file and os.path.exists(proteomics_file):
-        integrate_proteomics_data(final_segments, proteomics_file)
-    
-    save_kegg_names(kegg_names, kegg_names_path)
-    
-    escher_map = [
-        {
-            "map_name": "Metabolic Pathway Map",
-            "map_id": "generated_pathway",
-            "map_description": "Auto-generated pathway map with integrated omics data",
-            "homepage": "",
-            "schema": "https://escher.github.io/escher/jsonschema/1-0-0#"
-        },
-        {
-            "nodes": final_nodes,
-            "reactions": {
-                "0": {
-                    "name": "Combined Reactions",
-                    "bigg_id": "",
-                    "reversibility": False,
-                    "label_x": 0.0,
-                    "label_y": 0.0,
-                    "gene_reaction_rule": "",
-                    "genes": [],
-                    "segments": final_segments,
-                    "metabolites": []
-                }
-            },
-            "text_labels": {},
-            "canvas": {
-                "x": 0,
-                "y": 0,
-                "width": canvas_width,
-                "height": canvas_height
-            }
-        }
-    ]
-    
-    with open(json_output_path, "w") as f:
-        json.dump(escher_map, f, indent=2)
-    
-    return escher_map
-
-# ===== VISUALIZATION FUNCTIONS (OPTIONAL) =====
-
-def visualize_graph(graph, positions, title="Network Graph", subgroups=None):
+    One Escher node per original graph node, positioned on the canvas.
+    Copies the 'origin' attribute from the graph node if present.
     """
-    Create a matplotlib visualization of the graph (optional debugging tool).
-    
-    Args:
-        graph (nx.Graph): NetworkX graph
-        positions (dict): Node positions
-        title (str): Plot title
-        subgroups (list): List of node subgroups for coloring
-    """
-    plt.figure(figsize=(12, 8))
-    
-    node_colors = []
-    edge_colors = []
-    
-    # Color nodes by subgroup if provided
-    if subgroups:
-        subgroup_colors = plt.cm.get_cmap("tab10", len(subgroups))
-        node_color_map = {}
-        
-        for i, subgroup in enumerate(subgroups):
-            for node in subgroup:
-                node_color_map[node] = subgroup_colors(i)
-        
-        node_colors = [node_color_map.get(node, 'gray') for node in graph.nodes()]
-        
-        # Color edges by subgroup connectivity
-        for edge in graph.edges():
-            for i, subgroup in enumerate(subgroups):
-                if edge[0] in subgroup and edge[1] in subgroup:
-                    edge_colors.append(subgroup_colors(i))
-                    break
-            else:
-                edge_colors.append((0.5, 0.5, 0.5, 0.3))
-    else:
-        node_colors = ['lightblue'] * len(graph.nodes())
-        edge_colors = ['gray'] * len(graph.edges())
-    
-    nx.draw(
-        graph, pos=positions, with_labels=True, 
-        node_color=node_colors, edge_color=edge_colors, 
-        node_size=50, font_size=6, font_weight='bold'
-    )
-    
-    plt.title(title)
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-# ===== MAIN EXECUTION =====
-
-def main():
-    """Main execution function."""
-    # Configuration
-    # graph_file can be either:
-    # - 'metabolite_graph.pickle' (pickle format with pre-built graph)
-    # - 'metabolite_graph.json' (JSON format with nodes and edges)
-    #   JSON format:
-    #   {
-    #     "nodes": [{"id": "C05125", "origin": "both"}, ...],
-    #     "edges": [{"source": "C01832", "target": "C03221", "label": "R03857..."}, ...]
-    #   }
-    graph_file = 'metabolite_graph.json'  # Change to .json to use JSON format
-    output_dir = 'static/json_pathway'
-    kegg_names_file = 'kegg_names.json'
-    # Output filename will be derived from input filename with _output suffix
-    json_output_file = os.path.splitext(os.path.basename(graph_file))[0] + '_output.json'
-    metabolomics_file = 'metabolomics_with_C_numbers_curated.csv'
-    proteomics_file = 'proteomics_with_ko_reactions.csv'
-
-    # Make omics files optional
-    if not os.path.exists(metabolomics_file):
-        metabolomics_file = None
-    if not os.path.exists(proteomics_file):
-        proteomics_file = None
-
-    try:
-        escher_map = generate_escher_map_from_graph(
-            graph_file, output_dir, kegg_names_file, json_output_file, metabolomics_file, proteomics_file
+    b      = _get_bounds(positions)
+    margin = cfg.CANVAS_PADDING
+    uw     = max(cw - 2 * margin, cw // 2)
+    uh     = max(ch - 2 * margin, ch // 2)
+    logger.info(f"[NODES] canvas={cw}x{ch}, margin={margin}, usable={uw}x{uh}, bounds={b}")
+    nodes  = {}
+    for nid, pos in positions.items():
+        name   = get_kegg_name(str(nid), kegg_cache, cache_path)
+        color  = G.nodes[nid].get("color",  cfg.DEFAULT_NODE_COLOR)
+        origin = G.nodes[nid].get("origin", "unknown")
+        nx_    = (pos[0] - b["min_x"]) / b["x_range"]
+        ny_    = (pos[1] - b["min_y"]) / b["y_range"]
+        x      = margin + nx_ * uw
+        y      = margin + ny_ * uh
+        logger.debug(f"[NODES]   {nid}: raw_pos={pos}, nx={nx_:.3f}, ny={ny_:.3f}, canvas=({x:.1f},{y:.1f})")
+        nodes[str(nid)] = dict(
+            node_type="metabolite",
+            color=color,
+            origin=origin,
+            cofactor=False,
+            x=x, y=y, label_x=x, label_y=y,
+            bigg_id=str(nid),
+            name=name,
+            node_is_primary=False,
+            graph_info={},
+            tooltip=None,
+            data=None,
+            data_string="",
         )
+    return nodes
+
+
+# =====================================================================
+#  6. ESCHER SEGMENTS  (from original graph edges)
+# =====================================================================
+def _make_escher_segments(G):
+    """
+    One Escher segment per original graph edge.
+    Each segment records the parsed reaction (if any) so that midpoints
+    and coproducts can be added later.
+
+    The edge's actual source/target are handed to _parse_reaction so
+    the main pathway metabolites are excluded from the coproduct lists.
+    """
+    segs = {}
+    for i, (src, tgt, data) in enumerate(G.edges(data=True)):
+        segs[str(i)] = dict(
+            from_node_id=str(src),
+            to_node_id=str(tgt),
+            reaction_dict=_parse_reaction(data, src, tgt),
+            edge_type=None,
+            b1=None, b2=None,
+            graph_info={},
+            tooltip=None,
+            data=None,
+            data_string="",
+        )
+    return segs
+
+
+# =====================================================================
+#  7. MIDPOINTS & COPRODUCTS
+# =====================================================================
+def _coproduct_pos(start, end, idx, is_reactant):
+    """Calculate position for a coproduct node offset from the pathway.
+
+    Args:
+        start: Anchor point (the midpoint, for both reactants and products)
+        end:   The endpoint this coproduct's chemical role points toward
+               (reactant node for reactants, product node for products)
+        idx:   Index of the coproduct (for stacking multiple coproducts)
+        is_reactant: True for reactant coproducts, False for products
+
+    The direction vector `u` points from the midpoint toward `end`.  Because
+    `end` already differs per role, a single "+ u*off" sends reactant
+    coproducts toward the reactant side and product coproducts toward the
+    product side.  The perpendicular offset (perp_mult) keeps the two groups
+    on opposite visual sides of the pathway line so they don't overlap.
+    """
+    dx, dy = end["x"] - start["x"], end["y"] - start["y"]
+    length = max(np.hypot(dx, dy), 1e-9)
+    ux, uy = dx / length, dy / length
+    px, py = -uy, ux
+
+    # Offset proportional to edge length (10–30% of the distance),
+    # capped so coproducts don't crowd the endpoints or fly off.
+    offset_fraction = min(0.3, max(0.1, 50.0 / length))
+    off    = length * offset_fraction * (idx + 1)
+
+    # Perpendicular spacing (thickness of the coproduct stack).
+    rad    = cfg.COPRODUCT_RADIUS * (idx + 1)
+
+    # Anchor at the midpoint and step toward this role's endpoint.
+    base   = dict(x=start["x"] + ux * off, y=start["y"] + uy * off)
+
+    # Keep reactant/product coproducts on opposite sides of the line.
+    perp_mult = 1.0 if is_reactant else -1.0
+
+    node_pos = dict(
+        x=base["x"] + perp_mult * px * rad,
+        y=base["y"] + perp_mult * py * rad,
+    )
+    return node_pos, base
+
+
+def _next_id(d):
+    """Return a new string key = len(d)+1."""
+    return str(len(d) + 1)
+
+
+def _add_midpoints_and_coproducts(
+    segments, nodes, kegg_cache, cache_path, midpoint_fraction=0.5
+):
+    """
+    Replace every original segment with:
+      - a midpoint node  (stores which original nodes it connects)
+      - two sub-segments (source -> mid, mid -> target)
+      - coproduct nodes + their segments
+
+    Each midpoint node records:
+        from_node_id  – the original source node ID
+        to_node_id    – the original target node ID
+        reaction_name – the KEGG reaction ID (if parsed from edge title)
+
+    Coproduct placement is tied to chemical role, NOT vertical position:
+        reactant coproducts -> reactant side  (toward reactant metabolite)
+        product  coproducts -> product side   (toward product metabolite)
+
+    Each coproduct node stores its stoichiometric coefficient in the
+    'stoichiometry' field.
+
+    nodes is mutated in place.  Returns a new segments dict.
+    """
+    _pos     = lambda nid: dict(x=nodes[nid]["x"], y=nodes[nid]["y"])
+    new_segs = {}
+
+    for seg in segments.values():
+        fid, tid = str(seg["from_node_id"]), str(seg["to_node_id"])
+        rxn      = seg.get("reaction_dict")
+        fp, tp   = _pos(fid), _pos(tid)
+
+        # ── midpoint position ────────────────────────────────────────
+        frac = midpoint_fraction
+        if frac != 0.5 and fp["y"] > tp["y"]:
+            frac = 1.0 - frac
+        mx = fp["x"] + (tp["x"] - fp["x"]) * frac
+        my = fp["y"] + (tp["y"] - fp["y"]) * frac
+
+        rxn_name = rxn["reaction_name"] if rxn else None
+        mid_id   = _next_id(nodes)
+
+        nodes[mid_id] = dict(
+            node_type="midpoint",
+            cofactor=False,
+            x=mx, y=my, label_x=mx, label_y=my,
+            bigg_id=f"midpoint_{mid_id}",
+            name=f"Midpoint_{mid_id}",
+            # connectivity – used later for tooltip building
+            from_node_id=fid,
+            to_node_id=tid,
+            reaction_name=rxn_name,
+            node_is_primary=False,
+            graph_info={},
+            tooltip=None,
+            data=None,
+            data_string="",
+        )
+
+        # ── two sub-segments ─────────────────────────────────────────
+        new_segs[_next_id(new_segs)] = dict(
+            from_node_id=fid,
+            to_node_id=mid_id,
+            reaction_name=rxn_name,
+            edge_type="reactant_edge",
+            b1=None, b2=None,
+            graph_info={},
+            tooltip=None,
+            data=None, data_string="",
+        )
+        new_segs[_next_id(new_segs)] = dict(
+            from_node_id=mid_id,
+            to_node_id=tid,
+            reaction_name=rxn_name,
+            edge_type="product_edge",
+            b1=None, b2=None,
+            graph_info={},
+            tooltip=None,
+            data=None, data_string="",
+        )
+
+        # ── coproducts ───────────────────────────────────────────────
+        if rxn:
+            mid_pos = dict(x=mx, y=my)
+
+            # Which physical endpoint is the reactant-side main metabolite,
+            # and which is the product-side one?  The undirected graph may
+            # have handed us (fid, tid) in either order, so map by matching
+            # the parsed equation mains rather than trusting fp/tp.
+            react_mains = rxn.get("reactant_mains", set())
+            prod_mains  = rxn.get("product_mains",  set())
+
+            # Strict match first (both endpoints agree with their sides),
+            # then the reversed strict match, then a loose fallback that
+            # logs a warning so mis-mapped reactions are easy to find.
+            if fid in react_mains and tid in prod_mains:
+                react_endpoint, prod_endpoint = fp, tp     # edge order == equation order
+            elif fid in prod_mains and tid in react_mains:
+                react_endpoint, prod_endpoint = tp, fp     # edge order reversed
+            elif fid in react_mains or tid in prod_mains:
+                react_endpoint, prod_endpoint = fp, tp     # partial match, as-is
+            elif fid in prod_mains or tid in react_mains:
+                react_endpoint, prod_endpoint = tp, fp     # partial match, reversed
+            else:
+                logger.warning(
+                    f"[COPRODUCT] Could not map edge ({fid},{tid}) to "
+                    f"reaction {rxn_name} sides "
+                    f"(react_mains={react_mains}, prod_mains={prod_mains}); "
+                    f"defaulting to edge order"
+                )
+                react_endpoint, prod_endpoint = fp, tp     # fallback
+
+            for is_react, cpds in [
+                (True,  rxn.get("reactant_coproducts", [])),
+                (False, rxn.get("product_coproducts",  [])),
+            ]:
+                # Coproducts are placed relative to their chemical role:
+                #   reactant coproducts point toward the reactant metabolite
+                #   product  coproducts point toward the product metabolite
+                endpoint = react_endpoint if is_react else prod_endpoint
+                for i, cpd in enumerate(cpds):
+                    cpd_id = cpd["id"]
+                    coeff  = cpd.get("coefficient", 1)
+                    name   = get_kegg_name(cpd_id, kegg_cache, cache_path)
+                    pos, bez = _coproduct_pos(mid_pos, endpoint, i, is_react)
+                    cid      = _next_id(nodes)
+                    nodes[cid] = dict(
+                        node_type="coproduct",
+                        cofactor=True,
+                        is_cofactor=is_react,
+                        stoichiometry=coeff,
+                        x=pos["x"], y=pos["y"],
+                        label_x=pos["x"], label_y=pos["y"],
+                        bigg_id=cpd_id, name=name,
+                        node_is_primary=False,
+                        graph_info={},
+                        tooltip=None,
+                        data=None, data_string="",
+                    )
+                    new_segs[_next_id(new_segs)] = dict(
+                        from_node_id=cid if is_react else mid_id,
+                        to_node_id=mid_id if is_react else cid,
+                        edge_type="coproduct",
+                        stoichiometry=coeff,
+                        b1=dict(x=bez["x"], y=bez["y"]),
+                        b2=dict(x=bez["x"], y=bez["y"]),
+                        graph_info={},
+                        tooltip=None,
+                        data=None, data_string="",
+                    )
+    return new_segs
+
+
+# =====================================================================
+#  8. VALIDATION
+# =====================================================================
+def _validate_tooltip_self_consistency(items, item_type):
+    """
+    Check that every tooltip's condition entries are internally consistent:
+    mean and std_dev stored in the tooltip must match what you would compute
+    from the replicates list stored in the same tooltip entry.
+
+    Works for both metabolite nodes (flat conditions list) and
+    reaction midpoints / segments (proteins -> conditions list).
+
+    Returns list of error strings.
+    """
+    errors = []
+
+    def _check_condition_entry(entry, label):
+        reps = entry.get("replicates", [])
+        if not reps:
+            errors.append(f"{label}: tooltip has no replicates")
+            return
+        arr          = np.array(reps, dtype=float)
+        expected_avg = float(np.mean(arr))
+        expected_std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        expected_cnt = len(arr)
+
+        stored_avg = entry.get("mean",    None)
+        stored_std = entry.get("std_dev", None)
+        stored_cnt = entry.get("count",   None)
+
+        if stored_avg is None or abs(stored_avg - expected_avg) > 1e-3:
+            errors.append(
+                f"{label}: tooltip mean mismatch "
+                f"(stored={stored_avg}, expected={expected_avg:.6f})"
+            )
+        if stored_std is None or abs(stored_std - expected_std) > 1e-3:
+            errors.append(
+                f"{label}: tooltip std_dev mismatch "
+                f"(stored={stored_std}, expected={expected_std:.6f})"
+            )
+        if stored_cnt != expected_cnt:
+            errors.append(
+                f"{label}: tooltip count mismatch "
+                f"(stored={stored_cnt}, expected={expected_cnt})"
+            )
+
+    for item_id, item in items.items():
+        tooltip = item.get("tooltip")
+        if not tooltip:
+            continue
+        t_type = tooltip.get("type")
+
+        if t_type == "metabolite":
+            for row_i, tt_row in enumerate(tooltip.get("rows", [])):
+                for cond_entry in tt_row.get("conditions", []):
+                    label = (
+                        f"{item_type} {item_id}/row{row_i}/"
+                        f"{cond_entry.get('name', '?')}"
+                    )
+                    _check_condition_entry(cond_entry, label)
+
+        elif t_type == "reaction":
+            for prot in tooltip.get("proteins", []):
+                pid = prot.get("protein_id", "?")
+                for cond_entry in prot.get("conditions", []):
+                    label = (
+                        f"{item_type} {item_id}/"
+                        f"rxn={tooltip.get('reaction_id', '?')}/"
+                        f"protein={pid}/"
+                        f"cond={cond_entry.get('name', '?')}"
+                    )
+                    _check_condition_entry(cond_entry, label)
+
+    return errors
+
+
+def _validate_metabolomics_stats(nodes, metabolomics_file):
+    """
+    Re-read the metabolomics CSV and verify that every metabolite node's
+    graph_info (list of row-dicts) AND tooltip match the raw file.
+    Returns a list of error strings.
+
+    graph_info format (new):
+        list of {metabolite_name, conditions: {cond: {average, std_dev, count}}}
+    tooltip format (new):
+        {type, id, name, origin, rows: [{metabolite_name, conditions: [...]}]}
+    """
+    if not metabolomics_file or not os.path.exists(metabolomics_file):
+        return []
+    try:
+        df = pd.read_csv(metabolomics_file)
     except Exception as e:
-        raise
+        return [f"Metabolomics validation: could not read file: {e}"]
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if "KEGG_C_number" not in df.columns:
+        return ["Metabolomics validation: missing KEGG_C_number column"]
+
+    df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
+    groups    = _infer_metabolomics_condition_groups(
+        df.columns.tolist(), meta_cols
+    )
+    errors = []
+
+    for nid, nd in nodes.items():
+        if nd.get("node_type") != "metabolite":
+            continue
+        gi = nd.get("graph_info")
+        # New format: list of row-dicts
+        if not gi or not isinstance(gi, list):
+            continue
+
+        kegg     = nd.get("bigg_id", "")
+        raw_rows = _raw_values_for_kegg(df, kegg, groups)  # list of {cond: [vals]}
+        if not raw_rows:
+            continue
+
+        if len(gi) != len(raw_rows):
+            errors.append(
+                f"Node {kegg}: graph_info has {len(gi)} row entries "
+                f"but CSV has {len(raw_rows)} rows for this KEGG ID"
+            )
+
+        for row_i, (gi_row, raw_row) in enumerate(zip(gi, raw_rows)):
+            row_conditions = gi_row.get("conditions", {})
+            for cond, vals in raw_row.items():
+                if cond not in row_conditions:
+                    errors.append(
+                        f"Node {kegg} row {row_i}: condition '{cond}' in CSV "
+                        f"but missing from graph_info"
+                    )
+                    continue
+                arr          = np.array(vals, dtype=float)
+                expected_avg = float(np.mean(arr))
+                expected_std = (
+                    float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+                )
+                expected_cnt = len(arr)
+                stored       = row_conditions[cond]
+
+                if abs(stored["average"] - expected_avg) > 1e-3:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info average mismatch "
+                        f"(stored={stored['average']:.6f}, "
+                        f"expected={expected_avg:.6f})"
+                    )
+                if abs(stored["std_dev"] - expected_std) > 1e-3:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info std_dev mismatch "
+                        f"(stored={stored['std_dev']:.6f}, "
+                        f"expected={expected_std:.6f})"
+                    )
+                if stored["count"] != expected_cnt:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"graph_info count mismatch "
+                        f"(stored={stored['count']}, "
+                        f"expected={expected_cnt})"
+                    )
+
+        # ── Check tooltip ─────────────────────────────────────────────
+        tooltip = nd.get("tooltip")
+        if tooltip is None:
+            errors.append(
+                f"Node {kegg}: graph_info present but tooltip is missing"
+            )
+            continue
+
+        if tooltip.get("type") != "metabolite":
+            errors.append(
+                f"Node {kegg}: tooltip type should be 'metabolite', "
+                f"got '{tooltip.get('type')}'"
+            )
+
+        tt_rows = tooltip.get("rows", [])
+        if len(tt_rows) != len(gi):
+            errors.append(
+                f"Node {kegg}: tooltip has {len(tt_rows)} row(s) "
+                f"but graph_info has {len(gi)}"
+            )
+
+        # Check tooltip replicates reproduce graph_info stats per row
+        for row_i, tt_row in enumerate(tt_rows):
+            if row_i >= len(gi):
+                break
+            gi_row         = gi[row_i]
+            row_conditions = gi_row.get("conditions", {})
+            for cond_entry in tt_row.get("conditions", []):
+                cond = cond_entry.get("name", "")
+                reps = cond_entry.get("replicates", [])
+                if not reps:
+                    errors.append(
+                        f"Node {kegg} row {row_i}/{cond}: "
+                        f"tooltip has no replicates"
+                    )
+                    continue
+                arr          = np.array(reps, dtype=float)
+                expected_avg = float(np.mean(arr))
+                expected_std = (
+                    float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+                )
+                if cond in row_conditions:
+                    stored = row_conditions[cond]
+                    if abs(stored["average"] - expected_avg) > 1e-3:
+                        errors.append(
+                            f"Node {kegg} row {row_i}/{cond}: "
+                            f"tooltip replicates do not reproduce "
+                            f"graph_info average "
+                            f"(from reps={expected_avg:.6f}, "
+                            f"graph_info={stored['average']:.6f})"
+                        )
+                    if abs(stored["std_dev"] - expected_std) > 1e-3:
+                        errors.append(
+                            f"Node {kegg} row {row_i}/{cond}: "
+                            f"tooltip replicates do not reproduce "
+                            f"graph_info std_dev "
+                            f"(from reps={expected_std:.6f}, "
+                            f"graph_info={stored['std_dev']:.6f})"
+                        )
+
+    return errors
+
+
+def _validate_proteomics_stats(segments, proteomics_file):
+    """
+    Re-read the proteomics CSV and verify every reactant-edge segment's
+    graph_info list AND tooltip match what we compute directly.
+    Returns a list of error strings.
+    """
+    if not proteomics_file or not os.path.exists(proteomics_file):
+        return []
+    try:
+        df = pd.read_csv(proteomics_file)
+    except Exception as e:
+        return [f"Proteomics validation: could not read file: {e}"]
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if "Reaction" not in df.columns:
+        return ["Proteomics validation: missing Reaction column"]
+
+    df["Reaction"] = df["Reaction"].astype(str).str.strip()
+    meta_cols = {"proteinID", "KO", "description", "Reaction", "Tags"}
+    groups    = _infer_condition_groups(df.columns.tolist(), meta_cols)
+
+    # ground_truth[rxn_id][protein_id] = {cond: {average, std_dev, count, raw}}
+    ground_truth = {}
+    for _, row in df.iterrows():
+        rxn_field  = str(row.get("Reaction", "")).strip()
+        protein_id = str(row.get("proteinID", "unknown"))
+        if not rxn_field or rxn_field == "nan":
+            continue
+        protein_stats = {}
+        for cond, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            vals  = pd.to_numeric(row[valid], errors="coerce").dropna()
+            if vals.empty:
+                continue
+            arr = vals.values.astype(float)
+            std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+            protein_stats[cond] = dict(
+                average=float(np.mean(arr)),
+                std_dev=std if not np.isnan(std) else 0.0,
+                count=len(arr),
+                raw=arr.tolist(),
+            )
+        if not protein_stats:
+            continue
+        for rxn_id in rxn_field.split(";"):
+            rxn_id = rxn_id.strip()
+            if rxn_id:
+                ground_truth.setdefault(rxn_id, {})[protein_id] = protein_stats
+
+    errors = []
+    for seg_id, seg in segments.items():
+        if seg.get("edge_type") != "reactant_edge":
+            continue
+        gi  = seg.get("graph_info")
+        rxn = seg.get("reaction_name", "")
+        if not gi or not isinstance(gi, list) or rxn not in ground_truth:
+            continue
+
+        stored_by_protein = {e["protein_id"]: e["stats"] for e in gi}
+
+        # ── Check graph_info ─────────────────────────────────────────
+        for protein_id, expected_stats in ground_truth[rxn].items():
+            if protein_id not in stored_by_protein:
+                errors.append(
+                    f"Segment {seg_id} (rxn={rxn}): "
+                    f"protein '{protein_id}' missing from graph_info"
+                )
+                continue
+            stored_stats = stored_by_protein[protein_id]
+            for cond, expected in expected_stats.items():
+                if cond not in stored_stats:
+                    errors.append(
+                        f"Segment {seg_id} (rxn={rxn}, "
+                        f"protein={protein_id}): "
+                        f"condition '{cond}' missing from stored stats"
+                    )
+                    continue
+                stored = stored_stats[cond]
+                if abs(stored["average"] - expected["average"]) > 1e-3:
+                    errors.append(
+                        f"Segment {seg_id} (rxn={rxn}, "
+                        f"protein={protein_id}, cond={cond}): "
+                        f"graph_info average mismatch "
+                        f"(stored={stored['average']:.6f}, "
+                        f"expected={expected['average']:.6f})"
+                    )
+                if abs(stored["std_dev"] - expected["std_dev"]) > 1e-3:
+                    errors.append(
+                        f"Segment {seg_id} (rxn={rxn}, "
+                        f"protein={protein_id}, cond={cond}): "
+                        f"graph_info std_dev mismatch "
+                        f"(stored={stored['std_dev']:.6f}, "
+                        f"expected={expected['std_dev']:.6f})"
+                    )
+                if stored["count"] != expected["count"]:
+                    errors.append(
+                        f"Segment {seg_id} (rxn={rxn}, "
+                        f"protein={protein_id}, cond={cond}): "
+                        f"graph_info count mismatch "
+                        f"(stored={stored['count']}, "
+                        f"expected={expected['count']})"
+                    )
+
+        # ── Check tooltip ────────────────────────────────────────────
+        tooltip = seg.get("tooltip")
+        if tooltip is None:
+            errors.append(
+                f"Segment {seg_id} (rxn={rxn}): "
+                f"graph_info present but tooltip is missing"
+            )
+            continue
+
+        if tooltip.get("type") != "reaction":
+            errors.append(
+                f"Segment {seg_id} (rxn={rxn}): "
+                f"tooltip type should be 'reaction', "
+                f"got '{tooltip.get('type')}'"
+            )
+
+        for prot_entry in tooltip.get("proteins", []):
+            pid = prot_entry.get("protein_id", "?")
+            if pid not in ground_truth.get(rxn, {}):
+                continue
+            gt_stats = ground_truth[rxn][pid]
+            for cond_entry in prot_entry.get("conditions", []):
+                cond = cond_entry.get("name", "")
+                reps = cond_entry.get("replicates", [])
+                if not reps:
+                    errors.append(
+                        f"Segment {seg_id} (rxn={rxn}, "
+                        f"protein={pid}, cond={cond}): "
+                        f"tooltip has no replicates"
+                    )
+                    continue
+                arr          = np.array(reps, dtype=float)
+                expected_avg = float(np.mean(arr))
+                if cond in gt_stats:
+                    if abs(gt_stats[cond]["average"] - expected_avg) > 1e-3:
+                        errors.append(
+                            f"Segment {seg_id} (rxn={rxn}, "
+                            f"protein={pid}, cond={cond}): "
+                            f"tooltip replicates do not reproduce "
+                            f"graph_info average "
+                            f"(from reps={expected_avg:.6f}, "
+                            f"ground_truth="
+                            f"{gt_stats[cond]['average']:.6f})"
+                        )
+
+    return errors
+
+
+def validate_against_graph(
+    graph,
+    nodes,
+    segments,
+    metabolomics_file=None,
+    proteomics_file=None,
+):
+    """
+    Full validation:
+      1. Graph structure  (nodes, edges, midpoints)
+      2. Metabolomics     graph_info + tooltip vs CSV
+      3. Proteomics       graph_info + tooltip vs CSV
+      4. Tooltip self-consistency (replicates -> mean/std_dev/count)
+
+    Raises AssertionError with full list of problems on any mismatch.
+    """
+    errors = []
+
+    # ── 1. Node check ────────────────────────────────────────────────
+    original_ids   = {str(n) for n in graph.nodes()}
+    metabolite_ids = {
+        nid for nid, nd in nodes.items()
+        if nd.get("node_type") == "metabolite"
+    }
+    if original_ids - metabolite_ids:
+        errors.append(
+            f"Graph nodes missing from Escher: "
+            f"{original_ids - metabolite_ids}"
+        )
+    if metabolite_ids - original_ids:
+        errors.append(
+            f"Escher metabolite nodes not in graph: "
+            f"{metabolite_ids - original_ids}"
+        )
+
+    # ── 2. Edge check ────────────────────────────────────────────────
+    midpoint_ids = {
+        nid for nid, nd in nodes.items()
+        if nd.get("node_type") == "midpoint"
+    }
+    incoming, outgoing = {}, {}
+    for seg in segments.values():
+        etype = seg.get("edge_type")
+        if etype == "coproduct":
+            continue
+        if etype == "reactant_edge" and seg["to_node_id"] in midpoint_ids:
+            incoming[seg["to_node_id"]] = seg["from_node_id"]
+        elif etype == "product_edge" and seg["from_node_id"] in midpoint_ids:
+            outgoing[seg["from_node_id"]] = seg["to_node_id"]
+
+    reconstructed  = {
+        (incoming[mid], outgoing[mid])
+        for mid in midpoint_ids
+        if mid in incoming and mid in outgoing
+    }
+    original_edges = {(str(u), str(v)) for u, v in graph.edges()}
+    if original_edges - reconstructed:
+        errors.append(
+            f"Graph edges not reconstructable: "
+            f"{original_edges - reconstructed}"
+        )
+    if reconstructed - original_edges:
+        errors.append(
+            f"Reconstructed edges not in graph: "
+            f"{reconstructed - original_edges}"
+        )
+    dangling = {
+        mid for mid in midpoint_ids
+        if mid not in incoming or mid not in outgoing
+    }
+    if dangling:
+        errors.append(f"Midpoints without matching pair: {dangling}")
+
+    # ── 3. Metabolomics graph_info + tooltip vs CSV ───────────────────
+    met_errors = _validate_metabolomics_stats(nodes, metabolomics_file)
+    if met_errors:
+        errors.extend(met_errors)
+        logger.warning(
+            f"Metabolomics validation: {len(met_errors)} issue(s)"
+        )
+
+    # ── 4. Proteomics graph_info + tooltip vs CSV ─────────────────────
+    prot_errors = _validate_proteomics_stats(segments, proteomics_file)
+    if prot_errors:
+        errors.extend(prot_errors)
+        logger.warning(
+            f"Proteomics validation: {len(prot_errors)} issue(s)"
+        )
+
+    # ── 5. Tooltip self-consistency ───────────────────────────────────
+    tt_errors = (
+        _validate_tooltip_self_consistency(nodes,    "node")
+        + _validate_tooltip_self_consistency(segments, "segment")
+    )
+    if tt_errors:
+        errors.extend(tt_errors)
+        logger.warning(
+            f"Tooltip self-consistency: {len(tt_errors)} issue(s)"
+        )
+
+    # ── Report ────────────────────────────────────────────────────────
+    if errors:
+        msg = "Validation failed:\n  - " + "\n  - ".join(errors)
+        logger.error(msg)
+        raise AssertionError(msg)
+
+    logger.info(
+        f"Validation passed: {len(original_ids)} nodes, "
+        f"{len(original_edges)} edges, "
+        f"{len(midpoint_ids)} midpoints, "
+        f"metabolomics {'checked' if metabolomics_file else 'skipped'}, "
+        f"proteomics {'checked' if proteomics_file else 'skipped'}"
+    )
+
+
+# =====================================================================
+#  9. OMICS DATA INTEGRATION
+# =====================================================================
+
+# ── Long-format detection ─────────────────────────────────────────────
+def _is_long_format(df):
+    """Check if DataFrame has Experiment_Name and Experiment_Value columns."""
+    return {"Experiment_Name", "Experiment_Value"} <= set(df.columns)
+
+
+def _long_stats(df, key_col):
+    """Group long-format rows -> {key: {base_experiment: stats}}."""
+    df = df.copy()
+    df["_base"] = df["Experiment_Name"].str.split(".").str[0]
+    g = (
+        df.groupby([key_col, "_base"])["Experiment_Value"]
+        .agg(["mean", "std", "count"])
+        .reset_index()
+    )
+    out = {}
+    for _, r in g.iterrows():
+        out.setdefault(r[key_col], {})[r["_base"]] = dict(
+            average=float(r["mean"]) if not pd.isna(r["mean"]) else 0.0,
+            std_dev=float(r["std"])  if not pd.isna(r["std"])  else 0.0,
+            count=int(r["count"]),
+        )
+    return out
+
+
+# ── Replicate column grouping ─────────────────────────────────────────
+def _group_replicate_columns(data_cols):
+    """
+    Group columns into conditions using three known naming patterns.
+    Patterns are tried in order; the first one that matches ANY column
+    in the list is used for the whole list.
+
+    Pattern 1 – trailing dot-number  (simple metabolomics / proteomics)
+        AgitWAO, AgitWAO.1, AgitWAO.2, AgitWAO.3
+        CtrTvAOT0-super, CtrTvAOT0-super.1, CtrTvAOT0-super.2
+        Rule: condition = col.split('.')[0]
+
+    Pattern 2 – number before _LC  (large metabolomics CSV)
+        Rule: condition = re.sub(r'_\\d+(?=_LC)', '', col)
+
+    Pattern 3 – trailing _BioRepN  (JGI proteomics)
+        Rule: condition = re.sub(r'_BioRep\\d+$', '', col)
+
+    Fallback – each column is its own singleton condition.
+
+    Returns
+    -------
+    dict  {condition_name: [col1, col2, ...]}
+        Columns within each group are in their original CSV order.
+    """
+    if not data_cols:
+        return {}
+
+    import re as _re
+
+    # ── Pattern detectors ─────────────────────────────────────────────
+
+    def _is_pattern1(col):
+        """Has a dot followed by digits at the end, OR is a plain base name."""
+        return bool(_re.search(r'\.\d+$', col)) or '.' not in col
+
+    def _is_pattern2(col):
+        """Has _NN_LC somewhere in it."""
+        return bool(_re.search(r'_\d+_LC', col))
+
+    def _is_pattern3(col):
+        """Ends with _BioRepN."""
+        return bool(_re.search(r'_BioRep\d+$', col, _re.IGNORECASE))
+
+    # ── Condition-name extractors ─────────────────────────────────────
+
+    def _cond_pattern1(col):
+        """Everything before the first .N suffix."""
+        return col.split('.')[0]
+
+    def _cond_pattern2(col):
+        """Remove the _NN immediately before _LC."""
+        return _re.sub(r'_\d+(?=_LC)', '', col)
+
+    def _cond_pattern3(col):
+        """Remove _BioRep and the trailing digit(s)."""
+        return _re.sub(r'_BioRep\d+$', '', col, flags=_re.IGNORECASE)
+
+    # ── Select pattern ────────────────────────────────────────────────
+
+    has_p3 = any(_is_pattern3(c) for c in data_cols)
+    has_p2 = any(_is_pattern2(c) for c in data_cols)
+    has_p1 = any(_re.search(r'\.\d+$', c) for c in data_cols)
+
+    if has_p3:
+        extractor = _cond_pattern3
+        pattern   = "BioRepN"
+    elif has_p2:
+        extractor = _cond_pattern2
+        pattern   = "_NN_LC"
+    elif has_p1:
+        extractor = _cond_pattern1
+        pattern   = "dot-number"
+    else:
+        # Fallback: each column is its own condition
+        logger.warning(
+            "Could not detect replicate pattern – "
+            "each column treated as its own condition"
+        )
+        return {col: [col] for col in data_cols}
+
+    logger.info(f"Replicate grouping: pattern={pattern!r}")
+
+    # ── Build groups ──────────────────────────────────────────────────
+    groups = {}
+    for col in data_cols:
+        cond = extractor(col)
+        groups.setdefault(cond, []).append(col)
+
+    for cond, cols in sorted(groups.items()):
+        logger.info(f"  {cond!r}: {len(cols)} replicates -> {cols}")
+
+    return groups
+def _infer_condition_groups(columns, meta_cols):
+    """Strip meta columns then delegate to _group_replicate_columns."""
+    meta      = set(meta_cols) | {""}
+    data_cols = [
+        c for c in columns
+        if str(c).strip() and c not in meta
+        and not c.lower().startswith("remove")
+    ]
+    return _group_replicate_columns(data_cols)
+
+
+def _infer_metabolomics_condition_groups(columns, meta_cols):
+    """Same as _infer_condition_groups – separate name for clarity."""
+    return _infer_condition_groups(columns, meta_cols)
+
+
+# ── Per-row statistics ────────────────────────────────────────────────
+def _wide_stats_grouped(row, col_list):
+    """
+    Compute mean / std / count for col_list columns in row.
+    Returns dict with keys: average, std_dev, count, values
+    or None if all values are NaN.
+    """
+    vals = pd.to_numeric(row[col_list], errors="coerce").dropna()
+    if vals.empty:
+        return None
+    arr = vals.values.astype(float)
+    std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+    return dict(
+        average=float(np.mean(arr)),
+        std_dev=std if not np.isnan(std) else 0.0,
+        count=len(arr),
+        values=arr.tolist(),
+    )
+
+
+def _strip_raw_values(stats_dict):
+    """Remove the 'values' key from every condition dict."""
+    return {
+        cond: {k: v for k, v in s.items() if k != "values"}
+        for cond, s in stats_dict.items()
+    }
+
+
+# ── Raw-value helpers ─────────────────────────────────────────────────
+def _raw_values_for_kegg(df, kegg_id, groups):
+    """
+    Return [{condition: [float, ...]}] — one dict per CSV row whose
+    KEGG_C_number matches kegg_id.  Each dict only contains conditions
+    that have at least one finite value.  NaN-only conditions are omitted.
+    """
+    rows   = df[df["KEGG_C_number"] == kegg_id]
+    result = []
+    for _, row in rows.iterrows():
+        row_vals = {}
+        for cond, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            vals  = pd.to_numeric(row[valid], errors="coerce").dropna().tolist()
+            if vals:
+                row_vals[cond] = vals
+        if row_vals:
+            result.append(row_vals)
+    return result
+
+
+def _raw_values_for_protein(row, groups, df_columns):
+    """Return {condition: [float, ...]} for a single protein DataFrame row."""
+    result = {}
+    for cond, cols in groups.items():
+        valid = [c for c in cols if c in df_columns]
+        vals  = pd.to_numeric(row[valid], errors="coerce").dropna().tolist()
+        if vals:
+            result[cond] = vals
+    return result
+
+
+def _build_condition_tooltip_entries(raw_by_condition):
+    """
+    Convert {condition: [float, ...]} into the list of dicts used in tooltips:
+    [
+      {
+        "name":       "AgitWAO",
+        "mean":       298729.2,
+        "std_dev":    125338.1,
+        "count":      4,
+        "replicates": [457623.28, 216552.3, 166988.64, 353752.56]
+      },
+      ...
+    ]
+    """
+    entries = []
+    for cond in sorted(raw_by_condition.keys()):
+        vals = raw_by_condition[cond]
+        arr  = np.array(vals, dtype=float)
+        std  = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        entries.append(dict(
+            name=cond,
+            mean=float(np.mean(arr)),
+            std_dev=std if not np.isnan(std) else 0.0,
+            count=len(arr),
+            replicates=[round(v, 6) for v in arr.tolist()],
+        ))
+    return entries
+
+
+# ── Metabolomics integration ──────────────────────────────────────────
+def integrate_metabolomics(nodes, filepath):
+    """
+    Attach metabolomics data to metabolite nodes by matching KEGG IDs.
+
+    Sets two fields on each matched node:
+        graph_info : list of {metabolite_name, conditions: {cond: {average, std_dev, count}}}
+            One entry per CSV row with a valid KEGG ID.
+            Duplicate KEGG IDs produce SEPARATE entries (not pooled).
+            NaN-only conditions are omitted from each entry.
+            Used by the bar chart renderer (renders one chart panel per entry).
+        tooltip    : {type, id, name, origin, rows: [...]}
+            Used by the D3 tooltip.  Each row entry contains the metabolite
+            name and condition entries with mean, std_dev, count, AND raw
+            replicate values.
+    """
+    if not filepath or not os.path.exists(filepath):
+        return
+    try:
+        df = pd.read_csv(filepath)
+    except Exception as e:
+        logger.warning(f"Could not read metabolomics file: {e}")
+        return
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if "KEGG_C_number" not in df.columns:
+        logger.warning(
+            f"Metabolomics file missing 'KEGG_C_number' column. "
+            f"Found: {list(df.columns)}"
+        )
+        return
+
+    df["KEGG_C_number"] = df["KEGG_C_number"].astype(str).str.strip()
+    meta_cols = {"metabolite", "Tags", "KEGG_C_number", "method"}
+
+    if _is_long_format(df):
+        kegg_lookup = _long_stats(df, "KEGG_C_number")
+        matched     = 0
+        for nd in nodes.values():
+            if nd.get("node_type") != "metabolite":
+                continue
+            bigg = nd.get("bigg_id", "")
+            if bigg in kegg_lookup:
+                # Wrap legacy dict in list for uniform renderer interface
+                nd["graph_info"] = [{"metabolite_name": bigg,
+                                     "conditions": kegg_lookup[bigg]}]
+                matched += 1
+        logger.info(f"Metabolomics (long format): matched {matched} nodes")
+        return
+
+    groups  = _infer_metabolomics_condition_groups(df.columns, meta_cols)
+    skipped = 0
+
+    # kegg_rows[kid] = list of {metabolite_name, stats (with 'values' key)}
+    kegg_rows: dict = {}
+    for _, row in df.iterrows():
+        kid = row.get("KEGG_C_number")
+        if pd.isna(kid) or str(kid).strip() in ("", "nan"):
+            skipped += 1
+            continue
+        kid    = str(kid).strip()
+        name   = str(row.get("metabolite", kid)).strip()
+        method = str(row.get("method", "")).strip()
+        if method:
+            name = f"{name} ({method})"
+        row_stats = {}
+        for grp, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            s     = _wide_stats_grouped(row, valid) if valid else None
+            if s:
+                row_stats[grp] = s
+        if row_stats:
+            kegg_rows.setdefault(kid, []).append(
+                {"metabolite_name": name, "stats": row_stats}
+            )
+
+    logger.info(
+        f"Metabolomics: "
+        f"{sum(len(v) for v in kegg_rows.values())} data rows, "
+        f"{len(kegg_rows)} unique KEGG IDs, "
+        f"{skipped} skipped"
+    )
+
+    # Count duplicates for logging
+    dup_kids = [k for k, v in kegg_rows.items() if len(v) > 1]
+    if dup_kids:
+        logger.info(
+            f"Metabolomics: {len(dup_kids)} KEGG ID(s) appear on multiple "
+            f"rows – each row will produce a SEPARATE chart: {dup_kids[:10]}"
+            f"{'...' if len(dup_kids) > 10 else ''}"
+        )
+
+    # Build per-KEGG lookup:
+    #   kegg_lookup[kid]     = list of {metabolite_name, conditions (no 'values')}
+    #   kegg_raw_lookup[kid] = list of {cond: [float, ...]} (one per row)
+    kegg_lookup     = {}
+    kegg_raw_lookup = _raw_values_for_kegg_all(df, groups)
+
+    for kid, row_list in kegg_rows.items():
+        kegg_lookup[kid] = [
+            {
+                "metabolite_name": entry["metabolite_name"],
+                "conditions":      _strip_raw_values(entry["stats"]),
+            }
+            for entry in row_list
+        ]
+
+    # Attach to nodes
+    matched          = 0
+    metabolite_nodes = [
+        nd for nd in nodes.values()
+        if nd.get("node_type") == "metabolite"
+    ]
+    for nd in metabolite_nodes:
+        bigg = nd.get("bigg_id", "")
+        if bigg not in kegg_lookup:
+            continue
+        nd["graph_info"] = kegg_lookup[bigg]
+
+        # Build tooltip: one entry per row
+        raw_rows = kegg_raw_lookup.get(bigg, [])
+        rows_tt  = []
+        for ri, raw_row in enumerate(raw_rows):
+            row_name = (
+                kegg_lookup[bigg][ri]["metabolite_name"]
+                if ri < len(kegg_lookup[bigg]) else bigg
+            )
+            rows_tt.append(dict(
+                metabolite_name=row_name,
+                conditions=_build_condition_tooltip_entries(raw_row),
+            ))
+        nd["tooltip"] = dict(
+            type="metabolite",
+            id=bigg,
+            name=nd.get("name", bigg),
+            origin=nd.get("origin", "unknown"),
+            rows=rows_tt,
+        )
+        matched += 1
+
+    logger.info(
+        f"Metabolomics: matched {matched}/{len(metabolite_nodes)} nodes"
+    )
+    node_ids  = {nd.get("bigg_id") for nd in metabolite_nodes}
+    unmatched = node_ids - set(kegg_lookup.keys()) - {""}
+    if unmatched:
+        logger.warning(
+            f"Metabolomics: {len(unmatched)} nodes have no data: "
+            f"{sorted(list(unmatched)[:10])}"
+            f"{'...' if len(unmatched) > 10 else ''}"
+        )
+
+
+def _raw_values_for_kegg_all(df, groups):
+    """
+    Return {kegg_id: [{cond: [float, ...]}, ...]} — one dict per CSV row.
+    NaN-only conditions are omitted from each row dict.
+    """
+    result: dict = {}
+    for _, row in df.iterrows():
+        kid = str(row.get("KEGG_C_number", "")).strip()
+        if not kid or kid == "nan":
+            continue
+        row_vals = {}
+        for cond, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            vals  = pd.to_numeric(row[valid], errors="coerce").dropna().tolist()
+            if vals:
+                row_vals[cond] = vals
+        if row_vals:
+            result.setdefault(kid, []).append(row_vals)
+    return result
+
+
+# ── Proteomics integration ────────────────────────────────────────────
+def integrate_proteomics(segments, filepath, nodes=None):
+    """
+    Attach proteomics data to reactant-edge segments by reaction name.
+    Pass nodes= so that segment tooltips can include from/to metabolite names.
+    """
+    if not filepath or not os.path.exists(filepath):
+        return
+    try:
+        df = pd.read_csv(filepath)
+    except Exception as e:
+        logger.warning(f"Could not read proteomics file: {e}")
+        return
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if "Reaction" not in df.columns:
+        logger.warning(
+            f"Proteomics file missing 'Reaction' column. "
+            f"Found: {list(df.columns)}"
+        )
+        return
+
+    df["Reaction"] = df["Reaction"].astype(str).str.strip()
+    meta_cols      = {"proteinID", "KO", "description", "Reaction", "Tags"}
+
+    if _is_long_format(df):
+        rxn_lookup_flat = _long_stats(df, "Reaction")
+        rxn_lookup      = {
+            rxn_id: [{"protein_id": rxn_id, "stats": stats}]
+            for rxn_id, stats in rxn_lookup_flat.items()
+        }
+        _attach_proteomics_to_segments(segments, rxn_lookup, {}, nodes=nodes)
+        return
+
+    groups = _infer_condition_groups(df.columns, meta_cols)
+    logger.info(f"Proteomics condition groups: {list(groups.keys())}")
+
+    rxn_protein_data = {}
+
+    for _, row in df.iterrows():
+        rxn_field  = str(row.get("Reaction", "")).strip()
+        protein_id = str(row.get("proteinID", "unknown"))
+        if not rxn_field or rxn_field == "nan":
+            continue
+
+        protein_stats = {}
+        raw_by_cond   = {}
+        for grp, cols in groups.items():
+            valid = [c for c in cols if c in df.columns]
+            s     = _wide_stats_grouped(row, valid) if valid else None
+            if s:
+                protein_stats[grp] = s
+                raw_by_cond[grp]   = s["values"]
+
+        if not protein_stats:
+            continue
+
+        for rxn_id in rxn_field.split(";"):
+            rxn_id = rxn_id.strip()
+            if rxn_id:
+                rxn_protein_data.setdefault(rxn_id, []).append(dict(
+                    protein_id=protein_id,
+                    stats=protein_stats,
+                    raw=raw_by_cond,
+                ))
+
+    rxn_lookup         = {}
+    rxn_tooltip_lookup = {}
+
+    for rxn_id, protein_list in rxn_protein_data.items():
+        rxn_lookup[rxn_id] = [
+            {
+                "protein_id": p["protein_id"],
+                "stats":      _strip_raw_values(p["stats"]),
+            }
+            for p in protein_list
+        ]
+        rxn_tooltip_lookup[rxn_id] = [
+            {
+                "protein_id": p["protein_id"],
+                "conditions": _build_condition_tooltip_entries(p["raw"]),
+            }
+            for p in protein_list
+        ]
+
+    logger.info(
+        f"Proteomics: built data for {len(rxn_lookup)} reaction IDs"
+    )
+    _attach_proteomics_to_segments(
+        segments, rxn_lookup, rxn_tooltip_lookup, nodes=nodes
+    )
+def _attach_proteomics_to_segments(segments, rxn_lookup, rxn_tooltip_lookup, nodes=None):
+    """Attach graph_info and tooltip to reactant-edge segments."""
+    matched  = 0
+    total_re = sum(
+        1 for seg in segments.values()
+        if seg.get("edge_type") == "reactant_edge"
+    )
+    for seg in segments.values():
+        rxn = seg.get("reaction_name")
+        if not rxn or seg.get("edge_type") != "reactant_edge":
+            continue
+        if rxn not in rxn_lookup:
+            continue
+
+        seg["graph_info"] = rxn_lookup[rxn]
+
+        # Resolve from/to node names if nodes dict is available
+        from_id   = seg.get("from_node_id", "")
+        to_id     = seg.get("to_node_id",   "")
+        from_name = ""
+        to_name   = ""
+        if nodes:
+            from_nd   = nodes.get(str(from_id), {})
+            to_nd     = nodes.get(str(to_id),   {})
+            from_name = from_nd.get("name") or from_nd.get("bigg_id") or str(from_id)
+            to_name   = to_nd.get("name")   or to_nd.get("bigg_id")   or str(to_id)
+
+        seg["tooltip"] = dict(
+            type="reaction",
+            reaction_id=rxn,
+            from_node=dict(id=str(from_id), name=from_name),
+            to_node=dict(id=str(to_id),     name=to_name),
+            proteins=rxn_tooltip_lookup.get(rxn, []),
+        )
+        matched += 1
+
+    logger.info(f"Proteomics: matched {matched}/{total_re} reactant edges")
+
+    seg_rxns  = {
+        seg.get("reaction_name")
+        for seg in segments.values()
+        if seg.get("reaction_name")
+        and seg.get("edge_type") == "reactant_edge"
+    }
+    unmatched = seg_rxns - set(rxn_lookup.keys())
+    if unmatched:
+        logger.warning(
+            f"Proteomics: {len(unmatched)} reactions have no protein data: "
+            f"{sorted(list(unmatched)[:10])}"
+            f"{'...' if len(unmatched) > 10 else ''}"
+        )
+
+# ── Midpoint tooltip builder ──────────────────────────────────────────
+def build_midpoint_tooltips(nodes, segments):
+    """
+    Called after both integrate functions.
+    For every midpoint node, find its matching reactant-edge segment
+    and copy the proteomics tooltip onto the midpoint node, adding
+    the connected metabolite node IDs and names.
+
+    This makes it easy for the frontend to show reaction context when
+    hovering over a midpoint circle.
+    """
+    midpoint_ids = {
+        nid for nid, nd in nodes.items()
+        if nd.get("node_type") == "midpoint"
+    }
+
+    # reaction_name -> reactant_edge tooltip
+    rxn_to_tooltip = {}
+    for seg in segments.values():
+        if seg.get("edge_type") == "reactant_edge" and seg.get("tooltip"):
+            rxn = seg.get("reaction_name")
+            if rxn:
+                rxn_to_tooltip[rxn] = seg["tooltip"]
+
+    for mid_id in midpoint_ids:
+        nd       = nodes[mid_id]
+        rxn_name = nd.get("reaction_name")
+        from_id  = nd.get("from_node_id")
+        to_id    = nd.get("to_node_id")
+
+        from_name = nodes[from_id]["name"] if from_id in nodes else from_id
+        to_name   = nodes[to_id]["name"]   if to_id   in nodes else to_id
+
+        base_tooltip = dict(
+            type="reaction",
+            reaction_id=rxn_name or "unknown",
+            from_node=dict(id=from_id, name=from_name),
+            to_node=dict(id=to_id,   name=to_name),
+            proteins=[],
+        )
+
+        if rxn_name and rxn_name in rxn_to_tooltip:
+            base_tooltip["proteins"] = (
+                rxn_to_tooltip[rxn_name].get("proteins", [])
+            )
+
+        nd["tooltip"] = base_tooltip
+
+    logger.info(
+        f"Midpoint tooltips built for {len(midpoint_ids)} midpoints"
+    )
+
+
+# =====================================================================
+#  10. MAIN MAP GENERATOR
+# =====================================================================
+def generate_escher_map_from_graph(
+    graph,
+    output_dir,
+    kegg_names_file,
+    json_output_file,
+    config=None,
+    full_graph=None,
+    keep_positions=False,
+    path_order=None,
+    metabolomics_file=None,
+    proteomics_file=None,
+):
+    """
+    Build an Escher JSON map from graph.
+
+    Guarantees
+    ----------
+    - Every original graph node  -> one Escher metabolite node
+      (plus generated midpoints / coproducts).
+    - Every original graph edge  -> one Escher segment
+      (split at midpoint into reactant-edge + product-edge pair).
+    - Coproduct nodes carry their stoichiometric coefficient in the
+      'stoichiometry' field.
+    - Midpoint nodes carry a ``reaction_kegg_ids`` list so the frontend
+      can look up bar-chart data by reaction ID without any omics CSV.
+    """
+    cache_path = (
+        kegg_names_file
+        if os.path.dirname(kegg_names_file)
+        else os.path.join(output_dir, kegg_names_file)
+    )
+    out_path = os.path.join(output_dir, json_output_file)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+
+    kegg_cache = load_kegg_names(cache_path)
+    n          = graph.number_of_nodes()
+
+    # 1  Layout
+    positions = compute_layout(
+        graph,
+        path_order=path_order,
+        full_graph=full_graph if keep_positions else None,
+    )
+    # 2  Canvas
+    cw, ch = _canvas_size(n)
+
+    # 3  Nodes
+    nodes = _make_escher_nodes(
+        graph, positions, kegg_cache, cache_path, cw, ch
+    )
+
+    # 4  Segments
+    segments = _make_escher_segments(graph)
+
+    # 5  Midpoints & coproducts
+    is_vert  = cfg.SMALL_GRAPH_LAYOUT_VERTICAL and n < cfg.NODE_THRESHOLD_SMALL
+    segments = _add_midpoints_and_coproducts(
+        segments, nodes, kegg_cache, cache_path,
+        midpoint_fraction=(
+            cfg.MIDPOINT_FRACTION_VERTICAL
+            if is_vert else cfg.MIDPOINT_FRACTION_HORIZONTAL
+        ),
+    )
+
+    # 5b Validate graph structure
+    validate_against_graph(graph, nodes, segments)
+
+    # 6  Omics integration
+    if metabolomics_file:
+        integrate_metabolomics(nodes, metabolomics_file)
+    if proteomics_file:
+        integrate_proteomics(segments, proteomics_file, nodes=nodes)
+
+    # 6  Stamp each midpoint node with its KEGG reaction ID(s) so the
+    #    frontend can look up bar-chart data without any omics CSV.
+    for nd in nodes.values():
+        if nd.get("node_type") == "midpoint":
+            rxn = nd.get("reaction_name")
+            nd["reaction_kegg_ids"] = [rxn] if rxn else []
+
+    # 6b Midpoint tooltips (reaction context only — no omics data)
+    build_midpoint_tooltips(nodes, segments)
+
+    # 7  Export
+    save_kegg_names(kegg_cache, cache_path)
+    escher_map = [
+        dict(
+            map_name="Metabolic Pathway Map",
+            map_id="generated_pathway",
+            map_description="Auto-generated pathway map",
+            homepage="",
+            schema="https://escher.github.io/escher/jsonschema/1-0-0#",
+        ),
+        dict(
+            nodes=nodes,
+            reactions={
+                "0": dict(
+                    name="Combined Reactions",
+                    bigg_id="",
+                    reversibility=False,
+                    label_x=0.0, label_y=0.0,
+                    gene_reaction_rule="",
+                    genes=[],
+                    segments=segments,
+                    metabolites=[],
+                )
+            },
+            text_labels={},
+            canvas=dict(x=0, y=0, width=cw, height=ch),
+        ),
+    ]
+    with open(out_path, "w") as f:
+        json.dump(escher_map, f, indent=2)
+    return escher_map
+
+
+# =====================================================================
+#  CLI
+# =====================================================================
+def main():
+    graph_file       = "metabolite_graph.json"
+    output_dir       = "static/json_pathway"
+    kegg_names_file  = "kegg_names.json"
+    json_output_file = (
+        os.path.splitext(os.path.basename(graph_file))[0] + "_output.json"
+    )
+    graph = load_graph(graph_file)
+    generate_escher_map_from_graph(
+        graph, output_dir, kegg_names_file, json_output_file,
+    )
+
 
 if __name__ == "__main__":
     main()

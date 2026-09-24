@@ -26,3 +26,19 @@ ui-tests/playwright-report
 ui-tests/test-results
 
 credentials.txt
+static/json_pathway/
+static/uploads/
+static/structure_imgs/
+# Ignore all .json files except failed_downloads.json
+*.json
+!failed_downloads.json
+*.pickle
+*.csv
+
+# macOS metadata
+.DS_Store
+
+# barchart_html/ is a local dev/scratch folder — only specific files tracked
+barchart_html/*
+*.html
+*.xlsx

@@ -1,236 +1,538 @@
+# app.py
 """
-Flask Application for Pathway Visualization
-
-This Flask app generates interactive Escher pathway maps by:
-1. Creating Escher JSON from NetworkX graphs using experiment_nodes
-2. Downloading structure images using download_structures_keggs
-3. Serving the interactive visualization with integrated omics data
-
-The app is self-contained and processes all data files automatically.
+Flask Application for Pathway Visualization.
+Multi-user: each session gets its own isolated directory and graph cache.
 """
-
-from flask import Flask, render_template, send_from_directory, request, redirect, url_for, jsonify, g, flash
+from flask import (
+    Flask, render_template, send_from_directory,
+    request, redirect, url_for, jsonify, flash, session
+)
+from flask_caching import Cache
+from pathlib import Path
 import os
 import sys
 import json
+import uuid
+import time
+import shutil
 import networkx as nx
-from functools import wraps
+from threading import Timer
+from typing import TypedDict
 
-# Add the create_graph directory to Python path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'create_graph'))
-
-# Import our custom modules
 from create_graph.experiment_nodes import generate_escher_map_from_graph, load_graph
 from create_graph.download_structures_keggs import download_structures
-import config as cfg  # Import config module for runtime updates
+import config as cfg
+import logging
 from config import (
-    DEFAULT_CONFIG, INPUT_FILES, OUTPUT_PATHS, UPLOAD_FOLDER,
-    NODE_THRESHOLD_SMALL, NODE_THRESHOLD_MEDIUM, ALLOWED_GRAPH_EXTENSIONS,
-    NODE_RADIUS, METABOLITE_RADIUS, REACTION_RADIUS, STRUCTURE_IMAGE_SIZE,
-    LABEL_OFFSET_Y, COPRODUCT_LABEL_OFFSET_Y, BAR_CHART_OFFSET_Y,
-    METABOLITE_LABEL_FONT_SIZE, COPRODUCT_LABEL_FONT_SIZE, CHART_TITLE_FONT_SIZE, CHART_LABEL_FONT_SIZE,
-    BAR_CHART_WIDTH, BAR_CHART_HEIGHT, BAR_HEIGHT, BAR_CHART_AXIS_PADDING,
-    BAR_CHART_TITLE, BAR_CHART_X_LABEL, BAR_CHART_Y_LABEL,
-    SMALL_GRAPH_LAYOUT_VERTICAL
+    BASE_DATA_DIR, OUTPUT_PATHS, GLOBAL_IMAGES_DIR,
+    ALLOWED_GRAPH_EXTENSIONS, ALLOWED_CSV_EXTENSIONS,
+    SESSION_LIFETIME,
+    get_frontend_config, get_backend_config
 )
 from forms import (
-    UploadFilesForm, CanvasConfigForm, PathSelectionForm, 
-    SubgraphCreationForm, MultiNodeSelectionForm, RevertGraphForm,
-    BackendConfigForm
+    UploadFilesForm, PathSelectionForm,
+    MultiNodeSelectionForm, RevertGraphForm,
+    BackendConfigForm, FrontendConfigForm
 )
 
-# ===== FLASK APP CONFIGURATION =====
+# =============================================================================
+# TYPE DEFINITIONS
+# =============================================================================
+class FrontendConfig(TypedDict):
+    nodeRadius:              int
+    metaboliteRadius:        int
+    reactionRadius:          int
+    imageSize:               int
+    labelOffsetY:            int
+    coproductLabelOffsetY:   int
+    barChartOffsetX:         int
+    barChartOffsetY:         int
+    metaboliteLabelFontSize: int
+    coproductLabelFontSize:  int
+    chartTitleFontSize:      int
+    chartLabelFontSize:      int
+    barChartWidth:           int
+    barChartHeight:          int
+    barHeight:               int
+    barChartAxisPadding:     int
+    barChartTitle:           str
+    barChartXLabel:          str
+    barChartYLabel:          str
+    barMinCount:             int
+
+
+# =============================================================================
+# APP SETUP
+# =============================================================================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
+app.config['SERVER_INSTANCE_ID'] = str(uuid.uuid4())
 
-# Global variables to store state
-current_graph = None
-current_input_filename = None  # Track the input filename for output naming
-CANVAS_CONFIG = DEFAULT_CONFIG.copy()  # Initialize with defaults
+# Flask-Caching — simple in-memory cache (swap to Redis for multi-process)
+app.config['CACHE_TYPE']            = 'SimpleCache'
+app.config['CACHE_DEFAULT_TIMEOUT'] = 300  # 5 minutes
+cache = Cache(app)
 
-# ===== UTILITY DECORATORS =====
+# In-memory graph cache: { user_id: nx.Graph }
+_graph_cache: dict = {}
 
-def handle_errors(status_code=500):
-    """Decorator for consistent error handling in routes."""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            try:
-                return f(*args, **kwargs)
-            except Exception as e:
-                return {"error": str(e)}, status_code
-        return decorated_function
-    return decorator
 
-# ===== DATA PROCESSING FUNCTIONS =====
-
-def validate_and_update_input_files():
+# =============================================================================
+# SESSION / USER ISOLATION
+# =============================================================================
+@app.before_request
+def ensure_session_id():
     """
-    Validate that input files exist and update INPUT_FILES dict.
-    Sets value to "" if file does not exist or is empty.
-    
-    Returns:
-        tuple: (all_files_exist, missing_files)
+    Assign a unique user_id on first visit.
+    Clears stale sessions when the server has restarted.
+    Touches the user directory so cleanup timer is based on last activity.
     """
-    missing_files = []
-    
-    for key, file_path in INPUT_FILES.items():
-        if not file_path or not os.path.exists(file_path):
-            INPUT_FILES[key] = ""
-            missing_files.append(f"{key}: {file_path}")
-        else:
-            # Check if file is empty
-            try:
-                if os.path.getsize(file_path) == 0:
-                    INPUT_FILES[key] = ""
-                    missing_files.append(f"{key}: empty file")
-            except Exception:
-                INPUT_FILES[key] = ""
-                missing_files.append(f"{key}: error accessing file")
-    
-    return len(missing_files) == 0, missing_files
+    current_instance = app.config['SERVER_INSTANCE_ID']
+    if session.get('server_instance_id') != current_instance:
+        session.clear()
+        session['server_instance_id'] = current_instance
 
-def setup_output_directories():
-    """Create output directories if they don't exist."""
-    for dir_path in [OUTPUT_PATHS['json_dir'], OUTPUT_PATHS['images_dir']]:
-        os.makedirs(dir_path, exist_ok=True)
+    if 'user_id' not in session:
+        session['user_id'] = str(uuid.uuid4())
+
+    # Touch dir on every request so mtime = last activity
+    user_dir = Path(BASE_DATA_DIR) / session['user_id']
+    if user_dir.exists():
+        try:
+            user_dir.touch()
+        except Exception:
+            pass
+
+
+def get_user_id() -> str:
+    return session['user_id']
+
+
+def get_user_dir() -> Path:
+    path = Path(BASE_DATA_DIR) / get_user_id()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_upload_folder() -> Path:
+    path = get_user_dir() / 'uploads'
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_json_dir() -> Path:
+    path = get_user_dir() / OUTPUT_PATHS['json_dir']
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_images_dir() -> Path:
+    path = Path(GLOBAL_IMAGES_DIR)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+# =============================================================================
+# PER-USER FRONTEND CONFIG
+# =============================================================================
+def _form_defaults() -> FrontendConfig:
+    """
+    Extract default values directly from FrontendConfigForm field definitions.
+    Single source of truth — no separate defaults dict needed.
+    """
+    form = FrontendConfigForm()
+    return {
+        field.name: field.default
+        for field in form
+        if field.name != 'csrf_token' and field.default is not None
+    }
+
+
+def get_user_frontend_config() -> FrontendConfig:
+    """
+    Return this user's frontend config.
+    Defaults come from FrontendConfigForm field definitions.
+    User overrides are stored in the session.
+    """
+    defaults  = _form_defaults()
+    overrides = session.get('frontend_config', {})
+    return {**defaults, **overrides}
+
+
+def set_user_frontend_config(updates: dict):
+    """Merge validated updates into this user's session config."""
+    current = get_user_frontend_config()
+    current.update(updates)
+    session['frontend_config'] = current
+
+
+# =============================================================================
+# PER-USER STATE
+# =============================================================================
+def get_input_files() -> dict:
+    return session.get('input_files', {
+        'graph_pickle':      '',
+        'barchart_data_file': '',
+    })
+
+
+def set_input_files(files: dict):
+    session['input_files'] = files
+
+
+def get_input_filename() -> str:
+    return session.get('current_input_filename', '')
+
+
+def set_input_filename(name: str):
+    session['current_input_filename'] = name
+
+
+def get_current_graph():
+    return _graph_cache.get(get_user_id())
+
+
+def set_current_graph(graph):
+    uid = get_user_id()
+    _graph_cache[uid] = graph
+    # Invalidate node list cache for this user
+    cache.delete(f'nodes_{uid}')
+
+
+# =============================================================================
+# FILE CONVERSION
+# =============================================================================
+def convert_excel_to_csv(excel_path: Path, csv_path: Path) -> Path:
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ImportError('pandas required: pip install pandas openpyxl')
+    df = pd.read_excel(excel_path)
+    df.to_csv(csv_path, index=False)
+    excel_path.unlink()
+    return csv_path
+
+
+def save_uploaded_file(file_storage, label: str) -> Path | None:
+    if not file_storage or not file_storage.filename:
+        return None
+
+    folder   = get_upload_folder()
+    original = file_storage.filename
+    ext      = Path(original).suffix.lower()
+    stem     = Path(original).stem
+
+    safe_stem = ''.join(
+        c if c.isalnum() or c in '-_.' else '_' for c in stem
+    ).strip('._')
+
+    raw_path = folder / f"{safe_stem}{ext}"
+    file_storage.save(str(raw_path))
+    print(f'[UPLOAD] {label}: {raw_path}')
+
+    if ext in {'.xlsx', '.xls'}:
+        csv_path = folder / f"{safe_stem}.csv"
+        try:
+            return convert_excel_to_csv(raw_path, csv_path)
+        except Exception as e:
+            flash(f'Warning: could not convert {original} to CSV: {e}', 'warning')
+            return raw_path
+
+    return raw_path
+
+
+# =============================================================================
+# OUTPUT FILE UTILITIES
+# =============================================================================
+def get_output_filename(is_subgraph=False) -> str:
+    name   = get_input_filename() or 'metabolite_graph'
+    name   = Path(name).stem
+    suffix = '_subgraph' if is_subgraph else '_output'
+    return f"{name}{suffix}.json"
+
+
+def find_output_json(is_subgraph=False) -> Path | None:
+    suffix   = '_subgraph.json' if is_subgraph else '_output.json'
+    json_dir = get_json_dir()
+
+    if get_input_filename():
+        candidate = json_dir / get_output_filename(is_subgraph)
+        if candidate.exists():
+            return candidate
+
+    if not json_dir.exists():
+        return None
+
+    matches = sorted(
+        [f for f in json_dir.iterdir()
+         if f.name.endswith(suffix) and not f.name.startswith('.')],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True
+    )
+    if not matches:
+        return None
+
+    best = matches[0]
+    set_input_filename(best.name.replace(suffix, ''))
+    return best
+
+
+def _output_is_stale(input_files: dict, is_subgraph=False) -> bool:
+    existing = find_output_json(is_subgraph=is_subgraph)
+    if not existing or not existing.exists():
+        return True
+
+    output_mtime = existing.stat().st_mtime
+    for key, path_str in input_files.items():
+        if path_str:
+            p = Path(path_str)
+            if p.exists() and p.stat().st_mtime > output_mtime:
+                return True
+    return False
+
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+def validate_input_files(files: dict) -> tuple[bool, list, dict]:
+    missing = []
+    valid   = {}
+    for key, path_str in files.items():
+        if not path_str:
+            continue
+        p = Path(path_str)
+        if not p.exists():
+            missing.append(f'{key}: file not found - {path_str}')
+            continue
+        try:
+            if p.stat().st_size == 0:
+                missing.append(f'{key}: empty file - {path_str}')
+                continue
+        except Exception as e:
+            missing.append(f'{key}: error accessing - {e}')
+            continue
+        valid[key] = path_str
+    return 'graph_pickle' in valid, missing, valid
+
 
 def download_structure_images():
-    """
-    Download molecular structure images for pathway compounds.
-    
-    Returns:
-        bool: True if successful, False otherwise
-    """
     try:
-        original_dir = os.getcwd()
-        
+        original_dir = Path.cwd()
         try:
-            # Run the structure download function
-            download_structures()
+            json_path = find_output_json(is_subgraph=False)
+            download_structures(json_file_path=str(json_path))
             return True
-            
         finally:
-            # Restore original working directory
             os.chdir(original_dir)
-            
-    except Exception:
+    except Exception as e:
+        print(f'[IMAGES] Structure download failed: {e}')
         return False
 
 
-def get_output_filename(input_filename=None, is_subgraph=False):
+def load_barchart_data() -> dict:
     """
-    Generate output filename based on input filename.
-    
-    Args:
-        input_filename (str, optional): Name of input file. If None, uses current_input_filename
-        is_subgraph (bool): Whether this is a subgraph output
-    
-    Returns:
-        str: Output filename in format 'input_name_output.json' or 'input_name_subgraph.json'
-    """
-    global current_input_filename
-    
-    # Use provided filename or fall back to tracked filename or metabolite_graph
-    filename = input_filename or current_input_filename or 'metabolite_graph'
-    
-    # Remove extension if present
-    base_name = os.path.splitext(os.path.basename(filename))[0]
-    
-    # Generate output filename
-    if is_subgraph:
-        return f"{base_name}_subgraph.json"
-    else:
-        return f"{base_name}_output.json"
+    Load the barchart_data.json uploaded by the user and transform it into
+    the dict-keyed format expected by app.js / visualizer.js.
 
-def load_or_generate_pathway_data(network_graph=None, subgraph_nodes=None, keep_positions=False, full_graph=None, path_order=None):
-    """
-    Load existing pathway data or generate new data if needed.
-    
-    Args:
-        network_graph (nx.Graph, optional): Pre-loaded NetworkX graph
-        subgraph_nodes (list, optional): List of node IDs to create subgraph
-        keep_positions (bool, optional): Whether to reuse positions from full_graph for subgraph nodes
-        full_graph (nx.Graph, optional): Original full graph for position reuse when keep_positions=True
-        path_order (list, optional): Explicit ordered list of nodes for linear layout
-    
-    Returns:
-        dict: Pathway data for visualization
-    """
-    global current_graph, current_input_filename
+    build_barchart_json.py produces:
+        {
+          "metabolomics": [
+            { "kegg_id": "C00022", "metabolite": "Pyruvate (RP Positive)",
+              "conditions": [{"condition": "CondA", "mean": 1.2, "std": 0.3, "n": 3, ...}] }
+          ],
+          "proteomics": [
+            { "reaction_id": "R00774",
+              "proteins": [
+                { "protein_id": "jgi|...", "ko": "K01941", "description": "...",
+                  "conditions": [{"condition": "CondA", "mean": 30.1, "std": 0.7, "n": 3, ...}] }
+              ]
+            }
+          ]
+        }
 
-    # Use provided graph or load from file
+    This function transforms it into:
+        {
+          "metabolites": {
+            "C00022": [
+              { "title": "Pyruvate (RP Positive)",
+                "conditions": [{"name": "CondA", "mean": 1.2, "std_dev": 0.3, "count": 3}] }
+            ]
+          },
+          "reactions": {
+            "R00774": [
+              { "title": "jgi|... (K01941) — ...",
+                "conditions": [{"name": "CondA", "mean": 30.1, "std_dev": 0.7, "count": 3}] }
+            ]
+          }
+        }
+
+    Returns an empty dict if no file has been uploaded or the file cannot be read.
+    """
+    barchart_path = get_input_files().get('barchart_data_file', '')
+    if not barchart_path:
+        return {}
+    p = Path(barchart_path)
+    if not p.exists():
+        return {}
+    try:
+        raw = json.loads(p.read_text())
+    except Exception as e:
+        print(f'[BARCHART] Could not load {p}: {e}')
+        return {}
+
+    def _norm_conditions(conditions):
+        """Normalise condition entries to {condition, mean, std, n, values, columns, null_columns}."""
+        result = []
+        for c in (conditions or []):
+            entry = {
+                'condition': c.get('condition', c.get('name', '')),
+                'mean':      c.get('mean', 0),
+                'std':       c.get('std',  c.get('std_dev', 0)),
+                'n':         c.get('n',    c.get('count', 0)),
+            }
+            # Preserve optional fields used by Vega-Lite spec
+            for opt in ('pvalue', 'null_columns', 'values', 'columns', 'subgroups'):
+                if opt in c:
+                    entry[opt] = c[opt]
+            result.append(entry)
+        return result
+
+    # ── Metabolomics: list → dict keyed by kegg_id ────────────────────
+    # Each entry keeps the full metabolite name and normalised conditions.
+    metabolites: dict = {}
+    for rec in raw.get('metabolomics', []):
+        kegg_id = rec.get('kegg_id', '')
+        if not kegg_id:
+            continue
+        entry = {
+            'kegg_id':    kegg_id,
+            'metabolite': rec.get('metabolite', rec.get('name', kegg_id)),
+            'method':     rec.get('method', ''),
+            'conditions': _norm_conditions(rec.get('conditions', [])),
+        }
+        metabolites.setdefault(kegg_id, []).append(entry)
+
+    # ── Proteomics: list → dict keyed by reaction_id ──────────────────
+    # Preserve full protein metadata (ko, description, entry_name, entry, kegg)
+    # so the sidebar panel can display them alongside the Vega-Lite chart.
+    reactions: dict = {}
+    for rec in raw.get('proteomics', []):
+        rxn_id = rec.get('reaction_id', '')
+        if not rxn_id:
+            continue
+        proteins = []
+        for prot in rec.get('proteins', []):
+            prot_entry: dict = {
+                'protein_id': prot.get('protein_id', ''),
+                'conditions': _norm_conditions(prot.get('conditions', [])),
+            }
+            # Preserve optional metadata fields
+            for field in ('ko', 'description', 'entry_name', 'entry', 'kegg'):
+                if field in prot:
+                    prot_entry[field] = prot[field]
+            proteins.append(prot_entry)
+        if proteins:
+            reactions[rxn_id] = {
+                'reaction_id': rxn_id,
+                'proteins':    proteins,
+            }
+
+    # ── KEGG names: kegg_id -> human-readable name ────────────────────
+    # Derived from the metabolomics entries for use in the sidebar header.
+    kegg_names: dict = {}
+    for kegg_id, entries in metabolites.items():
+        for e in entries:
+            name = e.get('metabolite', '')
+            if name and name != kegg_id:
+                kegg_names[kegg_id] = name
+                break
+
+    return {'metabolites': metabolites, 'reactions': reactions, 'kegg_names': kegg_names}
+
+
+def load_or_generate_pathway_data(
+    network_graph=None,
+    subgraph_nodes=None,
+    keep_positions=False,
+    full_graph=None,
+    path_order=None,
+):
+    input_files = get_input_files()
+
     if network_graph is not None:
         working_graph = network_graph
-        current_graph = network_graph
+        set_current_graph(network_graph)
     else:
-        # Only require graph_pickle
-        graph_file = INPUT_FILES['graph_pickle']
-        if not graph_file or not os.path.exists(graph_file):
-            raise FileNotFoundError(f"Missing required input file: {graph_file}")
-        
-        # Track the input filename for output naming
-        current_input_filename = os.path.basename(graph_file)
-        
-        # Load the graph
-        try:
-            working_graph = load_graph(graph_file)
-            current_graph = working_graph
-        except Exception as e:
-            raise
-    
-    # Create subgraph if specific nodes are requested
+        graph_file = input_files.get('graph_pickle', '')
+        if not graph_file or not Path(graph_file).exists():
+            raise FileNotFoundError(f'Missing required graph file: {graph_file}')
+        set_input_filename(Path(graph_file).stem)
+        working_graph = load_graph(graph_file)
+        set_current_graph(working_graph)
+
     if subgraph_nodes:
-        # Filter nodes that exist in the graph
-        valid_nodes = [node for node in subgraph_nodes if node in working_graph.nodes()]
-        
-        if not valid_nodes:
-            raise ValueError("No valid nodes found for subgraph creation")
-        
-        working_graph = working_graph.subgraph(valid_nodes).copy()
-    
-    setup_output_directories()
-    
-    # Generate pathway data with dynamic output filename
-    is_subgraph = subgraph_nodes is not None
+        valid = [n for n in subgraph_nodes if n in working_graph.nodes()]
+        if not valid:
+            raise ValueError('No valid nodes found for subgraph creation')
+        working_graph = working_graph.subgraph(valid).copy()
+
+    is_subgraph     = subgraph_nodes is not None
     output_filename = get_output_filename(is_subgraph=is_subgraph)
-    
-    # Call imported function directly (no wrapper needed)
-    validate_and_update_input_files()
-    
-    # Pass position persistence parameters if creating a subgraph
-    escher_map = generate_escher_map_from_graph(
+    json_dir        = get_json_dir()
+
+    print(f'\n[GENERATE] Building {"subgraph" if is_subgraph else "full graph"} map')
+
+    return generate_escher_map_from_graph(
         graph=working_graph,
-        output_dir=OUTPUT_PATHS['json_dir'],
-        kegg_names_file=OUTPUT_PATHS['kegg_names_file'],
+        output_dir=str(json_dir),
+        kegg_names_file=cfg.SHARED_KEGG_NAMES_FILE,
         json_output_file=output_filename,
-        metabolomics_file=INPUT_FILES['metabolomics_csv'] if INPUT_FILES['metabolomics_csv'] else None,
-        proteomics_file=INPUT_FILES['proteomics_csv'] if INPUT_FILES['proteomics_csv'] else None,
-        config=CANVAS_CONFIG,
+        config=get_backend_config(),
         keep_positions=keep_positions and is_subgraph,
         full_graph=full_graph if is_subgraph else None,
-        path_order=path_order
+        path_order=path_order,
     )
-    return escher_map
 
-# ===== FLASK ROUTES =====
-@app.route('/')
-def index():
-    """
-    Main route that serves the pathway visualization.
-    
-    Returns:
-        Rendered HTML template with pathway data and forms
-    """
+
+def find_nodes_within_distance(graph, selected_nodes, distance) -> list:
+    """BFS expansion from selected_nodes up to `distance` hops."""
+    result   = set()
+    valid    = [n for n in selected_nodes if n in graph.nodes()]
+    if not valid:
+        raise ValueError('No valid selected nodes found in graph')
+    result.update(valid)
+    frontier = set(valid)
+    for _ in range(distance):
+        nxt = set()
+        for node in frontier:
+            nxt.update(graph.neighbors(node))
+        new_nodes = nxt - result
+        result.update(new_nodes)
+        frontier  = new_nodes
+        if not frontier:
+            break
+    return list(result)
+
+
+def ensure_graph_loaded() -> bool:
+    if get_current_graph() is not None:
+        return True
+    graph_file = get_input_files().get('graph_pickle', '')
+    if not graph_file or not Path(graph_file).exists():
+        return False
     try:
-        # Create all forms
-        upload_form = UploadFilesForm()
-        config_form = CanvasConfigForm()
-        path_form = PathSelectionForm()
-        subgraph_form = SubgraphCreationForm()
-        multi_node_form = MultiNodeSelectionForm()
-        revert_form = RevertGraphForm()
-        backend_config_form = BackendConfigForm(
+        set_current_graph(load_graph(graph_file))
+        return True
+    except Exception as e:
+        print(f'[GRAPH] Could not load: {e}')
+        return False
+
+
+def build_template_context(json_data, view_type='full') -> dict:
+    backend_form = BackendConfigForm(
+        data=dict(
             small_graph_layout_vertical=cfg.SMALL_GRAPH_LAYOUT_VERTICAL,
             small_graph_width=cfg.SMALL_GRAPH_WIDTH,
             small_graph_height=cfg.SMALL_GRAPH_HEIGHT,
@@ -244,876 +546,475 @@ def index():
             coproduct_offset=cfg.COPRODUCT_OFFSET,
             max_aspect_ratio=cfg.MAX_ASPECT_RATIO,
             min_aspect_ratio=cfg.MIN_ASPECT_RATIO,
+            view_type=view_type,
+            start_node=request.args.get('start', ''),
+            end_node=request.args.get('end', ''),
+            path_nodes=request.args.get('nodes', ''),
+            selected_nodes=request.args.get('selected', ''),
+            connection_distance=request.args.get('dist', ''),
+            keep_positions='1' if request.args.get('keep_pos', '0') == '1' else '0',
         )
-        
-        # Check if subgraph view is requested
-        view_type = request.args.get('view', 'full')
-        
+    )
+
+    # Build a populated FrontendConfigForm for the template
+    # Merge global defaults from config.get_frontend_config() with
+    # any per-user overrides stored in the session so nested keys
+    # like `originColours` are always provided to the template.
+    global_defaults = get_frontend_config()
+    session_overrides = get_user_frontend_config()
+    # session_overrides may contain values for scalar keys; merge
+    # by taking global defaults and applying the overrides on top.
+    merged = {**global_defaults, **session_overrides}
+    user_config = merged
+    frontend_form = FrontendConfigForm(data=user_config)
+
+    return {
+        'json_data':            json_data,
+        'upload_form':          UploadFilesForm(),
+        'path_form':            PathSelectionForm(),
+        'multi_node_form':      MultiNodeSelectionForm(),
+        'revert_form':          RevertGraphForm(),
+        'backend_config_form':  backend_form,
+        'frontend_config':      user_config,       # dict for window.CONFIG injection
+        'frontend_config_form': frontend_form,     # form for rendering inputs
+    }
+
+
+# =============================================================================
+# ROUTES
+# =============================================================================
+@app.route('/')
+def index():
+    try:
+        view_type   = request.args.get('view', 'full')
+        input_files = get_input_files()
+        graph_file  = input_files.get('graph_pickle', '')
+
+        if not graph_file or not Path(graph_file).exists():
+            return render_template(
+                'index.html',
+                **build_template_context(json_data=None, view_type='full')
+            )
+
         if view_type == 'subgraph':
-            # Try to load subgraph data
-            subgraph_filename = get_output_filename(is_subgraph=True)
-            subgraph_json_path = os.path.join(OUTPUT_PATHS['json_dir'], subgraph_filename)
-            if os.path.exists(subgraph_json_path):
-                with open(subgraph_json_path, 'r') as f:
-                    json_data = json.load(f)
+            path = find_output_json(is_subgraph=True)
+            if path:
+                json_data = json.loads(path.read_text())
             else:
                 json_data = load_or_generate_pathway_data()
         else:
-            # Load or generate full pathway data
-            json_data = load_or_generate_pathway_data()
-            download_structure_images()
-        
-        # Render the visualization template with forms
-        return render_template('index.html', 
-                             json_data=json_data,
-                             upload_form=upload_form,
-                             config_form=config_form,
-                             path_form=path_form,
-                             subgraph_form=subgraph_form,
-                             multi_node_form=multi_node_form,
-                             revert_form=revert_form,
-                             backend_config_form=backend_config_form,
-                             node_radius=NODE_RADIUS,
-                             metabolite_radius=METABOLITE_RADIUS,
-                             reaction_radius=REACTION_RADIUS,
-                             structure_image_size=STRUCTURE_IMAGE_SIZE,
-                             label_offset_y=LABEL_OFFSET_Y,
-                             coproduct_label_offset_y=COPRODUCT_LABEL_OFFSET_Y,
-                             bar_chart_offset_y=BAR_CHART_OFFSET_Y,
-                             metabolite_label_font_size=METABOLITE_LABEL_FONT_SIZE,
-                             coproduct_label_font_size=COPRODUCT_LABEL_FONT_SIZE,
-                             chart_title_font_size=CHART_TITLE_FONT_SIZE,
-                             chart_label_font_size=CHART_LABEL_FONT_SIZE,
-                             bar_chart_width=BAR_CHART_WIDTH,
-                             bar_chart_height=BAR_CHART_HEIGHT,
-                             bar_height=BAR_HEIGHT,
-                             bar_chart_axis_padding=BAR_CHART_AXIS_PADDING,
-                             bar_chart_title=BAR_CHART_TITLE,
-                             bar_chart_x_label=BAR_CHART_X_LABEL,
-                             bar_chart_y_label=BAR_CHART_Y_LABEL,
-                             small_graph_layout_vertical=cfg.SMALL_GRAPH_LAYOUT_VERTICAL,
-                             node_threshold_small=cfg.NODE_THRESHOLD_SMALL,
-                             # Backend config current values
-                             backend_small_graph_width=cfg.SMALL_GRAPH_WIDTH,
-                             backend_small_graph_height=cfg.SMALL_GRAPH_HEIGHT,
-                             backend_medium_graph_width=cfg.MEDIUM_GRAPH_WIDTH,
-                             backend_medium_graph_height=cfg.MEDIUM_GRAPH_HEIGHT,
-                             backend_large_graph_width=cfg.LARGE_GRAPH_WIDTH,
-                             backend_large_graph_height=cfg.LARGE_GRAPH_HEIGHT,
-                             backend_node_threshold_small=cfg.NODE_THRESHOLD_SMALL,
-                             backend_node_threshold_medium=cfg.NODE_THRESHOLD_MEDIUM,
-                             backend_coproduct_radius=cfg.COPRODUCT_RADIUS,
-                             backend_coproduct_offset=cfg.COPRODUCT_OFFSET,
-                             backend_max_aspect_ratio=cfg.MAX_ASPECT_RATIO,
-                             backend_min_aspect_ratio=cfg.MIN_ASPECT_RATIO)
-        
+            if _output_is_stale(input_files):
+                json_data = load_or_generate_pathway_data()
+                download_structure_images()
+            else:
+                json_data = json.loads(find_output_json(is_subgraph=False).read_text())
+
+        return render_template(
+            'index.html', **build_template_context(json_data, view_type)
+        )
+
+    except FileNotFoundError as e:
+        flash(f'File not found: {e}', 'error')
+    except ValueError as e:
+        flash(f'Data error: {e}', 'error')
+    except json.JSONDecodeError as e:
+        flash(f'Corrupt output file — please re-upload. ({e})', 'error')
     except Exception as e:
-        return f"""
-        <html>
-        <head><title>Pathway Visualization Error</title></head>
-        <body>
-            <h1>Error Loading Pathway Visualization</h1>
-            <p><strong>Error:</strong> {str(e)}</p>
-            <p><strong>Please check that the following file exists:</strong></p>
-            <ul><li>Graph file: {INPUT_FILES['graph_pickle']}</li></ul>
-            <p><a href="/">Try again</a></p>
-        </body>
-        </html>
-        """, 500
+        logging.exception('[INDEX] Unexpected error')
+        flash(f'Unexpected error: {e}', 'error')
+
+    return render_template(
+        'index.html',
+        **build_template_context(json_data=None, view_type='full')
+    )
+
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
-    """
-    Serve static files (images, CSS, JS).
-    
-    Args:
-        filename (str): Path to static file
-        
-    Returns:
-        Static file response
-    """
     return send_from_directory('static', filename)
 
-@app.route('/json_pathway')
-def json_pathway():
-    """
-    Serve the pathway JSON data for map visualization.
-    
-    Returns:
-        JSON response with pathway data
-    """
-    try:
-        # Check if viewing subgraph
-        view_type = request.args.get('view', 'full')
-        
-        if view_type == 'subgraph':
-            subgraph_filename = get_output_filename(is_subgraph=True)
-            subgraph_json_path = os.path.join(OUTPUT_PATHS['json_dir'], subgraph_filename)
-            if os.path.exists(subgraph_json_path):
-                with open(subgraph_json_path, 'r') as f:
-                    json_data = json.load(f)
-                return jsonify(json_data)
-        
-        # Load full pathway data
-        json_data = load_or_generate_pathway_data()
-        return jsonify(json_data)
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/update-config', methods=['POST'])
-def update_frontend_config():
-    """
-    Update frontend visualization configuration in real-time.
-    
-    Accepts JSON with configuration values and returns updated config
-    for immediate frontend application without page reload.
-    This endpoint validates the data and returns success - the actual
-    update happens in the frontend JavaScript.
-    
-    Returns:
-        JSON response with updated configuration
-    """
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Validate data (simple validation)
-        config_updates = {
-            'barChartWidth': 'BAR_CHART_WIDTH',
-            'barChartHeight': 'BAR_CHART_HEIGHT',
-            'barChartOffsetY': 'BAR_CHART_OFFSET_Y',
-            'barChartAxisPadding': 'BAR_CHART_AXIS_PADDING',
-            'barChartTitle': 'BAR_CHART_TITLE',
-            'barChartXLabel': 'BAR_CHART_X_LABEL',
-            'barChartYLabel': 'BAR_CHART_Y_LABEL',
-            'labelOffsetY': 'LABEL_OFFSET_Y',
-            'coproductLabelOffsetY': 'COPRODUCT_LABEL_OFFSET_Y'
-        }
-        
-        updated_config = {}
-        for field_name in config_updates.keys():
-            if field_name in data:
-                updated_config[field_name] = data[field_name]
-        
-        return jsonify({
-            'success': True,
-            'message': 'Configuration updated',
-            'updatedConfig': updated_config
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/regenerate-graph', methods=['POST'])
-def regenerate_graph():
-    """
-    Regenerate the pathway graph with updated backend configuration.
-    
-    Accepts JSON with:
-    {
-        "backendConfig": {
-            "smallGraphLayoutVertical": bool,
-            "smallGraphWidth": int, "smallGraphHeight": int,
-            "mediumGraphWidth": int, "mediumGraphHeight": int,
-            "largeGraphWidth": int, "largeGraphHeight": int,
-            "nodeThresholdSmall": int, "nodeThresholdMedium": int,
-            "coproductRadius": int, "coproductOffset": int,
-            "maxAspectRatio": float, "minAspectRatio": float
-        },
-        "viewState": {
-            "type": "full" | "subgraph",
-            "startNode": str (optional, for subgraph),
-            "endNode": str (optional, for subgraph),
-            "pathNodes": list (optional, for multi-node subgraph),
-            "keepPositions": bool
-        }
-    }
-    
-    Returns:
-        JSON with regenerated Escher map data and updated config
-    """
-    global current_graph, CANVAS_CONFIG
-    
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        backend_config = data.get('backendConfig', {})
-        view_state = data.get('viewState', {'type': 'full'})
-        
-        print(f"[REGEN] Received view_state: {view_state}")
-        print(f"[REGEN] Received backend_config keys: {list(backend_config.keys())}")
-        
-        # --- Update config module attributes at runtime ---
-        config_mapping = {
-            'smallGraphLayoutVertical': ('SMALL_GRAPH_LAYOUT_VERTICAL', bool),
-            'smallGraphWidth': ('SMALL_GRAPH_WIDTH', int),
-            'smallGraphHeight': ('SMALL_GRAPH_HEIGHT', int),
-            'mediumGraphWidth': ('MEDIUM_GRAPH_WIDTH', int),
-            'mediumGraphHeight': ('MEDIUM_GRAPH_HEIGHT', int),
-            'largeGraphWidth': ('LARGE_GRAPH_WIDTH', int),
-            'largeGraphHeight': ('LARGE_GRAPH_HEIGHT', int),
-            'nodeThresholdSmall': ('NODE_THRESHOLD_SMALL', int),
-            'nodeThresholdMedium': ('NODE_THRESHOLD_MEDIUM', int),
-            'coproductRadius': ('COPRODUCT_RADIUS', int),
-            'coproductOffset': ('COPRODUCT_OFFSET', int),
-            'maxAspectRatio': ('MAX_ASPECT_RATIO', float),
-            'minAspectRatio': ('MIN_ASPECT_RATIO', float),
-        }
-        
-        for js_key, (py_attr, type_fn) in config_mapping.items():
-            if js_key in backend_config:
-                value = type_fn(backend_config[js_key])
-                setattr(cfg, py_attr, value)
-        
-        # Update CANVAS_CONFIG dict (used by load_or_generate_pathway_data)
-        CANVAS_CONFIG['small_width'] = cfg.SMALL_GRAPH_WIDTH
-        CANVAS_CONFIG['small_height'] = cfg.SMALL_GRAPH_HEIGHT
-        CANVAS_CONFIG['medium_width'] = cfg.MEDIUM_GRAPH_WIDTH
-        CANVAS_CONFIG['medium_height'] = cfg.MEDIUM_GRAPH_HEIGHT
-        CANVAS_CONFIG['large_width'] = cfg.LARGE_GRAPH_WIDTH
-        CANVAS_CONFIG['large_height'] = cfg.LARGE_GRAPH_HEIGHT
-        
-        # --- Load graph if needed ---
-        if current_graph is None:
-            graph_file = INPUT_FILES['graph_pickle']
-            if not graph_file or not os.path.exists(graph_file):
-                return jsonify({'error': 'Graph file not found. Please upload files first.'}), 400
-            current_graph = load_graph(graph_file)
-        
-        # --- Regenerate based on view state ---
-        view_type = view_state.get('type', 'full')
-        keep_positions = view_state.get('keepPositions', True)
-        
-        if view_type == 'subgraph':
-            start_node = view_state.get('startNode')
-            end_node = view_state.get('endNode')
-            path_nodes = view_state.get('pathNodes')
-            
-            # Check for multi-node subgraph with selectedNodes + connectionDistance
-            selected_nodes = view_state.get('selectedNodes')
-            connection_distance = view_state.get('connectionDistance')
-            
-            if selected_nodes and isinstance(selected_nodes, list) and len(selected_nodes) > 0 and connection_distance is not None:
-                # Multi-node subgraph: re-expand from selected nodes + distance
-                print(f"[REGEN] Multi-node subgraph: selectedNodes={selected_nodes}, distance={connection_distance}")
-                subgraph_nodes = find_nodes_within_distance(current_graph, selected_nodes, int(connection_distance))
-                json_data = load_or_generate_pathway_data(
-                    network_graph=current_graph,
-                    subgraph_nodes=subgraph_nodes,
-                    keep_positions=keep_positions,
-                    full_graph=current_graph
-                )
-            elif path_nodes and isinstance(path_nodes, list) and len(path_nodes) > 0:
-                # Explicit path nodes (fallback)
-                json_data = load_or_generate_pathway_data(
-                    network_graph=current_graph,
-                    subgraph_nodes=path_nodes,
-                    keep_positions=keep_positions,
-                    full_graph=current_graph,
-                    path_order=path_nodes
-                )
-            elif start_node and end_node:
-                # Shortest path subgraph
-                try:
-                    path = nx.shortest_path(current_graph, start_node, end_node)
-                    json_data = load_or_generate_pathway_data(
-                        network_graph=current_graph,
-                        subgraph_nodes=path,
-                        keep_positions=keep_positions,
-                        full_graph=current_graph,
-                        path_order=path
-                    )
-                except nx.NetworkXNoPath:
-                    return jsonify({'error': f'No path found between {start_node} and {end_node}'}), 404
-            else:
-                return jsonify({'error': 'Subgraph view requires startNode/endNode or pathNodes'}), 400
-        else:
-            # Full graph regeneration
-            json_data = load_or_generate_pathway_data(network_graph=current_graph)
-            download_structure_images()
-        
-        return jsonify({
-            'success': True,
-            'jsonData': json_data,
-            'viewType': view_type,
-            'updatedConfig': {
-                'smallGraphLayoutVertical': cfg.SMALL_GRAPH_LAYOUT_VERTICAL,
-                'nodeThresholdSmall': cfg.NODE_THRESHOLD_SMALL,
-            }
-        }), 200
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/config', methods=['POST'])
-def save_config():
-    """
-    Canvas configuration form - all settings are now in config.py.
-    Simply redirect back to index.
-    """
-    flash('Canvas configuration is set in config.py', 'info')
-    return redirect(url_for('index'))
-
-@app.route('/health')
-def health_check():
-    """
-    Health check endpoint for monitoring.
-    
-    Returns:
-        JSON response with app status
-    """
-    try:
-        # Check if required files exist
-        files_exist, missing_files = validate_and_update_input_files()
-        
-        # Check if output directories exist
-        json_dir_exists = os.path.exists(OUTPUT_PATHS['json_dir'])
-        images_dir_exists = os.path.exists(OUTPUT_PATHS['images_dir'])
-        
-        status = {
-            "status": "healthy" if files_exist else "warning",
-            "input_files": {
-                "all_exist": files_exist,
-                "missing": missing_files
-            },
-            "output_directories": {
-                "json_dir": json_dir_exists,
-                "images_dir": images_dir_exists
-            },
-            "file_paths": INPUT_FILES
-        }
-        
-        return status
-        
-    except Exception as e:
-        return {"status": "error", "error": str(e)}, 500
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
-    """
-    Handle file uploads for graph_pickle, metabolomics_csv, and proteomics_csv.
-    Accepts .pickle, .pkl, or .json files for the graph.
-    """
-    global current_input_filename
-    
     form = UploadFilesForm()
-    
-    if form.validate_on_submit():
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-        
-        # Handle graph file (required)
-        if form.graph_pickle.data:
-            graph_file = form.graph_pickle.data
-            file_ext = os.path.splitext(graph_file.filename)[1].lower()
-            if file_ext in ALLOWED_GRAPH_EXTENSIONS:
-                save_path = os.path.join(UPLOAD_FOLDER, graph_file.filename)
-                graph_file.save(save_path)
-                INPUT_FILES['graph_pickle'] = save_path
-                current_input_filename = graph_file.filename
-        
-        # Handle metabolomics file (optional)
-        if form.metabolomics_csv.data:
-            metabolomics_file = form.metabolomics_csv.data
-            save_path = os.path.join(UPLOAD_FOLDER, metabolomics_file.filename)
-            metabolomics_file.save(save_path)
-            INPUT_FILES['metabolomics_csv'] = save_path
-        else:
-            INPUT_FILES['metabolomics_csv'] = ""
-        
-        # Handle proteomics file (optional)
-        if form.proteomics_csv.data:
-            proteomics_file = form.proteomics_csv.data
-            save_path = os.path.join(UPLOAD_FOLDER, proteomics_file.filename)
-            proteomics_file.save(save_path)
-            INPUT_FILES['proteomics_csv'] = save_path
-        else:
-            INPUT_FILES['proteomics_csv'] = ""
-        
-        validate_and_update_input_files()
-        flash('Files uploaded successfully!', 'success')
+    if not form.validate_on_submit():
+        for field_errors in form.errors.values():
+            for error in field_errors:
+                flash(error, 'error')
         return redirect(url_for('index'))
+
+    files        = get_input_files()
+    uploaded_any = False
+    summary      = []
+
+    if form.graph_pickle.data and form.graph_pickle.data.filename:
+        path = save_uploaded_file(form.graph_pickle.data, 'graph')
+        if path:
+            files['graph_pickle'] = str(path)
+            set_input_filename(path.stem)
+            set_current_graph(None)
+            _graph_cache.pop(get_user_id(), None)
+            uploaded_any = True
+            summary.append(f"Graph: {path.name}")
+
+    files['barchart_data_file'] = files.get('barchart_data_file', '')
+    if form.barchart_data_file.data and form.barchart_data_file.data.filename:
+        path = save_uploaded_file(form.barchart_data_file.data, 'barchart_data')
+        if path:
+            files['barchart_data_file'] = str(path)
+            uploaded_any = True
+            summary.append(f"Stats JSON: {path.name}")
+
+    if uploaded_any:
+        set_input_files(files)
+        flash(f"Uploaded: {' | '.join(summary)}", 'success')
     else:
-        flash('File upload failed. Please check file types.', 'error')
+        flash('No files were uploaded.', 'warning')
+
+    return redirect(url_for('index'))
+
+
+@app.route('/find_path', methods=['POST'])
+def find_path():
+    form = PathSelectionForm()
+    if not form.validate_on_submit():
+        for field_errors in form.errors.values():
+            for error in field_errors:
+                flash(error, 'error')
         return redirect(url_for('index'))
+
+    if not ensure_graph_loaded():
+        flash('Graph file not found. Please upload files first.', 'error')
+        return redirect(url_for('index'))
+
+    graph          = get_current_graph()
+    start_node     = form.start_node.data
+    end_node       = form.end_node.data
+    keep_positions = form.keep_positions.data
+
+    for node, label in [(start_node, 'Start'), (end_node, 'End')]:
+        if node not in graph.nodes():
+            flash(f'{label} node "{node}" not found in graph', 'error')
+            return redirect(url_for('index'))
+
+    try:
+        path = nx.shortest_path(graph, start_node, end_node)
+    except nx.NetworkXNoPath:
+        flash(f'No path found between {start_node} and {end_node}', 'error')
+        return redirect(url_for('index'))
+    except nx.NodeNotFound as e:
+        flash(f'Node not found: {e}', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        if keep_positions:
+            load_or_generate_pathway_data(network_graph=graph)
+            flash(f'Path found: {len(path) - 1} steps', 'success')
+            return redirect(url_for('index',
+                view='full',
+                highlight_path=','.join(path),
+                start=start_node,
+                end=end_node,
+                keep_pos='1',
+            ))
+        else:
+            load_or_generate_pathway_data(
+                network_graph=graph,
+                subgraph_nodes=path,
+                keep_positions=False,
+                full_graph=graph,
+                path_order=path,
+            )
+            flash(f'Path found: {len(path) - 1} steps', 'success')
+            return redirect(url_for('index',
+                view='subgraph',
+                start=start_node,
+                end=end_node,
+                keep_pos='0',
+            ))
+    except ValueError as e:
+        flash(f'Path view error: {e}', 'error')
+        return redirect(url_for('index'))
+    except Exception as e:
+        logging.exception('[FIND_PATH] Unexpected error')
+        flash(f'Error creating path view: {e}', 'error')
+        return redirect(url_for('index'))
+
+
+@app.route('/create_multi_node_subgraph', methods=['POST'])
+def create_multi_node_subgraph():
+    form = MultiNodeSelectionForm()
+    if not form.validate_on_submit():
+        for field_errors in form.errors.values():
+            for error in field_errors:
+                flash(error, 'error')
+        return redirect(url_for('index'))
+
+    if not ensure_graph_loaded():
+        flash('Graph file not found. Please upload files first.', 'error')
+        return redirect(url_for('index'))
+
+    graph               = get_current_graph()
+    selected_nodes      = [n.strip() for n in form.selected_nodes.data.split(',') if n.strip()]
+    connection_distance = form.connection_distance.data
+    keep_positions      = form.keep_positions.data
+
+    invalid = [n for n in selected_nodes if n not in graph.nodes()]
+    if invalid:
+        flash(f'Nodes not found in graph: {", ".join(invalid)}', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        subgraph_nodes = find_nodes_within_distance(graph, selected_nodes, connection_distance)
+        load_or_generate_pathway_data(
+            network_graph=graph,
+            subgraph_nodes=subgraph_nodes,
+            keep_positions=keep_positions,
+            full_graph=graph,
+        )
+        flash(f'Subgraph created with {len(subgraph_nodes)} nodes', 'success')
+        return redirect(url_for('index',
+            view='subgraph',
+            nodes=','.join(subgraph_nodes),
+            selected=','.join(selected_nodes),
+            dist=connection_distance,
+            keep_pos='1' if keep_positions else '0',
+        ))
+    except ValueError as e:
+        flash(f'Subgraph error: {e}', 'error')
+        return redirect(url_for('index'))
+    except Exception as e:
+        logging.exception('[MULTI_NODE] Unexpected error')
+        flash(f'Error creating subgraph: {e}', 'error')
+        return redirect(url_for('index'))
+
+
+@app.route('/regenerate_graph', methods=['POST'])
+def regenerate_graph():
+    form = BackendConfigForm()
+    if not form.validate_on_submit():
+        for field_errors in form.errors.values():
+            for error in field_errors:
+                flash(error, 'error')
+        return redirect(url_for('index'))
+
+    cfg.SMALL_GRAPH_LAYOUT_VERTICAL = form.small_graph_layout_vertical.data
+    cfg.SMALL_GRAPH_WIDTH           = form.small_graph_width.data
+    cfg.SMALL_GRAPH_HEIGHT          = form.small_graph_height.data
+    cfg.MEDIUM_GRAPH_WIDTH          = form.medium_graph_width.data
+    cfg.MEDIUM_GRAPH_HEIGHT         = form.medium_graph_height.data
+    cfg.LARGE_GRAPH_WIDTH           = form.large_graph_width.data
+    cfg.LARGE_GRAPH_HEIGHT          = form.large_graph_height.data
+    cfg.NODE_THRESHOLD_SMALL        = form.node_threshold_small.data
+    cfg.NODE_THRESHOLD_MEDIUM       = form.node_threshold_medium.data
+    cfg.COPRODUCT_RADIUS            = form.coproduct_radius.data
+    cfg.COPRODUCT_OFFSET            = form.coproduct_offset.data
+    cfg.MAX_ASPECT_RATIO            = form.max_aspect_ratio.data
+    cfg.MIN_ASPECT_RATIO            = form.min_aspect_ratio.data
+
+    if not ensure_graph_loaded():
+        flash('Graph file not found. Please upload files first.', 'error')
+        return redirect(url_for('index'))
+
+    graph               = get_current_graph()
+    view_type           = form.view_type.data or 'full'
+    start_node          = form.start_node.data
+    end_node            = form.end_node.data
+    path_nodes_str      = form.path_nodes.data
+    selected_nodes_str  = form.selected_nodes.data
+    connection_distance = form.connection_distance.data
+    keep_positions      = form.keep_positions.data == '1'
+
+    try:
+        if view_type == 'subgraph':
+            if selected_nodes_str and connection_distance:
+                selected       = [n.strip() for n in selected_nodes_str.split(',') if n.strip()]
+                dist           = int(connection_distance)
+                subgraph_nodes = find_nodes_within_distance(graph, selected, dist)
+                load_or_generate_pathway_data(
+                    network_graph=graph, subgraph_nodes=subgraph_nodes,
+                    keep_positions=keep_positions, full_graph=graph,
+                )
+                flash('Graph regenerated successfully!', 'success')
+                return redirect(url_for('index',
+                    view='subgraph', nodes=','.join(subgraph_nodes),
+                    selected=selected_nodes_str, dist=dist,
+                    keep_pos='1' if keep_positions else '0',
+                ))
+            elif start_node and end_node:
+                try:
+                    path = nx.shortest_path(graph, start_node, end_node)
+                except nx.NetworkXNoPath:
+                    flash(f'No path found between {start_node} and {end_node}', 'error')
+                    return redirect(url_for('index'))
+                except nx.NodeNotFound as e:
+                    flash(f'Node not found: {e}', 'error')
+                    return redirect(url_for('index'))
+                load_or_generate_pathway_data(
+                    network_graph=graph, subgraph_nodes=path,
+                    keep_positions=keep_positions, full_graph=graph, path_order=path,
+                )
+                flash('Graph regenerated successfully!', 'success')
+                return redirect(url_for('index',
+                    view='subgraph', start=start_node, end=end_node,
+                    keep_pos='1' if keep_positions else '0',
+                ))
+            elif path_nodes_str:
+                path_nodes = [n.strip() for n in path_nodes_str.split(',') if n.strip()]
+                load_or_generate_pathway_data(
+                    network_graph=graph, subgraph_nodes=path_nodes,
+                    keep_positions=keep_positions, full_graph=graph, path_order=path_nodes,
+                )
+                flash('Graph regenerated successfully!', 'success')
+                return redirect(url_for('index',
+                    view='subgraph', nodes=path_nodes_str,
+                    keep_pos='1' if keep_positions else '0',
+                ))
+            else:
+                flash('Could not reconstruct subgraph; showing full graph.', 'warning')
+
+        load_or_generate_pathway_data(network_graph=graph)
+        download_structure_images()
+        flash('Graph regenerated successfully!', 'success')
+        return redirect(url_for('index'))
+
+    except ValueError as e:
+        flash(f'Regeneration error: {e}', 'error')
+        return redirect(url_for('index'))
+    except Exception as e:
+        logging.exception('[REGENERATE] Unexpected error')
+        flash(f'Error regenerating graph: {e}', 'error')
+        return redirect(url_for('index'))
+
+
+@app.route('/revert_to_full_graph', methods=['POST'])
+def revert_to_full_graph():
+    flash('Reverted to full graph view', 'success')
+    return redirect(url_for('index'))
+
 
 @app.route('/api/nodes')
 def get_available_nodes():
     """
-    Get list of available nodes for dropdown selection.
-    Uses the JSON visualization data to get proper node names.
-    
-    Returns:
-        JSON response with list of node IDs and names
+    Return node list for dropdowns.
+    Cached per user via flask-caching — invalidated when graph changes.
     """
-    global current_graph
-    
-    try:
-        # Try to load from metabolite_graph_output.json (has proper node names)
-        json_path = 'static/json_pathway/metabolite_graph_output.json'
-        
-        if os.path.exists(json_path):
-            with open(json_path, 'r') as f:
-                json_data = json.load(f)
-            
-            # metabolite_graph_output.json is an array: [map_info, {nodes: {...}}, ...]
-            nodes_dict = None
-            for item in json_data:
-                if isinstance(item, dict) and 'nodes' in item:
-                    nodes_dict = item['nodes']
-                    break
-            
-            if nodes_dict:
-                nodes = []
-                for node_id in sorted(nodes_dict.keys()):
-                    node_info = nodes_dict[node_id]
-                    # Only include metabolite nodes, not midpoints or coproducts
-                    if node_info.get('node_type') != 'metabolite':
-                        continue
-                    
-                    # Extract name from JSON - prefer 'name' field, fallback to 'bigg_id'
-                    name = node_info.get('name') or node_info.get('bigg_id') or node_id
-                    # Clean up: strip whitespace and trailing semicolons from KEGG names
-                    name = str(name).strip().rstrip(';').strip()
-                    
-                    nodes.append({
-                        "id": node_id,
-                        "name": name
-                    })
-                
-                # Sort alphabetically by display text (name - id)
-                nodes.sort(key=lambda x: (x['name'] or x['id']).lower())
-                return jsonify(nodes)
-        
-        # Fallback to graph if JSON not available
-        if current_graph is None:
-            graph_file = INPUT_FILES['graph_pickle']
-            if not graph_file or not os.path.exists(graph_file):
-                return jsonify([])
-            
-            try:
-                current_graph = load_graph(graph_file)
-            except Exception as e:
-                return jsonify([])
-        
-        nodes = []
-        for node_id in sorted(current_graph.nodes()):
-            node_data = current_graph.nodes[node_id]
-            # Try various possible field names
-            name = (node_data.get("name") or 
-                   node_data.get("label") or 
-                   node_data.get("bigg_id") or 
-                   node_id)
-            name = str(name).strip().rstrip(';').strip()
-            
-            nodes.append({
-                "id": node_id,
-                "name": name
-            })
-        
-        # Sort alphabetically by name
-        nodes.sort(key=lambda x: (x['name'] or x['id']).lower())
-        return jsonify(nodes)
-        
-    except Exception as e:
-        print(f"Error in get_available_nodes: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify([]), 500
+    uid        = get_user_id()
+    cache_key  = f'nodes_{uid}'
+    cached     = cache.get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
 
-@app.route('/find_path', methods=['POST'])
-def find_path():
-    """
-    Find shortest path between two selected nodes and create subgraph.
-    """
-    global current_graph
-    
-    form = PathSelectionForm()
-    
-    if form.validate_on_submit():
-        try:
-            start_node = form.start_node.data
-            end_node = form.end_node.data
-            keep_positions = form.keep_positions.data  # Extract keep_positions from form
-            
-            # Load graph if not already loaded
-            if current_graph is None:
-                graph_file = INPUT_FILES['graph_pickle']
-                if not graph_file or not os.path.exists(graph_file):
-                    flash('Graph file not found', 'error')
-                    return redirect(url_for('index'))
-                
-                try:
-                    current_graph = load_graph(graph_file)
-                except Exception as e:
-                    flash(f'Error loading graph: {str(e)}', 'error')
-                    return redirect(url_for('index'))
-            
-            # Validate nodes exist
-            if start_node not in current_graph.nodes():
-                flash(f'Start node "{start_node}" not found', 'error')
-                return redirect(url_for('index'))
-            
-            if end_node not in current_graph.nodes():
-                flash(f'End node "{end_node}" not found', 'error')
-                return redirect(url_for('index'))
-            
-            # Find shortest path
-            try:
-                path = nx.shortest_path(current_graph, start_node, end_node)
-                path_length = len(path) - 1
-                
-                # Create subgraph with the path
-                try:
-                    subgraph_data = load_or_generate_pathway_data(
-                        network_graph=current_graph,
-                        subgraph_nodes=path,
-                        keep_positions=keep_positions,
-                        full_graph=current_graph,
-                        path_order=path
-                    )
-                    flash(f'Subgraph created! Path has {path_length} steps', 'success')
-                    return redirect(url_for('index', view='subgraph', start=start_node, end=end_node, keep_pos='1' if keep_positions else '0'))
-                    
-                except Exception as e:
-                    flash(f'Error creating subgraph: {str(e)}', 'error')
-                    return redirect(url_for('index'))
-                
-            except nx.NetworkXNoPath:
-                flash(f'No path found between {start_node} and {end_node}', 'error')
-                return redirect(url_for('index'))
-            
-        except Exception as e:
-            flash(f'Error finding path: {str(e)}', 'error')
-            return redirect(url_for('index'))
-    else:
-        flash('Form validation failed', 'error')
-        return redirect(url_for('index'))
+    nodes     = []
+    json_path = find_output_json(is_subgraph=False)
 
-@app.route('/find_shortest_path', methods=['POST'])
-def find_shortest_path():
-    """
-    Find the shortest path between two nodes in the metabolic network.
-    
-    Expected JSON payload:
-    {
-        "start_node": "C00001",
-        "end_node": "C00010"
-    }
-    
-    Returns:
-        JSON response with shortest path or error message
-    """
-    global current_graph
-    
-    try:
-        # Get request data
-        data = request.get_json()
-        
-        if not data:
-            return {"error": "No JSON data provided"}, 400
-            
-        start_node = data.get('start_node')
-        end_node = data.get('end_node')
-        
-        if not start_node or not end_node:
-            return {"error": "Both start_node and end_node are required"}, 400
-        
-        # Check if graph is loaded, if not, load it
-        if current_graph is None:
-            graph_file = INPUT_FILES['graph_pickle']
-            if not graph_file or not os.path.exists(graph_file):
-                return {"error": "Graph file not found"}, 500
-            
-            try:
-                current_graph = load_graph(graph_file)
-            except Exception as e:
-                return {"error": f"Error loading graph: {str(e)}"}, 500
-        
-        # Validate that nodes exist in the graph
-        if start_node not in current_graph.nodes():
-            return {"error": f"Start node '{start_node}' not found in graph"}, 404
-            
-        if end_node not in current_graph.nodes():
-            return {"error": f"End node '{end_node}' not found in graph"}, 404
-        
-        # Find shortest path using NetworkX
+    if json_path:
         try:
-            path = nx.shortest_path(current_graph, start_node, end_node)
-            path_length = len(path) - 1  # Number of edges
-            
-            return {
-                "success": True,
-                "path": path,
-                "path_length": path_length,
-                "start_node": start_node,
-                "end_node": end_node
-            }
-            
-        except nx.NetworkXNoPath:
-            return {"error": f"No path found between '{start_node}' and '{end_node}'"}, 404
-            
-        except Exception as e:
-            return {"error": f"Error calculating shortest path: {str(e)}"}, 500
-            
-    except Exception as e:
-        return {"error": f"Internal server error: {str(e)}"}, 500
-
-@app.route('/create_subgraph', methods=['POST'])
-def create_subgraph():
-    """
-    Create a subgraph view based on shortest path nodes.
-    
-    Expected JSON payload:
-    {
-        "path_nodes": ["C00001", "C00002", "C00003"]
-    }
-    
-    Returns:
-        JSON response with subgraph data
-    """
-    global current_graph
-    
-    try:
-        # Get request data
-        data = request.get_json()
-        
-        if not data:
-            return {"error": "No JSON data provided"}, 400
-            
-        path_nodes = data.get('path_nodes')
-        
-        if not path_nodes or not isinstance(path_nodes, list):
-            return {"error": "path_nodes must be a non-empty list"}, 400
-        
-        # Check if graph is loaded
-        if current_graph is None:
-            return {"error": "Graph not loaded"}, 500
-        
-        # Generate subgraph view
-        try:
-            subgraph_data = load_or_generate_pathway_data(
-                network_graph=current_graph, 
-                subgraph_nodes=path_nodes,
-                path_order=path_nodes
+            json_data  = json.loads(json_path.read_text())
+            nodes_dict = next(
+                (item['nodes'] for item in json_data
+                 if isinstance(item, dict) and 'nodes' in item),
+                None
             )
-            
-            return {
-                "success": True,
-                "message": f"Subgraph created with {len(path_nodes)} nodes",
-                "subgraph_data": subgraph_data
-            }
-            
+            if nodes_dict:
+                for node_id, info in nodes_dict.items():
+                    if info.get('node_type') != 'metabolite':
+                        continue
+                    name = str(
+                        info.get('name') or info.get('bigg_id') or node_id
+                    ).strip().rstrip(';')
+                    nodes.append({'id': node_id, 'name': name})
+        except json.JSONDecodeError as e:
+            print(f'[NODES] Corrupt JSON at {json_path}: {e}')
         except Exception as e:
-            return {"error": f"Error creating subgraph: {str(e)}"}, 500
-            
-    except Exception as e:
-        return {"error": f"Internal server error: {str(e)}"}, 500
+            print(f'[NODES] Could not read {json_path}: {e}')
 
-@app.route('/get_multi_node_subgraph_nodes', methods=['POST'])
-def get_multi_node_subgraph_nodes():
+    if not nodes and ensure_graph_loaded():
+        graph = get_current_graph()
+        for node_id in sorted(graph.nodes()):
+            data = graph.nodes[node_id]
+            name = str(
+                data.get('name') or data.get('label') or
+                data.get('bigg_id') or node_id
+            ).strip().rstrip(';')
+            nodes.append({'id': node_id, 'name': name})
+
+    nodes.sort(key=lambda x: (x['name'] or x['id']).lower())
+    cache.set(cache_key, nodes)
+    return jsonify(nodes)
+
+
+@app.route('/api/update-config', methods=['POST'])
+def update_frontend_config():
     """
-    Get all nodes that would be included in a multi-node subgraph without creating it.
-    
-    Expected JSON payload:
-    {
-        "selected_nodes": ["C00001", "C00002"],
-        "connection_distance": 2
+    Validate and persist frontend config changes into the user's session.
+    Validation is handled entirely by FrontendConfigForm — no manual
+    validator dict needed.
+    """
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({'error': 'No valid JSON body provided'}), 400
+
+    form = FrontendConfigForm(data=data)
+
+    if not form.validate():
+        errors = [
+            f'{field_name}: {err}'
+            for field_name, errs in form.errors.items()
+            for err in errs
+        ]
+        return jsonify({'error': 'Validation failed', 'details': errors}), 422
+
+    cleaned = {
+        field.name: field.data
+        for field in form
+        if field.name != 'csrf_token'
     }
-    
-    Returns:
-        JSON response with all subgraph node IDs
+
+    set_user_frontend_config(cleaned)
+    return jsonify({
+        'success': True,
+        'updatedConfig': get_user_frontend_config(),
+    }), 200
+
+
+@app.route('/api/barchart-data')
+def get_barchart_data():
     """
-    global current_graph
-    
+    Serve the barchart data as a streaming JSON response so it is never
+    embedded inline in the HTML page (which would exceed browser/server
+    entity-size limits for large datasets).
+    """
+    from flask import Response
+    barchart_path = get_input_files().get('barchart_data_file', '')
+    if not barchart_path:
+        return jsonify({}), 200
+    p = Path(barchart_path)
+    if not p.exists():
+        return jsonify({}), 200
     try:
-        # Get request data
-        data = request.get_json()
-        
-        if not data:
-            return {"error": "No JSON data provided"}, 400
-            
-        selected_nodes = data.get('selected_nodes', [])
-        connection_distance = data.get('connection_distance', 2)
-        
-        if not selected_nodes or not isinstance(selected_nodes, list):
-            return {"error": "selected_nodes must be a non-empty list"}, 400
-        
-        if not isinstance(connection_distance, int) or connection_distance < 1:
-            return {"error": "connection_distance must be a positive integer"}, 400
-        
-        # Check if graph is loaded, if not, load it
-        if current_graph is None:
-            graph_file = INPUT_FILES['graph_pickle']
-            if not graph_file or not os.path.exists(graph_file):
-                return {"error": "Graph file not found"}, 500
-            
-            try:
-                current_graph = load_graph(graph_file)
-            except Exception as e:
-                return {"error": f"Error loading graph: {str(e)}"}, 500
-        
-        # Find all nodes within connection distance
-        try:
-            subgraph_nodes = find_nodes_within_distance(current_graph, selected_nodes, connection_distance)
-            
-            return {
-                "success": True,
-                "selected_nodes": selected_nodes,
-                "connection_distance": connection_distance,
-                "subgraph_nodes": subgraph_nodes,
-                "total_nodes": len(subgraph_nodes)
-            }
-            
-        except Exception as e:
-            return {"error": f"Error getting subgraph nodes: {str(e)}"}, 500
-            
+        data = load_barchart_data()
+        return jsonify(data), 200
     except Exception as e:
-        return {"error": f"Internal server error: {str(e)}"}, 500
+        print(f'[BARCHART API] Error: {e}')
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/create_multi_node_subgraph', methods=['POST'])
-def create_multi_node_subgraph():
-    """
-    Create a subgraph view based on selected nodes and connection distance.
-    Handles form submission with comma-separated node list.
-    """
-    global current_graph
-    
-    form = MultiNodeSelectionForm()
-    
-    if form.validate_on_submit():
-        try:
-            # Parse comma-separated node list
-            nodes_str = form.selected_nodes.data
-            selected_nodes = [n.strip() for n in nodes_str.split(',') if n.strip()]
-            connection_distance = form.connection_distance.data
-            keep_positions = form.keep_positions.data  # Extract keep_positions from form
-            
-            if not selected_nodes:
-                flash('Please enter at least one node ID', 'error')
-                return redirect(url_for('index'))
-            
-            # Load graph if not loaded
-            if current_graph is None:
-                graph_file = INPUT_FILES['graph_pickle']
-                if not graph_file or not os.path.exists(graph_file):
-                    flash('Graph file not found', 'error')
-                    return redirect(url_for('index'))
-                
-                try:
-                    current_graph = load_graph(graph_file)
-                except Exception as e:
-                    flash(f'Error loading graph: {str(e)}', 'error')
-                    return redirect(url_for('index'))
-            
-            # Validate all nodes exist
-            invalid_nodes = [n for n in selected_nodes if n not in current_graph.nodes()]
-            if invalid_nodes:
-                flash(f'Node(s) not found: {", ".join(invalid_nodes)}', 'error')
-                return redirect(url_for('index'))
-            
-            # Find all nodes within connection distance
-            try:
-                subgraph_nodes = find_nodes_within_distance(current_graph, selected_nodes, connection_distance)
-                
-                # Generate subgraph view with position persistence
-                subgraph_data = load_or_generate_pathway_data(
-                    network_graph=current_graph, 
-                    subgraph_nodes=subgraph_nodes,
-                    keep_positions=keep_positions,
-                    full_graph=current_graph
-                )
-                
-                flash(f'Multi-node subgraph created with {len(subgraph_nodes)} nodes', 'success')
-                return redirect(url_for('index', view='subgraph', nodes=','.join(subgraph_nodes), selected=','.join(selected_nodes), dist=connection_distance, keep_pos='1' if keep_positions else '0'))
-                
-            except Exception as e:
-                flash(f'Error creating subgraph: {str(e)}', 'error')
-                return redirect(url_for('index'))
-                
-        except Exception as e:
-            flash(f'Error processing request: {str(e)}', 'error')
-            return redirect(url_for('index'))
-    else:
-        flash('Form validation failed', 'error')
-        return redirect(url_for('index'))
 
-def find_nodes_within_distance(graph, selected_nodes, distance):
-    """
-    Find all nodes within a specified distance from the selected nodes.
-    
-    Args:
-        graph (nx.Graph): NetworkX graph
-        selected_nodes (list): List of node IDs to start from
-        distance (int): Maximum connection distance
-        
-    Returns:
-        list: List of all nodes within the specified distance
-    """
-    result_nodes = set()
-    
-    # Validate that selected nodes exist in the graph
-    valid_selected_nodes = []
-    for node in selected_nodes:
-        if node in graph.nodes():
-            valid_selected_nodes.append(node)
-            result_nodes.add(node)
-    
-    if not valid_selected_nodes:
-        raise ValueError("No valid selected nodes found in graph")
-    
-    current_layer = set(valid_selected_nodes)
-    
-    for _ in range(1, distance + 1):
-        next_layer = set()
-        
-        for node in current_layer:
-            # Get all neighbors of the current node
-            neighbors = set(graph.neighbors(node))
-            next_layer.update(neighbors)
-        
-        # Add new nodes to result
-        new_nodes = next_layer - result_nodes
-        result_nodes.update(new_nodes)
-        
-        # Prepare for next iteration
-        current_layer = new_nodes
-        
-        # If no new nodes found, we can stop early
-        if not new_nodes:
-            break
-    
-    return list(result_nodes)
+@app.route('/health')
+def health_check():
+    files = get_input_files()
+    ok, missing, valid = validate_input_files(files)
+    return jsonify({
+        'status':       'healthy' if ok else 'warning',
+        'user_id':      get_user_id(),
+        'input_files':  {'all_exist': ok, 'missing': missing},
+        'output_directories': {
+            'json_dir':   get_json_dir().exists(),
+            'images_dir': get_images_dir().exists(),
+        },
+        'detected_output_json': str(find_output_json(is_subgraph=False)),
+    })
 
-@app.route('/revert_to_full_graph', methods=['POST'])
-def revert_to_full_graph():
-    """
-    Revert back to the full graph view.
-    Handles form submission and redirects to full graph view.
-    """
-    global current_graph
-    
-    try:
-        # Check if graph is loaded
-        if current_graph is None:
-            flash("No graph loaded. Please upload files first.", "error")
-            return redirect(url_for('index'))
-        
-        # Revert to full graph view by redirecting to index without view parameter
-        flash("Reverted to full graph view", "success")
-        return redirect(url_for('index'))
-            
-    except Exception as e:
-        flash(f"Error reverting to full graph: {str(e)}", "error")
-        return redirect(url_for('index'))
-
-# ===== MAIN EXECUTION =====
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
