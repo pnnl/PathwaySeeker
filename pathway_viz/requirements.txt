@@ -30,7 +30,7 @@ Pillow
 requests==2.32.4
 
 # Dev & testing
-pytest==8.2.0
+pytest==9.0.3
 typing-extensions==4.11.0
 
 # Production deployment (optional)
