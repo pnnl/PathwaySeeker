@@ -677,13 +677,13 @@ class EscherVisualizer {
     // =========================================================================
 
     /**
-     * Convert a metabolite row's conditions (raw abundances) into log2
+     * Convert a metabolite row's conditions (raw abundances) into log10
      * z-scores computed over the ENTIRE row — i.e. the mean/std are taken
      * across every replicate value of every condition in the row, then each
      * replicate is z-scored against that single row-level mean/std.
      *
      * Rules:
-     *   - Each replicate value is log2-transformed (values <= 0 are dropped).
+     *   - Each replicate value is log10-transformed (values <= 0 are dropped).
      *   - Conditions with fewer than `minCount` valid replicates are dropped.
      *   - If nothing usable remains, returns [] (chart is skipped).
      *
@@ -694,18 +694,18 @@ class EscherVisualizer {
     _zscoreRowConditions(conditionsObj, minCount) {
         const minN = Math.max(minCount || 2, 2);
 
-        // Collect log2 replicate values per usable condition.
+        // Collect log10 replicate values per usable condition.
         const usable = [];
         Object.keys(conditionsObj || {}).forEach(cond => {
             const entry = conditionsObj[cond] || {};
             const vals  = (entry.values || [])
                 .filter(v => v !== null && v !== undefined && isFinite(v) && v > 0)
-                .map(v => Math.log2(v));
+                .map(v => Math.log10(v));
             if (vals.length >= minN) usable.push({ cond, logVals: vals });
         });
         if (!usable.length) return [];
 
-        // Row-level mean/std over ALL log2 replicate values.
+        // Row-level mean/std over ALL log10 replicate values.
         const allLog = [];
         usable.forEach(u => u.logVals.forEach(v => allLog.push(v)));
         const rowMean = allLog.reduce((a, b) => a + b, 0) / allLog.length;
@@ -749,7 +749,7 @@ class EscherVisualizer {
         const conditionsObj = rowEntry.conditions || {};
         const minCount = config.barMinCount ?? 1;
 
-        // Convert raw abundances to log2 z-scores computed over the ENTIRE row
+        // Convert raw abundances to log10 z-scores computed over the ENTIRE row
         // (all replicate values across all conditions of this metabolite+method).
         // Conditions with fewer than `minCount` (>= 2) replicates are dropped.
         // Returns { cond, zMean, zStd, zValues } per usable condition.
@@ -824,7 +824,7 @@ class EscherVisualizer {
             .style('text-anchor', 'middle')
             .style('font-size', config.chartLabelFontSize + 'px')
             .style('fill', '#555')
-            .text('log2 z-score');
+            .text('z-score of log10');
 
         // Zero reference line (z-score = 0 = row mean)
         barsGroup.append('line')
@@ -903,7 +903,7 @@ class EscherVisualizer {
                     .attr('class', 'replicate-dot')
                     .attr('cx', xScale(v))
                     .attr('cy', cy)
-                    .attr('r',  2)
+                    .attr('r',  3.5)
                     .attr('fill', '#222')
                     .attr('fill-opacity', 0.7)
                     .attr('stroke', '#fff')
