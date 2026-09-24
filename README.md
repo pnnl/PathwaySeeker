@@ -192,10 +192,10 @@ pathwayseeker search SRC TGT    # Search pathway between two compounds
 
 ## Authors
 
-- Lummy M. O. Monteiro — multi-omics and graph construction
-- Marjolein T. Oostrom — metabolomics validation
-- Niaz Bahar Chowdhury — thermodynamic validation
-- Sutanay Choudhury — AI methods
+- Lummy M. O. Monteiro - multi-omics and graph construction
+- Marjolein T. Oostrom - metabolomics validation
+- Niaz Bahar Chowdhury - thermodynamic validation
+- Sutanay Choudhury - AI methods
 
 ## License
 
