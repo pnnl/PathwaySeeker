@@ -27,7 +27,7 @@ xlrd==2.0.1       # Excel .xls support  (used by build_barchart_json.py)
 Pillow
 
 # HTTP client (KEGG + PubChem API calls)
-requests==2.32.4
+requests==2.33.0
 
 # Dev & testing
 pytest==8.2.0
