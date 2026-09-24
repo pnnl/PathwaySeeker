@@ -87,7 +87,7 @@ def visualize_graph(G, compound_names, output_html="graph.html", notebook=False)
     for source, target, data in G.edges(data=True):
         net.add_edge(source, target, title=data.get("label", ""), color="#999999")
 
-    net.show(output_html)
+    net.write_html(output_html, notebook=notebook, open_browser=False)
     print(f"  Graph saved: {output_html}")
 
 

@@ -122,9 +122,43 @@ Flask web app for interactive pathway exploration with Escher.js.
 
 ## Data
 
-All datasets are included in the repo (~3.5 MB total):
-- `data/raw/` -- Input files (proteomics, metabolomics, KO annotations)
-- `data/output/` -- Pre-computed pipeline outputs + graph data
+All datasets are included in the repo (~3.5 MB total). No separate downloads needed.
+
+### Input data (`data/raw/`)
+
+| File | Description |
+|------|-------------|
+| `proteomics.xlsx` | Protein abundance measurements with proteinID identifiers |
+| `metabolomics.xlsx` | Metabolite abundance measurements with metabolite names |
+| `Tver_ko_definition.txt` | KEGG KO annotations mapping proteinID -> KO number -> description |
+
+### Pipeline output (`data/output/`)
+
+These are pre-computed so you can skip the pipeline and go straight to graph/AI features.
+
+| File | Pipeline step | Description |
+|------|--------------|-------------|
+| `proteomics_with_ko.csv` | Step 1 | Proteomics merged with KO annotations |
+| `ko_to_reactions.csv` | Step 2 | KO -> KEGG reaction mappings |
+| `reaction_to_compounds_no_cofactors.csv` | Step 3 | Reaction -> compound links (cofactors filtered) |
+| `metabolomics_with_C_numbers_curated.xlsx` | Step 4 | Metabolites with curated KEGG C-numbers |
+| `reaction_to_compounds_from_metabolomics.csv` | Step 5 | Metabolite compounds with reaction roles |
+| `matched_metabolites_reactions_all.csv` | Step 7 | Final merged reactions (proteomics + metabolomics) |
+| `reaction_equations_cache.json` | Step 6 | Cached balanced equations from KEGG |
+| `compound_names_cache.json` | -- | KEGG compound ID -> human-readable name |
+| `edges.tsv` | -- | Multi-layer graph edges for AI pathfinding |
+| `graph_notebook.json` | -- | NetworkX graph as JSON (nodes + edges) |
+| `graph_notebook.html` | -- | Pre-built interactive PyVis visualization |
+
+### Data flow
+
+```
+proteomics.xlsx ─┐
+                 ├─ Steps 1-3 ─→ reaction_to_compounds_no_cofactors.csv ─┐
+ko_definition.txt┘                                                        │
+                                                                          ├─ Step 7 ─→ matched_reactions ─→ Graph
+metabolomics.xlsx ─ Step 4 ─→ curated.xlsx ─ Step 5 ─→ reaction_to_compounds_from_metabolomics.csv ─┘
+```
 
 ---
 
@@ -158,10 +192,10 @@ pathwayseeker search SRC TGT    # Search pathway between two compounds
 
 ## Authors
 
-- Lummy M O Monteiro -- multi-omics pipeline, graph construction
-- Marjolein T Oostrom
-- Niaz Chowdhury -- AI layer, knowledge graph engine, LLM evaluation
+- Lummy M O Monteiro 
 - Sutanay Choudhury
+- Niaz Chowdhury 
+- Marjolein T Oostrom
 
 ## License
 
