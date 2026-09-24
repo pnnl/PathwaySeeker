@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pathwayseeker"
-version = "0.1.0"
-description = "Multi-omics pathway discovery with knowledge graphs and LLMs"
+version = "1.0.0"
+description = "Evidence-grounded reasoning over organism-specific metabolic graphs built from multi-omics data"
 requires-python = ">=3.10"
 license = {text = "BSD-2-Clause"}
 authors = [
@@ -17,7 +17,7 @@ authors = [
 readme = "README.md"
 keywords = ["multi-omics", "metabolic-pathways", "knowledge-graph", "proteomics", "metabolomics", "KEGG"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: BSD License",
@@ -32,15 +32,14 @@ dependencies = [
     "pyvis",
     "tqdm",
     "openpyxl",
-    "openai>=1.0",
-    "flask",
-    "flask-wtf",
-    "scipy",
-    "matplotlib",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "jupyterlab", "ipykernel"]
+llm = ["openai>=1.0", "anthropic>=0.40"]
+mcp = ["mcp>=1.2"]
+thermo = ["equilibrator-api>=0.4.5", "equilibrator-pathway>=0.4.4", "seaborn"]
+dev = ["pytest"]
+all = ["pathwayseeker[llm,mcp,dev]"]
 
 [project.scripts]
 pathwayseeker = "pathwayseeker.cli:main"

@@ -1,0 +1,589 @@
+python pathseeker_eval_unified.py --mode all --include-lummy --log-dir ./logs --output results.json
+======================================================================
+PATHSEEKER UNIFIED EVALUATION
+======================================================================
+Mode: all
+Deployment: pathseeker_v3
+Log directory: ./logs
+
+Loading oracle...
+  Compounds: 1192, Reactions: 3620
+
+Loading queries...
+  Loaded 60 tier1 queries from tier1_queries.json
+  Added 4 Lummy queries
+  Total: 64 queries
+
+======================================================================
+MODE: VERIFIED
+======================================================================
+
+[1/64] t1_connected_0: 3-Methoxy-4-hydroxyphenylglycolaldehyde → 3-Methoxy-4-hydroxymandelate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[2/64] t1_connected_1: Dopamine → 3,4-Dihydroxyphenylacetaldehyde
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[3/64] t1_connected_2: 3-Chloro-2-methyldienelactone → 3-Chloro-2-methylmaleylacetate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[4/64] t1_connected_3: 5-Carboxy-2-pentenoyl-CoA → 3-Oxoadipyl-CoA
+  Support: 100% (2/2)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[5/64] t1_connected_4: cis-beta-D-Glucosyl-2-hydroxycinnamate → cis-2-Hydroxycinnamate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[6/64] t1_connected_5: Catechol → Phenol
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[7/64] t1_connected_6: alpha-(1,2-Dihydroxyethyl)-1,2,3,4-tetrahydro-7-hydroxy-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-acetaldehyde → 1,2,3,4-Tetrahydro-alpha,7-dihydroxy-beta-(hydroxymethyl)-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-propanal
+  Support: 50% (1/2)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[8/64] t1_connected_7: 3,4-Dihydroxyphenylethyleneglycol → 3,4-Dihydroxymandelaldehyde
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[9/64] t1_connected_8: 2,3,5-Trichloromaleylacetate → 2,3,5-Trichlorodienelactone
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[10/64] t1_connected_9: 3,4-Dihydroxymandelate → 3,4-Dihydroxymandelaldehyde
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[11/64] t1_connected_10: 4-Maleylacetoacetate → Homogentisate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[12/64] t1_connected_11: cis-2-Hydroxycinnamate → cis-beta-D-Glucosyl-2-hydroxycinnamate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[13/64] t1_connected_12: 3,4-Dihydroxy-L-phenylalanine → 3,4-Dihydroxyphenylacetaldehyde
+  Support: 100% (2/2)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[14/64] t1_connected_13: 3-Methoxy-4-hydroxymandelate → 3-Methoxy-4-hydroxyphenylglycolaldehyde
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[15/64] t1_connected_14: Naringenin → Naringenin 7-O-beta-D-glucoside
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[16/64] t1_connected_15: 2,3-Dihydroxytoluene → 3-Cresol
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=3.0, spec=5.0)
+
+[17/64] t1_connected_16: 2-Chloro-5-methyl-cis-dienelactone → 2-Chloro-5-methylmaleylacetate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[18/64] t1_connected_17: 5-Carboxy-2-pentenoyl-CoA → (3S)-3-Hydroxyadipyl-CoA
+  Support: 100% (2/2)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[19/64] t1_connected_18: Isoquercitrin → Quercetin
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[20/64] t1_connected_19: 3-Chloro-2-methylmaleylacetate → 3-Chloro-2-methyldienelactone
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[21/64] t1_connected_20: 2-Naphthaldehyde → (2-Naphthyl)methanol
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[22/64] t1_connected_21: 2-Polyprenyl-6-methoxyphenol → 3-Methoxy-4-hydroxy-5-polyprenylbenzoate
+  Support: 100% (2/2)
+  Quality: 2.0/5 (sci=2.0, spec=4.0)
+
+[23/64] t1_connected_22: Dhurrin → (S)-4-Hydroxymandelonitrile
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[24/64] t1_connected_23: cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide → 2-Chloromaleylacetate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[25/64] t1_connected_24: 3,4-Dihydroxyphenylacetate → 3,4-Dihydroxy-L-phenylalanine
+  Support: 50% (1/2)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[26/64] t1_connected_25: 3,4-Dihydroxymandelaldehyde → 3,4-Dihydroxymandelate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[27/64] t1_connected_26: Homogentisate → 4-Maleylacetoacetate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[28/64] t1_connected_27: 2-Chloromaleylacetate → cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[29/64] t1_connected_28: trans-4-Carboxymethylenebut-2-en-4-olide → 2-Maleylacetate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[30/64] t1_connected_29: trans-4-Carboxymethylenebut-2-en-4-olide → 5-Fluoromuconolactone
+  Support: 50% (1/2)
+  Quality: 3.0/5 (sci=3.0, spec=5.0)
+
+[31/64] t1_connected_30: Mandelonitrile → Amygdalin
+  Support: 0% (0/2)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[32/64] t1_connected_31: 3-Methoxy-4-hydroxyphenylacetaldehyde → Homovanillate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+
+[33/64] t1_connected_32: Phenol → Catechol
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[34/64] t1_connected_33: trans-4-Carboxymethylenebut-2-en-4-olide → cis-4-Carboxymethylenebut-2-en-4-olide
+  Support: 50% (1/2)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[35/64] t1_connected_34: D-Galacturonate → L-Galactonate
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[36/64] t1_connected_35: (3R)-3-Hydroxyhexanoyl-[acyl-carrier protein] → 3-Oxohexanoyl-[acp]
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[37/64] t1_connected_36: But-2-enoyl-[acyl-carrier protein] → Butyryl-[acp]
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[38/64] t1_connected_37: Heme → Coproporphyrinogen III
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[39/64] t1_connected_38: 4-Nitrophenyl phosphate → 4-Nitrophenol
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[40/64] t1_connected_39: (R)-Mevalonate → (S)-3-Hydroxy-3-methylglutaryl-CoA
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[41/64] t1_unconnected_0: 3-Cresol → Biliverdin
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[42/64] t1_unconnected_1: cis-2-Hydroxycinnamate → 1-Pyrroline-4-hydroxy-2-carboxylate
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[43/64] t1_unconnected_2: 2,3-Dihydroxytoluene → 3,4-Dihydroxyphenylacetate
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[44/64] t1_unconnected_3: 2,3,5-Trichloromaleylacetate → Diacetyl
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[45/64] t1_unconnected_4: 2-Naphthaldehyde → 4-Nitrophenol
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[46/64] t1_unconnected_5: cis-2-Hydroxycinnamate → Homogentisate
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=2.0, spec=4.0)
+
+[47/64] t1_unconnected_6: Homogentisate → Carboxylate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[48/64] t1_unconnected_7: 1-Hydroxymethylnaphthalene → (S)-Acetoin
+  Support: 0% (0/0)
+  Quality: 1.0/5 (sci=1.0, spec=2.0)
+
+[49/64] t1_unconnected_8: D-Arabinose → D-Mannose
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[50/64] t1_unconnected_9: D-Galacturonate → Phytic acid
+  Support: 100% (1/1)
+  Quality: 2.0/5 (sci=1.0, spec=4.0)
+
+[51/64] t1_unconnected_10: 5-Hydroxyindoleacetate → 6-Hydroxymelatonin
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[52/64] t1_unconnected_11: Dolichyl diphosphooligosaccharide → Phenol
+  Support: 100% (2/2)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[53/64] t1_unconnected_12: C00865 → Reduced Vitamin K
+  Support: 0% (0/0)
+  Quality: 4.0/5 (sci=3.0, spec=4.0)
+
+[54/64] t1_unconnected_13: 1-Phosphatidyl-1D-myo-inositol 5-phosphate → 2-Hexaprenyl-6-methoxyphenol
+  Support: 0% (0/1)
+  Quality: 2.0/5 (sci=1.0, spec=4.0)
+
+[55/64] t1_unconnected_14: (2E,6Z,9Z,12Z,15Z,18Z)-Tetracosahexaenoyl-CoA → trans-Dec-2-enoyl-[acp]
+  Support: 0% (0/8)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[56/64] t1_unconnected_15: Parathion → 6-Hydroxyhexanoic acid
+  Support: 50% (1/2)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[57/64] t1_unconnected_16: 5-Amino-4-imidazolecarboxyamide → Nitrate
+  Support: 0% (0/1)
+  Quality: 2.0/5 (sci=1.0, spec=4.0)
+
+[58/64] t1_unconnected_17: (R,R)-Butane-2,3-diol → 3-Hexaprenyl-4-hydroxy-5-methoxybenzoate
+  Support: 100% (1/1)
+  Quality: 3.0/5 (sci=2.0, spec=4.0)
+
+[59/64] t1_unconnected_18: (S)-Methylmalonate semialdehyde → 2-Chloromaleylacetate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[60/64] t1_unconnected_19: Obtusifoliol → Menaquinol
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[61/64] lummy_phe_ferulate: L-Phenylalanine → Ferulate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=4.0, spec=5.0)
+
+[62/64] lummy_phe_4hba: L-Phenylalanine → 4-Hydroxybenzoate
+  Support: 100% (1/1)
+  Quality: 4.0/5 (sci=3.0, spec=5.0)
+
+[63/64] lummy_tyr_ferulate: L-Tyrosine → Ferulate
+  Support: 0% (0/1)
+  Quality: 3.0/5 (sci=2.0, spec=5.0)
+
+[64/64] lummy_tyr_4hba: L-Tyrosine → 4-Hydroxybenzoate
+  Support: 0% (0/3)
+  Quality: 4.0/5 (sci=4.0, spec=5.0)
+  Log written to: ./logs/eval_log_verified_20260127_100110.txt
+
+======================================================================
+SUMMARY: VERIFIED
+======================================================================
+  Queries: 64/64 successful
+  Average support ratio: 75.8%
+  Average quality score: 3.95/5
+    scientific_reasoning: 3.47
+    specificity: 4.84
+    evidence_transparency: 3.36
+    clarity: 4.48
+
+======================================================================
+MODE: HYPOTHESIS
+======================================================================
+
+[1/64] t1_connected_0: 3-Methoxy-4-hydroxyphenylglycolaldehyde → 3-Methoxy-4-hydroxymandelate
+  [Hypothesis] Loading hypothesis oracle...
+  Graph: 1192 compounds, 3620 reactions, 2357 enzymes
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[2/64] t1_connected_1: Dopamine → 3,4-Dihydroxyphenylacetaldehyde
+  Support: 12% (1/8)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[3/64] t1_connected_2: 3-Chloro-2-methyldienelactone → 3-Chloro-2-methylmaleylacetate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[4/64] t1_connected_3: 5-Carboxy-2-pentenoyl-CoA → 3-Oxoadipyl-CoA
+  ERROR: cannot use 'dict' as a set element (unhashable type: 'dict')
+
+[5/64] t1_connected_4: cis-beta-D-Glucosyl-2-hydroxycinnamate → cis-2-Hydroxycinnamate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[6/64] t1_connected_5: Catechol → Phenol
+  Support: 7% (1/14)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[7/64] t1_connected_6: alpha-(1,2-Dihydroxyethyl)-1,2,3,4-tetrahydro-7-hydroxy-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-acetaldehyde → 1,2,3,4-Tetrahydro-alpha,7-dihydroxy-beta-(hydroxymethyl)-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-propanal
+  Support: 0% (0/5)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[8/64] t1_connected_7: 3,4-Dihydroxyphenylethyleneglycol → 3,4-Dihydroxymandelaldehyde
+  Support: 33% (1/3)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[9/64] t1_connected_8: 2,3,5-Trichloromaleylacetate → 2,3,5-Trichlorodienelactone
+  Support: 17% (1/6)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[10/64] t1_connected_9: 3,4-Dihydroxymandelate → 3,4-Dihydroxymandelaldehyde
+  Support: 14% (1/7)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[11/64] t1_connected_10: 4-Maleylacetoacetate → Homogentisate
+  Support: 25% (2/8)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[12/64] t1_connected_11: cis-2-Hydroxycinnamate → cis-beta-D-Glucosyl-2-hydroxycinnamate
+  Support: 12% (1/8)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[13/64] t1_connected_12: 3,4-Dihydroxy-L-phenylalanine → 3,4-Dihydroxyphenylacetaldehyde
+  Support: 40% (2/5)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[14/64] t1_connected_13: 3-Methoxy-4-hydroxymandelate → 3-Methoxy-4-hydroxyphenylglycolaldehyde
+  Support: 11% (1/9)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[15/64] t1_connected_14: Naringenin → Naringenin 7-O-beta-D-glucoside
+  Support: 33% (1/3)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[16/64] t1_connected_15: 2,3-Dihydroxytoluene → 3-Cresol
+  Support: 10% (1/10)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[17/64] t1_connected_16: 2-Chloro-5-methyl-cis-dienelactone → 2-Chloro-5-methylmaleylacetate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[18/64] t1_connected_17: 5-Carboxy-2-pentenoyl-CoA → (3S)-3-Hydroxyadipyl-CoA
+  Support: 33% (1/3)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[19/64] t1_connected_18: Isoquercitrin → Quercetin
+  Support: 50% (1/2)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[20/64] t1_connected_19: 3-Chloro-2-methylmaleylacetate → 3-Chloro-2-methyldienelactone
+  Support: 20% (1/5)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[21/64] t1_connected_20: 2-Naphthaldehyde → (2-Naphthyl)methanol
+  Support: 20% (1/5)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[22/64] t1_connected_21: 2-Polyprenyl-6-methoxyphenol → 3-Methoxy-4-hydroxy-5-polyprenylbenzoate
+  Support: 9% (1/11)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[23/64] t1_connected_22: Dhurrin → (S)-4-Hydroxymandelonitrile
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[24/64] t1_connected_23: cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide → 2-Chloromaleylacetate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[25/64] t1_connected_24: 3,4-Dihydroxyphenylacetate → 3,4-Dihydroxy-L-phenylalanine
+  Support: 21% (3/14)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[26/64] t1_connected_25: 3,4-Dihydroxymandelaldehyde → 3,4-Dihydroxymandelate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[27/64] t1_connected_26: Homogentisate → 4-Maleylacetoacetate
+  Support: 12% (1/8)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[28/64] t1_connected_27: 2-Chloromaleylacetate → cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide
+  Support: 50% (1/2)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[29/64] t1_connected_28: trans-4-Carboxymethylenebut-2-en-4-olide → 2-Maleylacetate
+  Support: 6% (1/16)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[30/64] t1_connected_29: trans-4-Carboxymethylenebut-2-en-4-olide → 5-Fluoromuconolactone
+  ERROR: cannot use 'dict' as a set element (unhashable type: 'dict')
+
+[31/64] t1_connected_30: Mandelonitrile → Amygdalin
+  Support: 0% (0/11)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[32/64] t1_connected_31: 3-Methoxy-4-hydroxyphenylacetaldehyde → Homovanillate
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[33/64] t1_connected_32: Phenol → Catechol
+  Support: 11% (1/9)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[34/64] t1_connected_33: trans-4-Carboxymethylenebut-2-en-4-olide → cis-4-Carboxymethylenebut-2-en-4-olide
+  ERROR: cannot use 'dict' as a set element (unhashable type: 'dict')
+
+[35/64] t1_connected_34: D-Galacturonate → L-Galactonate
+  Support: 7% (1/15)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[36/64] t1_connected_35: (3R)-3-Hydroxyhexanoyl-[acyl-carrier protein] → 3-Oxohexanoyl-[acp]
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[37/64] t1_connected_36: But-2-enoyl-[acyl-carrier protein] → Butyryl-[acp]
+  Support: 14% (1/7)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[38/64] t1_connected_37: Heme → Coproporphyrinogen III
+  Support: 21% (3/14)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[39/64] t1_connected_38: 4-Nitrophenyl phosphate → 4-Nitrophenol
+  Support: 100% (1/1)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[40/64] t1_connected_39: (R)-Mevalonate → (S)-3-Hydroxy-3-methylglutaryl-CoA
+  Support: 17% (1/6)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[41/64] t1_unconnected_0: 3-Cresol → Biliverdin
+  Support: 0% (0/42)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[42/64] t1_unconnected_1: cis-2-Hydroxycinnamate → 1-Pyrroline-4-hydroxy-2-carboxylate
+  Support: 0% (0/9)
+  Quality: 4.0/5 (sci=4.0, spec=3.0)
+
+[43/64] t1_unconnected_2: 2,3-Dihydroxytoluene → 3,4-Dihydroxyphenylacetate
+  Support: 0% (0/16)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[44/64] t1_unconnected_3: 2,3,5-Trichloromaleylacetate → Diacetyl
+  Support: 0% (0/20)
+  Quality: 4.0/5 (sci=4.0, spec=3.0)
+
+[45/64] t1_unconnected_4: 2-Naphthaldehyde → 4-Nitrophenol
+  Support: 0% (0/23)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[46/64] t1_unconnected_5: cis-2-Hydroxycinnamate → Homogentisate
+  Support: 0% (0/10)
+  Quality: 4.0/5 (sci=4.0, spec=3.0)
+
+[47/64] t1_unconnected_6: Homogentisate → Carboxylate
+  Support: 0% (0/37)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[48/64] t1_unconnected_7: 1-Hydroxymethylnaphthalene → (S)-Acetoin
+  Support: 0% (0/33)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[49/64] t1_unconnected_8: D-Arabinose → D-Mannose
+  Support: 4% (1/25)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[50/64] t1_unconnected_9: D-Galacturonate → Phytic acid
+  Support: 0% (0/25)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[51/64] t1_unconnected_10: 5-Hydroxyindoleacetate → 6-Hydroxymelatonin
+  Support: 0% (0/23)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[52/64] t1_unconnected_11: Dolichyl diphosphooligosaccharide → Phenol
+  Support: 2% (1/43)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[53/64] t1_unconnected_12: C00865 → Reduced Vitamin K
+  ERROR: cannot use 'dict' as a set element (unhashable type: 'dict')
+
+[54/64] t1_unconnected_13: 1-Phosphatidyl-1D-myo-inositol 5-phosphate → 2-Hexaprenyl-6-methoxyphenol
+  Support: 0% (0/49)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[55/64] t1_unconnected_14: (2E,6Z,9Z,12Z,15Z,18Z)-Tetracosahexaenoyl-CoA → trans-Dec-2-enoyl-[acp]
+  Support: 0% (0/33)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[56/64] t1_unconnected_15: Parathion → 6-Hydroxyhexanoic acid
+  ERROR: cannot use 'dict' as a set element (unhashable type: 'dict')
+
+[57/64] t1_unconnected_16: 5-Amino-4-imidazolecarboxyamide → Nitrate
+  Support: 4% (1/25)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[58/64] t1_unconnected_17: (R,R)-Butane-2,3-diol → 3-Hexaprenyl-4-hydroxy-5-methoxybenzoate
+  Support: 7% (3/45)
+  Quality: 4.0/5 (sci=4.0, spec=3.0)
+
+[59/64] t1_unconnected_18: (S)-Methylmalonate semialdehyde → 2-Chloromaleylacetate
+  Support: 0% (0/23)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+
+[60/64] t1_unconnected_19: Obtusifoliol → Menaquinol
+  Support: 0% (0/30)
+  Quality: 5.0/5 (sci=5.0, spec=4.0)
+
+[61/64] lummy_phe_ferulate: L-Phenylalanine → Ferulate
+  Support: 15% (4/27)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[62/64] lummy_phe_4hba: L-Phenylalanine → 4-Hydroxybenzoate
+  Support: 8% (4/48)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[63/64] lummy_tyr_ferulate: L-Tyrosine → Ferulate
+  Support: 11% (3/28)
+  Quality: 5.0/5 (sci=5.0, spec=5.0)
+
+[64/64] lummy_tyr_4hba: L-Tyrosine → 4-Hydroxybenzoate
+  Support: 0% (0/24)
+  Quality: 4.0/5 (sci=5.0, spec=3.0)
+  Log written to: ./logs/eval_log_hypothesis_20260127_100110.txt
+
+======================================================================
+SUMMARY: HYPOTHESIS
+======================================================================
+  Queries: 59/64 successful
+  Average support ratio: 26.4%
+  Average quality score: 4.78/5
+    scientific_reasoning: 4.93
+    specificity: 4.34
+    evidence_transparency: 4.98
+    clarity: 4.97
+
+======================================================================
+COMPARISON
+======================================================================
+Mode            Support Ratio   Quality        
+---------------------------------------------
+verified        75.8%           3.95/5
+hypothesis      26.4%           4.78/5
+
+JSON results saved to results.json
+
+Detailed logs written to:
+  verified: ./logs/eval_log_verified_20260127_100110.txt
+  hypothesis: ./logs/eval_log_hypothesis_20260127_100110.txt
+
+======================================================================
+PAPER METRICS
+======================================================================
+
+SUPPORT RATIO: % of edges verified in experimental graph
+  - SAME metric for all modes (apples-to-apples comparison)
+  - Higher = more edges grounded in T. versicolor data
+
+QUALITY SCORE (LLM Judge, 1-5 scale):
+  - scientific_reasoning: Biochemical understanding
+  - specificity: Concrete KEGG identifiers cited
+  - evidence_transparency: Distinguishes verified vs hypothesized
+  - clarity: Well-structured, concise
+
+The combination tells the full story:
+  - High support + High quality = Best (grounded AND well-reasoned)
+  - High support + Low quality = Correct but poorly explained
+  - Low support + High quality = Plausible but unverified

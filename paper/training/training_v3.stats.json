@@ -1,0 +1,39 @@
+{
+  "graph": {
+    "enzymes": 2357,
+    "reactions": 3620,
+    "compounds": 1192,
+    "cofactors": 39,
+    "non_cofactor_compounds": 1153,
+    "components": 1828
+  },
+  "config": {
+    "n_total": 30000,
+    "max_negative_ratio": 0.2,
+    "cofactor_aware": true,
+    "cofactor_penalty": 10.0,
+    "seed": 42
+  },
+  "samples": {
+    "reaction_facts": 8723,
+    "metabolic_chains": 2831,
+    "enzyme_queries": 611,
+    "hypotheses": 973,
+    "negative_pairs": 1806,
+    "corrupted_chains": 887,
+    "cofactor_rejections": 591,
+    "before_dedup": 16422,
+    "after_dedup": 16422,
+    "duplicates_removed": 0,
+    "total": 16422,
+    "by_evidence_type": {
+      "GRAPH_PATH": 2831,
+      "GRAPH_FACT": 9334,
+      "INVALID": 1478,
+      "NO_PATH": 1806,
+      "HYPOTHESIS": 973
+    },
+    "positive_ratio": 0.7407745706978444,
+    "negative_ratio": 0.1999756424308854
+  }
+}

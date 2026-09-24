@@ -1,0 +1,14 @@
+[
+  {"id": "lummy_phe_ferulate", "category": "phenylpropanoid", "src": "C00079", "tgt": "C01494",
+   "src_name": "L-Phenylalanine", "tgt_name": "Ferulate",
+   "expected_path": "C00079 -> C00423 -> C00811 -> C01197 -> C01494"},
+  {"id": "lummy_phe_4hba", "category": "phenylpropanoid", "src": "C00079", "tgt": "C00156",
+   "src_name": "L-Phenylalanine", "tgt_name": "4-Hydroxybenzoate",
+   "expected_path": "C00079 -> C00423 -> C00811 -> C00156"},
+  {"id": "lummy_tyr_ferulate", "category": "phenylpropanoid", "src": "C00082", "tgt": "C01494",
+   "src_name": "L-Tyrosine", "tgt_name": "Ferulate",
+   "expected_path": "C00082 -> C00811 -> C01197 -> C01494"},
+  {"id": "lummy_tyr_4hba", "category": "phenylpropanoid", "src": "C00082", "tgt": "C00156",
+   "src_name": "L-Tyrosine", "tgt_name": "4-Hydroxybenzoate",
+   "expected_path": "C00082 -> C00811 -> C00156"}
+]

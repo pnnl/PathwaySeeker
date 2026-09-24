@@ -1,0 +1,850 @@
+{
+  "connected": [
+    {
+      "src": "C05583",
+      "tgt": "C05584",
+      "src_name": "3-Methoxy-4-hydroxyphenylglycolaldehyde",
+      "tgt_name": "3-Methoxy-4-hydroxymandelate",
+      "oracle_path": [
+        "C05583",
+        "R04891",
+        "C05584"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic aldehyde to mandelate; relevant to aromatic ring degradation",
+      "id": "t1_connected_0"
+    },
+    {
+      "src": "C03758",
+      "tgt": "C04043",
+      "src_name": "Dopamine",
+      "tgt_name": "3,4-Dihydroxyphenylacetaldehyde",
+      "oracle_path": [
+        "C03758",
+        "R04300",
+        "C04043"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Dopamine catabolism; aromatic ring degradation relevant to Trametes versicolor",
+      "id": "t1_connected_1"
+    },
+    {
+      "src": "C18309",
+      "tgt": "C18310",
+      "src_name": "3-Chloro-2-methyldienelactone",
+      "tgt_name": "3-Chloro-2-methylmaleylacetate",
+      "oracle_path": [
+        "C18309",
+        "R09220",
+        "C18310"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Chlorinated aromatic ring cleavage; relevant to aromatic compound degradation",
+      "id": "t1_connected_2"
+    },
+    {
+      "src": "C14144",
+      "tgt": "C02232",
+      "src_name": "5-Carboxy-2-pentenoyl-CoA",
+      "tgt_name": "3-Oxoadipyl-CoA",
+      "oracle_path": [
+        "C14144",
+        "R06942",
+        "C14145",
+        "R06941",
+        "C02232"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring cleavage intermediate to 3-oxoadipyl-CoA; relevant to aromatic compound degradation in white-rot fungi",
+      "id": "t1_connected_3"
+    },
+    {
+      "src": "C05839",
+      "tgt": "C05838",
+      "src_name": "cis-beta-D-Glucosyl-2-hydroxycinnamate",
+      "tgt_name": "cis-2-Hydroxycinnamate",
+      "oracle_path": [
+        "C05839",
+        "R04998",
+        "C05838"
+      ],
+      "tier": 1,
+      "theme": "PHENYLPROPANOID",
+      "tier_reason": "Hydroxycinnamate glycoside hydrolysis, core to phenylpropanoid/lignin-related metabolism",
+      "id": "t1_connected_4"
+    },
+    {
+      "src": "C00090",
+      "tgt": "C00146",
+      "src_name": "Catechol",
+      "tgt_name": "Phenol",
+      "oracle_path": [
+        "C00090",
+        "R00815",
+        "C00146"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring degradation, catechol to phenol, core to aromatic catabolism in Trametes",
+      "id": "t1_connected_5"
+    },
+    {
+      "src": "C19592",
+      "tgt": "C19591",
+      "src_name": "alpha-(1,2-Dihydroxyethyl)-1,2,3,4-tetrahydro-7-hydroxy-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-acetaldehyde",
+      "tgt_name": "1,2,3,4-Tetrahydro-alpha,7-dihydroxy-beta-(hydroxymethyl)-9-methoxy-3,4-dioxocyclopenta[c][1]benzopyran-6-propanal",
+      "oracle_path": [
+        "C19592",
+        "R09413",
+        "K15303",
+        "R09412",
+        "C19591"
+      ],
+      "tier": 1,
+      "theme": "LIGNIN",
+      "tier_reason": "These are advanced lignin-derived aromatic aldehyde intermediates, relevant to fungal lignin degradation.",
+      "id": "t1_connected_6"
+    },
+    {
+      "src": "C05576",
+      "tgt": "C05577",
+      "src_name": "3,4-Dihydroxyphenylethyleneglycol",
+      "tgt_name": "3,4-Dihydroxymandelaldehyde",
+      "oracle_path": [
+        "C05576",
+        "R04880",
+        "C05577"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Conversion between aromatic glycol and aldehyde forms is part of aromatic ring degradation.",
+      "id": "t1_connected_7"
+    },
+    {
+      "src": "C18243",
+      "tgt": "C18242",
+      "src_name": "2,3,5-Trichloromaleylacetate",
+      "tgt_name": "2,3,5-Trichlorodienelactone",
+      "oracle_path": [
+        "C18243",
+        "R09136",
+        "C18242"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Trichlorinated aromatic ring cleavage intermediates are relevant to aromatic compound degradation.",
+      "id": "t1_connected_8"
+    },
+    {
+      "src": "C05580",
+      "tgt": "C05577",
+      "src_name": "3,4-Dihydroxymandelate",
+      "tgt_name": "3,4-Dihydroxymandelaldehyde",
+      "oracle_path": [
+        "C05580",
+        "R04882",
+        "C05577"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring cleavage and aldehyde formation, relevant to aromatic compound degradation.",
+      "id": "t1_connected_9"
+    },
+    {
+      "src": "C01036",
+      "tgt": "C00544",
+      "src_name": "4-Maleylacetoacetate",
+      "tgt_name": "Homogentisate",
+      "oracle_path": [
+        "C01036",
+        "R02519",
+        "C00544"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Maleylacetoacetate to homogentisate is a key step in aromatic ring cleavage, relevant to aromatic compound degradation in Trametes",
+      "id": "t1_connected_10"
+    },
+    {
+      "src": "C05838",
+      "tgt": "C05839",
+      "src_name": "cis-2-Hydroxycinnamate",
+      "tgt_name": "cis-beta-D-Glucosyl-2-hydroxycinnamate",
+      "oracle_path": [
+        "C05838",
+        "R04998",
+        "C05839"
+      ],
+      "tier": 1,
+      "theme": "PHENYLPROPANOID",
+      "tier_reason": "Glucosylation of hydroxycinnamate, core phenylpropanoid pathway",
+      "id": "t1_connected_11"
+    },
+    {
+      "src": "C00355",
+      "tgt": "C04043",
+      "src_name": "3,4-Dihydroxy-L-phenylalanine",
+      "tgt_name": "3,4-Dihydroxyphenylacetaldehyde",
+      "oracle_path": [
+        "C00355",
+        "R02080",
+        "C03758",
+        "R04300",
+        "C04043"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring modification (L-DOPA to aldehyde), relevant to aromatic catabolism",
+      "id": "t1_connected_12"
+    },
+    {
+      "src": "C05584",
+      "tgt": "C05583",
+      "src_name": "3-Methoxy-4-hydroxymandelate",
+      "tgt_name": "3-Methoxy-4-hydroxyphenylglycolaldehyde",
+      "oracle_path": [
+        "C05584",
+        "R04891",
+        "C05583"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring modification, relevant to aromatic catabolism",
+      "id": "t1_connected_13"
+    },
+    {
+      "src": "C00509",
+      "tgt": "C09099",
+      "src_name": "Naringenin",
+      "tgt_name": "Naringenin 7-O-beta-D-glucoside",
+      "oracle_path": [
+        "C00509",
+        "R13081",
+        "C09099"
+      ],
+      "tier": 1,
+      "theme": "PHENYLPROPANOID",
+      "tier_reason": "Naringenin is a flavonoid, part of phenylpropanoid pathway; glycosylation is a common modification",
+      "id": "t1_connected_14"
+    },
+    {
+      "src": "C02923",
+      "tgt": "C01467",
+      "src_name": "2,3-Dihydroxytoluene",
+      "tgt_name": "3-Cresol",
+      "oracle_path": [
+        "C02923",
+        "R03566",
+        "C01467"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring degradation, relevant to Trametes' aromatic catabolism",
+      "id": "t1_connected_15"
+    },
+    {
+      "src": "C18304",
+      "tgt": "C18305",
+      "src_name": "2-Chloro-5-methyl-cis-dienelactone",
+      "tgt_name": "2-Chloro-5-methylmaleylacetate",
+      "oracle_path": [
+        "C18304",
+        "R09222",
+        "C18305"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring cleavage of substituted aromatics, relevant to aromatic catabolism",
+      "id": "t1_connected_16"
+    },
+    {
+      "src": "C14144",
+      "tgt": "C14145",
+      "src_name": "5-Carboxy-2-pentenoyl-CoA",
+      "tgt_name": "(3S)-3-Hydroxyadipyl-CoA",
+      "oracle_path": [
+        "C14144",
+        "R06942",
+        "C14145"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring cleavage and degradation, relevant to Trametes' aromatic catabolism",
+      "id": "t1_connected_17"
+    },
+    {
+      "src": "C05623",
+      "tgt": "C00389",
+      "src_name": "Isoquercitrin",
+      "tgt_name": "Quercetin",
+      "oracle_path": [
+        "C05623",
+        "R13065",
+        "C00389"
+      ],
+      "tier": 1,
+      "theme": "PHENYLPROPANOID",
+      "tier_reason": "Quercetin and derivatives are flavonoids, part of phenylpropanoid pathway",
+      "id": "t1_connected_18"
+    },
+    {
+      "src": "C18310",
+      "tgt": "C18309",
+      "src_name": "3-Chloro-2-methylmaleylacetate",
+      "tgt_name": "3-Chloro-2-methyldienelactone",
+      "oracle_path": [
+        "C18310",
+        "R09220",
+        "C18309"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring cleavage of substituted aromatics, relevant to aromatic catabolism",
+      "id": "t1_connected_19"
+    },
+    {
+      "src": "C14099",
+      "tgt": "C02909",
+      "src_name": "2-Naphthaldehyde",
+      "tgt_name": "(2-Naphthyl)methanol",
+      "oracle_path": [
+        "C14099",
+        "R06927",
+        "C02909"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring modification, relevant to aromatic compound catabolism in Trametes",
+      "id": "t1_connected_20"
+    },
+    {
+      "src": "C17552",
+      "tgt": "C17559",
+      "src_name": "2-Polyprenyl-6-methoxyphenol",
+      "tgt_name": "3-Methoxy-4-hydroxy-5-polyprenylbenzoate",
+      "oracle_path": [
+        "C17552",
+        "R08772",
+        "C17559"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Polyprenylated phenols and benzoates are relevant to aromatic ring modification and fungal secondary metabolism.",
+      "id": "t1_connected_21"
+    },
+    {
+      "src": "C05143",
+      "tgt": "C03742",
+      "src_name": "Dhurrin",
+      "tgt_name": "(S)-4-Hydroxymandelonitrile",
+      "oracle_path": [
+        "C05143",
+        "R10035",
+        "C03742"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Dhurrin to (S)-4-Hydroxymandelonitrile involves aromatic cyanogenic glycoside metabolism, relevant to aromatic ring modification.",
+      "id": "t1_connected_22"
+    },
+    {
+      "src": "C04706",
+      "tgt": "C06329",
+      "src_name": "cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide",
+      "tgt_name": "2-Chloromaleylacetate",
+      "oracle_path": [
+        "C04706",
+        "R05511",
+        "C06329"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Chlorinated aromatic ring cleavage; relevant to aromatic ring degradation in Trametes versicolor.",
+      "id": "t1_connected_23"
+    },
+    {
+      "src": "C01161",
+      "tgt": "C00355",
+      "src_name": "3,4-Dihydroxyphenylacetate",
+      "tgt_name": "3,4-Dihydroxy-L-phenylalanine",
+      "oracle_path": [
+        "C01161",
+        "R03300",
+        "C04043",
+        "R04300",
+        "C03758",
+        "R02080",
+        "C00355"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring degradation and modification, relevant to aromatic catabolism in white-rot fungi",
+      "id": "t1_connected_24"
+    },
+    {
+      "src": "C05577",
+      "tgt": "C05580",
+      "src_name": "3,4-Dihydroxymandelaldehyde",
+      "tgt_name": "3,4-Dihydroxymandelate",
+      "oracle_path": [
+        "C05577",
+        "R04882",
+        "C05580"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Aromatic ring degradation; relevant to aromatic catabolism in white-rot fungi",
+      "id": "t1_connected_25"
+    },
+    {
+      "src": "C00544",
+      "tgt": "C01036",
+      "src_name": "Homogentisate",
+      "tgt_name": "4-Maleylacetoacetate",
+      "oracle_path": [
+        "C00544",
+        "R02519",
+        "C01036"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Homogentisate pathway; aromatic ring cleavage relevant to Trametes versicolor",
+      "id": "t1_connected_26"
+    },
+    {
+      "src": "C06329",
+      "tgt": "C04706",
+      "src_name": "2-Chloromaleylacetate",
+      "tgt_name": "cis-2-Chloro-4-carboxymethylenebut-2-en-1,4-olide",
+      "oracle_path": [
+        "C06329",
+        "R05511",
+        "C04706"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Chlorinated aromatic ring cleavage; relevant to aromatic compound degradation",
+      "id": "t1_connected_27"
+    },
+    {
+      "src": "C12838",
+      "tgt": "C02222",
+      "src_name": "trans-4-Carboxymethylenebut-2-en-4-olide",
+      "tgt_name": "2-Maleylacetate",
+      "oracle_path": [
+        "C12838",
+        "R06838",
+        "C02222"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Muconolactone to maleylacetate is a key step in aromatic ring cleavage during lignin-derived aromatic catabolism.",
+      "id": "t1_connected_28"
+    },
+    {
+      "src": "C12838",
+      "tgt": "C16477",
+      "src_name": "trans-4-Carboxymethylenebut-2-en-4-olide",
+      "tgt_name": "5-Fluoromuconolactone",
+      "oracle_path": [
+        "C12838",
+        "R06838",
+        "K01061",
+        "R08120",
+        "C16477"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Muconolactone to fluoromuconolactone is a model for aromatic ring cleavage, relevant to lignin-derived aromatic catabolism.",
+      "id": "t1_connected_29"
+    },
+    {
+      "src": "C00561",
+      "tgt": "C08325",
+      "src_name": "Mandelonitrile",
+      "tgt_name": "Amygdalin",
+      "oracle_path": [
+        "C00561",
+        "R02558",
+        "K05349",
+        "R02985",
+        "C08325"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Mandelonitrile to amygdalin is a cyanogenic glycoside pathway, relevant to aromatic compound metabolism.",
+      "id": "t1_connected_30"
+    },
+    {
+      "src": "C05581",
+      "tgt": "C05582",
+      "src_name": "3-Methoxy-4-hydroxyphenylacetaldehyde",
+      "tgt_name": "Homovanillate",
+      "oracle_path": [
+        "C05581",
+        "R04888",
+        "C05582"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Methoxy-hydroxyphenylacetaldehyde to homovanillate is a step in aromatic catabolism, relevant to lignin degradation.",
+      "id": "t1_connected_31"
+    },
+    {
+      "src": "C00146",
+      "tgt": "C00090",
+      "src_name": "Phenol",
+      "tgt_name": "Catechol",
+      "oracle_path": [
+        "C00146",
+        "R00815",
+        "C00090"
+      ],
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Phenol to catechol is a key aromatic ring modification step in lignin-derived aromatic catabolism",
+      "id": "t1_connected_32"
+    },
+    {
+      "src": "C12838",
+      "tgt": "C04431",
+      "src_name": "trans-4-Carboxymethylenebut-2-en-4-olide",
+      "tgt_name": "cis-4-Carboxymethylenebut-2-en-4-olide",
+      "oracle_path": [
+        "C12838",
+        "R06838",
+        "K01061",
+        "R03893",
+        "C04431"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Isomerization of a dicarboxylic acid derivative, possibly related to aromatic catabolism but not a core pathway",
+      "id": "t1_connected_33"
+    },
+    {
+      "src": "C00333",
+      "tgt": "C15930",
+      "src_name": "D-Galacturonate",
+      "tgt_name": "L-Galactonate",
+      "oracle_path": [
+        "C00333",
+        "R07676",
+        "C15930"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Uronic acid metabolism, moderate biological relevance",
+      "id": "t1_connected_34"
+    },
+    {
+      "src": "C05747",
+      "tgt": "C05746",
+      "src_name": "(3R)-3-Hydroxyhexanoyl-[acyl-carrier protein]",
+      "tgt_name": "3-Oxohexanoyl-[acp]",
+      "oracle_path": [
+        "C05747",
+        "R04953",
+        "C05746"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Fatty acid biosynthesis; not core to aromatic/lignin/phenylpropanoid metabolism",
+      "id": "t1_connected_35"
+    },
+    {
+      "src": "C04246",
+      "tgt": "C05745",
+      "src_name": "But-2-enoyl-[acyl-carrier protein]",
+      "tgt_name": "Butyryl-[acp]",
+      "oracle_path": [
+        "C04246",
+        "R04430",
+        "C05745"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Fatty acid biosynthesis, not core to Trametes secondary metabolism",
+      "id": "t1_connected_36"
+    },
+    {
+      "src": "C00032",
+      "tgt": "C03263",
+      "src_name": "Heme",
+      "tgt_name": "Coproporphyrinogen III",
+      "oracle_path": [
+        "C00032",
+        "R00310",
+        "K01772",
+        "R11329",
+        "C05770",
+        "R04178",
+        "C03263"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Porphyrin/heme biosynthesis, important but not a core Trametes secondary metabolism theme",
+      "id": "t1_connected_37"
+    },
+    {
+      "src": "C03360",
+      "tgt": "C00870",
+      "src_name": "4-Nitrophenyl phosphate",
+      "tgt_name": "4-Nitrophenol",
+      "oracle_path": [
+        "C03360",
+        "R03024",
+        "C00870"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Hydrolysis of phosphate esters; 4-nitrophenol is a xenobiotic, relevant for some degradation studies",
+      "id": "t1_connected_38"
+    },
+    {
+      "src": "C00418",
+      "tgt": "C00356",
+      "src_name": "(R)-Mevalonate",
+      "tgt_name": "(S)-3-Hydroxy-3-methylglutaryl-CoA",
+      "oracle_path": [
+        "C00418",
+        "R02082",
+        "C00356"
+      ],
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Mevalonate pathway; moderate value for terpenoid biosynthesis",
+      "id": "t1_connected_39"
+    }
+  ],
+  "unconnected": [
+    {
+      "src": "C01467",
+      "tgt": "C00500",
+      "src_name": "3-Cresol",
+      "tgt_name": "Biliverdin",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "3-Cresol is an aromatic compound; biliverdin is a tetrapyrrole. Fungal aromatic catabolism can yield such products.",
+      "id": "t1_unconnected_0"
+    },
+    {
+      "src": "C05838",
+      "tgt": "C04282",
+      "src_name": "cis-2-Hydroxycinnamate",
+      "tgt_name": "1-Pyrroline-4-hydroxy-2-carboxylate",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "PHENYLPROPANOID",
+      "tier_reason": "cis-2-Hydroxycinnamate is a phenylpropanoid intermediate; aromatic ring modifications are relevant to Trametes versicolor.",
+      "id": "t1_unconnected_1"
+    },
+    {
+      "src": "C02923",
+      "tgt": "C01161",
+      "src_name": "2,3-Dihydroxytoluene",
+      "tgt_name": "3,4-Dihydroxyphenylacetate",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Both are aromatic ring compounds involved in aromatic catabolism, relevant to white-rot fungal degradation of aromatics.",
+      "id": "t1_unconnected_2"
+    },
+    {
+      "src": "C18243",
+      "tgt": "C00741",
+      "src_name": "2,3,5-Trichloromaleylacetate",
+      "tgt_name": "Diacetyl",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Trichloromaleylacetate is a chlorinated aromatic ring cleavage product; diacetyl is a possible downstream product in aromatic ring degradation.",
+      "id": "t1_unconnected_3"
+    },
+    {
+      "src": "C14099",
+      "tgt": "C00870",
+      "src_name": "2-Naphthaldehyde",
+      "tgt_name": "4-Nitrophenol",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Both are aromatic compounds; possible aromatic ring degradation pathway, relevant to Trametes aromatic catabolism.",
+      "id": "t1_unconnected_4"
+    },
+    {
+      "src": "C05838",
+      "tgt": "C00544",
+      "src_name": "cis-2-Hydroxycinnamate",
+      "tgt_name": "Homogentisate",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Hydroxycinnamate and homogentisate are both aromatic intermediates; relevant to aromatic ring degradation.",
+      "id": "t1_unconnected_5"
+    },
+    {
+      "src": "C00544",
+      "tgt": "C00060",
+      "src_name": "Homogentisate",
+      "tgt_name": "Carboxylate",
+      "oracle_path": null,
+      "tier": 1,
+      "theme": "AROMATIC",
+      "tier_reason": "Homogentisate is a key aromatic intermediate; conversion to carboxylate is part of aromatic ring cleavage.",
+      "id": "t1_unconnected_6"
+    },
+    {
+      "src": "C14089",
+      "tgt": "C01769",
+      "src_name": "1-Hydroxymethylnaphthalene",
+      "tgt_name": "(S)-Acetoin",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Hydroxymethylnaphthalene and acetoin; possible relevance in aromatic ring degradation.",
+      "id": "t1_unconnected_7"
+    },
+    {
+      "src": "C00216",
+      "tgt": "C00159",
+      "src_name": "D-Arabinose",
+      "tgt_name": "D-Mannose",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "D-Arabinose and D-mannose; both are sugars, possible relevance in fungal carbohydrate metabolism.",
+      "id": "t1_unconnected_8"
+    },
+    {
+      "src": "C00333",
+      "tgt": "C01204",
+      "src_name": "D-Galacturonate",
+      "tgt_name": "Phytic acid",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Galacturonate and phytic acid; both plant-derived, possible relevance in fungal degradation of plant material.",
+      "id": "t1_unconnected_9"
+    },
+    {
+      "src": "C05635",
+      "tgt": "C05643",
+      "src_name": "5-Hydroxyindoleacetate",
+      "tgt_name": "6-Hydroxymelatonin",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Both are indole derivatives; possible connection in tryptophan/serotonin metabolism, but not core to Trametes versicolor secondary metabolism.",
+      "id": "t1_unconnected_10"
+    },
+    {
+      "src": "C04213",
+      "tgt": "C00146",
+      "src_name": "Dolichyl diphosphooligosaccharide",
+      "tgt_name": "Phenol",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Dolichyl diphosphooligosaccharide (N-glycosylation) and phenol (aromatic); possible relevance in cell wall or aromatic metabolism.",
+      "id": "t1_unconnected_11"
+    },
+    {
+      "src": "C00865",
+      "tgt": "C05850",
+      "src_name": "C00865",
+      "tgt_name": "Reduced Vitamin K",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Vitamin K reduction is biologically meaningful but not central to fungal aromatic/lignin metabolism",
+      "id": "t1_unconnected_12"
+    },
+    {
+      "src": "C11557",
+      "tgt": "C05802",
+      "src_name": "1-Phosphatidyl-1D-myo-inositol 5-phosphate",
+      "tgt_name": "2-Hexaprenyl-6-methoxyphenol",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Phosphoinositide and prenylated phenol; both are membrane/secondary metabolites, but not core.",
+      "id": "t1_unconnected_13"
+    },
+    {
+      "src": "C16387",
+      "tgt": "C05754",
+      "src_name": "(2E,6Z,9Z,12Z,15Z,18Z)-Tetracosahexaenoyl-CoA",
+      "tgt_name": "trans-Dec-2-enoyl-[acp]",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Both are fatty acyl-ACP derivatives; relevant to lipid metabolism, but not core to Trametes secondary metabolism.",
+      "id": "t1_unconnected_14"
+    },
+    {
+      "src": "C06604",
+      "tgt": "C06103",
+      "src_name": "Parathion",
+      "tgt_name": "6-Hydroxyhexanoic acid",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Parathion (xenobiotic) and hydroxyhexanoic acid; possible relevance in fungal xenobiotic degradation.",
+      "id": "t1_unconnected_15"
+    },
+    {
+      "src": "C04051",
+      "tgt": "C00244",
+      "src_name": "5-Amino-4-imidazolecarboxyamide",
+      "tgt_name": "Nitrate",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Purine intermediate to nitrate; nitrogen metabolism, not core to Trametes secondary metabolism",
+      "id": "t1_unconnected_16"
+    },
+    {
+      "src": "C03044",
+      "tgt": "C05313",
+      "src_name": "(R,R)-Butane-2,3-diol",
+      "tgt_name": "3-Hexaprenyl-4-hydroxy-5-methoxybenzoate",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Butanediol to aromatic prenylated benzoate; possible secondary metabolism, but not core",
+      "id": "t1_unconnected_17"
+    },
+    {
+      "src": "C06002",
+      "tgt": "C06329",
+      "src_name": "(S)-Methylmalonate semialdehyde",
+      "tgt_name": "2-Chloromaleylacetate",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Methylmalonate semialdehyde and chloromaleylacetate; both are intermediates in degradation of unusual compounds, possible relevance in aromatic/xenobiotic catabolism.",
+      "id": "t1_unconnected_18"
+    },
+    {
+      "src": "C01943",
+      "tgt": "C05819",
+      "src_name": "Obtusifoliol",
+      "tgt_name": "Menaquinol",
+      "oracle_path": null,
+      "tier": 2,
+      "theme": "UNKNOWN",
+      "tier_reason": "Obtusifoliol (sterol) and menaquinol; both are isoprenoid-derived, possible relevance in membrane metabolism.",
+      "id": "t1_unconnected_19"
+    }
+  ],
+  "generated_at": "2026-01-23T23:56:20.905397",
+  "seed": 42,
+  "n_connected": 40,
+  "n_unconnected": 20
+}

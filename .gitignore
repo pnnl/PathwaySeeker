@@ -24,3 +24,7 @@ cache/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local outputs
+eval_results.json
+*.pickle

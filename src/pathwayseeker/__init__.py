@@ -1,8 +1,18 @@
 """
-PathwaySeeker: Multi-omics pathway discovery with knowledge graphs and LLMs.
+PathwaySeeker: evidence-grounded reasoning over organism-specific metabolic graphs.
 
-Integrates proteomics and metabolomics data, maps reactions, recovers balanced
-equations, and discovers metabolic pathways using AI.
+Build a compound-reaction-enzyme graph from proteomics and metabolomics, query it with a
+positive-evidence-only oracle, and label every proposed pathway edge as confirmed by the
+experiment (GRAPH_FACT, GRAPH_PATH) or as a hypothesis.
+
+    from pathwayseeker import Oracle
+    oracle = Oracle.from_dir("paper/graph_snapshot")
+    oracle.path_search("C00079", "C01494")
+    oracle.label_pathway(["C00079", "C00423", "C00811"])
 """
 
-__version__ = "0.1.0"
+from pathwayseeker.cofactors import COFACTORS
+from pathwayseeker.oracle import Oracle
+
+__version__ = "1.0.0"
+__all__ = ["Oracle", "COFACTORS", "__version__"]

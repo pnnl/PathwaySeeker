@@ -1,11 +1,2 @@
-pandas
-requests
-bioservices
-networkx
-pyvis
-tqdm
-openpyxl
-jupyterlab
-notebook
-ipython
-ipykernel
+# Install the package and its dependencies (see pyproject.toml for optional extras)
+-e .[llm,mcp]

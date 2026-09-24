@@ -102,6 +102,19 @@ def build_core_graph(data_dir: str = None) -> nx.DiGraph:
         if role in {"substrate", "both"}:
             G.add_edge(cid, r.Reaction, type="consumed_by", weight=1.0)
 
+    # Evidence provenance: which omics layer put each reaction into the graph,
+    # and which compounds were themselves detected by metabolomics.
+    from_proteomics = set(ko_rxn["Reaction"])
+    metab = rx_cmp_frames[1].dropna(subset=["Reaction", "Compound"])
+    from_metabolomics = set(metab["Reaction"])
+    detected = set(metab["Compound"])
+    for n, d in G.nodes(data=True):
+        if d.get("type") == "reaction":
+            d["evidence"] = [src for src, hit in (("proteomics", n in from_proteomics),
+                                                  ("metabolomics", n in from_metabolomics)) if hit]
+        elif d.get("type") == "compound":
+            d["detected"] = n in detected
+
     return G
 
 

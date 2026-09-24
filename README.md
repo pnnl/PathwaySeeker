@@ -1,194 +1,143 @@
 # PathwaySeeker
 
-![PathwaySeeker](images/graphical_abstract.png)
+PathwaySeeker answers questions about metabolic relationships in multi-omics data, such as
+"how is compound A converted to B in my organism?", and labels every claim with where it
+came from. It builds an organism-specific graph of compounds, reactions and enzymes from
+your proteomics and metabolomics measurements (KEGG identifiers throughout). A language
+model, or an AI agent, proposes pathways, and a graph oracle checks each step against your
+experiment:
 
-**Multi-omics pathway discovery with knowledge graphs and LLMs.**
+- **GRAPH_FACT / GRAPH_PATH**: the step or whole route is present in your data
+- **HYPOTHESIS**: biochemically proposed, not observed in your data (unverified, not refuted)
 
-PathwaySeeker integrates proteomics and metabolomics data, maps reactions, recovers balanced equations, and discovers metabolic pathways using AI. It combines a curated multi-omics pipeline with a 3-layer knowledge graph (enzyme -> reaction -> compound) and LLM-based pathway evaluation.
+The oracle can only confirm. A missing edge means "not observed in this experiment", never
+"impossible".
 
----
+![PathwaySeeker overview](images/graphical_abstract.png)
 
-## Quick Start (< 5 minutes)
-
-```bash
-# Install
-pip install -e .
-
-# Run the demo -- opens an interactive metabolic network in your browser
-pathwayseeker demo
-```
-
-That's it. No API keys, no data downloads.
-
-### With AI features
-
-```bash
-# Set your Azure OpenAI key
-export AZURE_OPENAI_API_KEY_OMICS=your-key
-
-# Run AI demo -- searches a pathway and evaluates it with LLM
-pathwayseeker demo --ai
-
-# Search for a specific pathway
-pathwayseeker search C00079 C00423 --variant baseline
-```
-
----
-
-## Installation
-
-Requires **Python 3.10–3.13** and `pip`. No conda needed.
+## Install
 
 ```bash
 git clone https://github.com/pnnl/PathwaySeeker.git
 cd PathwaySeeker
-python3 -m venv .venv
-source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -e .
+pip install -e ".[llm,mcp]"
 ```
 
-<details>
-<summary><strong>Don't have Python 3.10+?</strong></summary>
+Python 3.10 or later. The `llm` extra adds the OpenAI and Anthropic clients (needed only for
+automated search). The `mcp` extra adds the MCP server.
 
-Check your version:
-```bash
-python3 --version
-```
+## Try it (no API key)
 
-**macOS** (Homebrew):
-```bash
-brew install python@3.12
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-**Ubuntu/Debian**:
-```bash
-sudo apt install python3.12 python3.12-venv
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-**Windows**: Download from [python.org](https://www.python.org/downloads/) (3.12 recommended).
-</details>
-
-### For development
+The *Trametes versicolor* graph from the paper ships in `paper/graph_snapshot`:
 
 ```bash
-pip install -e ".[dev]"
+export PATHWAYSEEKER_GRAPH=paper/graph_snapshot
+pathwayseeker find ferulate
+pathwayseeker oracle path C00079 C01494
+pathwayseeker verify C00079 C00423 C00811 C00156
 ```
 
----
+Every command prints JSON. The last command labels phenylalanine -> cinnamate -> 4-coumarate
+as GRAPH_FACT edges and the final step to 4-hydroxybenzoate as a HYPOTHESIS.
 
-## What's in the box
+## Use it from an AI agent
 
-### Pipeline (`pathwayseeker.pipeline`)
-The 7-step multi-omics processing pipeline:
-1. Extract KO numbers from proteomics
-2. Map KOs to KEGG reactions
-3. Retrieve compounds from reactions (filter cofactors)
-4. Query KEGG for metabolite C-numbers
-5. Annotate metabolites with reaction roles
-6. Fetch balanced reaction equations
-7. Merge proteomics + metabolomics reactions
+**Agent skill.** `skills/pathwayseeker/SKILL.md` teaches an agent to build a graph from the
+user's tables and answer questions with the Oracle-in-the-Loop protocol. For Claude Code,
+copy the folder into `~/.claude/skills/` (all projects) or `.claude/skills/` (one project).
+
+**MCP server.** The same tools are available to any MCP client:
+
+```json
+{
+  "mcpServers": {
+    "pathwayseeker": {
+      "command": "pathwayseeker",
+      "args": ["mcp", "--graph", "/path/to/graph_dir"]
+    }
+  }
+}
+```
+
+Tools: `find_compound`, `compound_exists`, `compound_neighborhood`, `reaction_participants`,
+`enzyme_reactions`, `common_reactions`, `path_search`, `reaction_exists`, `verify_pathway`,
+`graph_stats`.
+
+## Build a graph from your own data
 
 ```bash
-# Run the pipeline
-pathwayseeker pipeline --stage before --data-dir data/raw --output-dir data/output
-
-# After manual curation of metabolomics_with_C_numbers.xlsx:
-pathwayseeker pipeline --stage after --output-dir data/output
+pathwayseeker build --proteomics proteins.xlsx --ko-definitions ko.txt \
+    --metabolomics metabolites.xlsx --out mygraph
 ```
 
-### Graph Engine (`pathwayseeker.graph`)
-- **build.py** -- Build directed metabolic graph from pipeline output
-- **visualize.py** -- Interactive PyVis HTML visualization
-- **multilayer.py** -- 3-layer graph (enzyme/reaction/compound) with multi-level pathfinding
+| Input | Format |
+|---|---|
+| Proteomics | `.xlsx` or `.csv` with a `proteinID` column (abundance columns optional) |
+| KO annotation | tab-separated `proteinID`, `KO`, `description`, no header (e.g. KAAS or GhostKOALA output) |
+| Metabolomics | `.xlsx` or `.csv` with metabolite names in the first column, or a `KEGG_C_number` column |
 
-### AI Layer (`pathwayseeker.ai`)
-- **embeddings.py** -- Azure OpenAI embeddings for graph nodes
-- **link_prediction.py** -- Predict missing edges via embedding similarity
-- **llm.py** -- LLM-based pathway evaluation with biochemical rubric
-- **search.py** -- Search variants (baseline, embedding, LLM, link prediction)
-- **eval.py** -- Unified evaluation with oracle verification
-- **training.py** -- Graph indexes and training data generation for fine-tuning
+The build calls the KEGG REST API. Metabolite names are matched to KEGG automatically. To
+review the matches first, run with `--stage before`, correct
+`mygraph/metabolomics_with_C_numbers.xlsx`, save it as
+`metabolomics_with_C_numbers_curated.xlsx`, and rerun with `--stage after`.
 
-### Visualization (`pathwayseeker.viz`)
-Flask web app for interactive pathway exploration with Escher.js.
+## Automated search without an agent
 
----
-
-## Data
-
-All datasets are included in the repo (~3.5 MB total). No separate downloads needed.
-
-### Input data (`data/raw/`)
-
-| File | Description |
-|------|-------------|
-| `proteomics.xlsx` | Protein abundance measurements with proteinID identifiers |
-| `metabolomics.xlsx` | Metabolite abundance measurements with metabolite names |
-| `Tver_ko_definition.txt` | KEGG KO annotations mapping proteinID -> KO number -> description |
-
-### Pipeline output (`data/output/`)
-
-These are pre-computed so you can skip the pipeline and go straight to graph/AI features.
-
-| File | Pipeline step | Description |
-|------|--------------|-------------|
-| `proteomics_with_ko.csv` | Step 1 | Proteomics merged with KO annotations |
-| `ko_to_reactions.csv` | Step 2 | KO -> KEGG reaction mappings |
-| `reaction_to_compounds_no_cofactors.csv` | Step 3 | Reaction -> compound links (cofactors filtered) |
-| `metabolomics_with_C_numbers_curated.xlsx` | Step 4 | Metabolites with curated KEGG C-numbers |
-| `reaction_to_compounds_from_metabolomics.csv` | Step 5 | Metabolite compounds with reaction roles |
-| `matched_metabolites_reactions_all.csv` | Step 7 | Final merged reactions (proteomics + metabolomics) |
-| `reaction_equations_cache.json` | Step 6 | Cached balanced equations from KEGG |
-| `compound_names_cache.json` | -- | KEGG compound ID -> human-readable name |
-| `edges.tsv` | -- | Multi-layer graph edges for AI pathfinding |
-| `graph_notebook.json` | -- | NetworkX graph as JSON (nodes + edges) |
-| `graph_notebook.html` | -- | Pre-built interactive PyVis visualization |
-
-### Data flow
-
-```
-proteomics.xlsx ─┐
-                 ├─ Steps 1-3 ─→ reaction_to_compounds_no_cofactors.csv ─┐
-ko_definition.txt┘                                                        │
-                                                                          ├─ Step 7 ─→ matched_reactions ─→ Graph
-metabolomics.xlsx ─ Step 4 ─→ curated.xlsx ─ Step 5 ─→ reaction_to_compounds_from_metabolomics.csv ─┘
+```bash
+export OPENAI_API_KEY=...        # or PATHWAYSEEKER_LLM=anthropic with ANTHROPIC_API_KEY,
+                                 # or PATHWAYSEEKER_LLM=azure with AZURE_OPENAI_* variables
+pathwayseeker ask "How is L-phenylalanine (C00079) converted to ferulate (C01494)?" \
+    --graph mygraph --organism "Trametes versicolor"
 ```
 
----
+`ask` runs the Oracle-in-the-Loop search: hypothesize, query the graph, evaluate, refine,
+select, synthesize. Every edge in the answer is labeled by the oracle, not the model. Any
+OpenAI-compatible endpoint works via `OPENAI_BASE_URL`. A fine-tuned deployment can be
+selected with `--model`.
 
-## Examples
+From Python:
 
-| Script | API Key? | What it does |
-|--------|----------|--------------|
-| `examples/quickstart.py` | No | Build graph + open interactive visualization |
-| `examples/quickstart_ai.py` | Yes | Search pathways + LLM evaluation |
+```python
+from pathwayseeker import Oracle
+from pathwayseeker.reasoning import OitLSearch, get_llm
 
----
-
-## CLI Reference
-
-```
-pathwayseeker demo              # Open interactive graph visualization
-pathwayseeker demo --ai         # AI pathway search demo
-pathwayseeker pipeline          # Run the multi-omics pipeline
-pathwayseeker search SRC TGT    # Search pathway between two compounds
+oracle = Oracle.from_dir("mygraph")
+result = OitLSearch(oracle, get_llm(), organism="Trametes versicolor").search(
+    "How is C00079 converted to C01494?")
 ```
 
----
+## Fine-tuning data and evaluation
 
-## Important Notes
+- `pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl` generates
+  schema-aware training examples (GRAPH_FACT, GRAPH_PATH, HYPOTHESIS, NO_PATH, INVALID) in
+  OpenAI chat fine-tuning format.
+- `pathwayseeker eval --queries paper/queries/*.json --graph paper/graph_snapshot` reports
+  the Experimental Evidence Ratio and LLM-judge scores for a query set.
 
-- Between Steps 4 and 5, **manual curation** of metabolite-to-C-number mappings is recommended.
-- AI features require `AZURE_OPENAI_API_KEY_OMICS` environment variable.
-- The graph can be visualized in a web browser or embedded in Jupyter.
+## Reproducing the paper
 
----
+`paper/` holds the graph snapshot, the 64 evaluation queries, the 16,422-example training
+set, the raw evaluation output with logs, and `paper/table1.py`, which recomputes Table 1
+without API calls. See [paper/README.md](paper/README.md).
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `src/pathwayseeker/` | package: `pipeline` (graph build), `oracle`, `reasoning` (search, LLM adapters), `training`, `evaluation`, `mcp_server`, `cli` |
+| `skills/pathwayseeker/` | agent skill |
+| `paper/` | manuscript data, queries, results and Table 1 script |
+| `data/raw`, `data/output` | *T. versicolor* inputs and current pipeline outputs |
+| `data/other_organisms/` | graph reconstructed for *Rhodosporidium toruloides* |
+| `pathway_viz/` | PathwayViz, the interactive Escher-based pathway viewer (see its README) |
+| `MDF/` | thermodynamic (Max-min Driving Force) analyses with eQuilibrator (`pip install -e ".[thermo]"`) |
+| `notebooks/`, `multiomics_graph*/` | original exploratory notebooks and scripts |
+
+## Citation
+
+Monteiro L.M.O., Chowdhury N.B., Oostrom M.T., McDermott J.E., Stratton K.G., Choudhury S.,
+Bardhan J.P. PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic
+Networks. (Under review.)
 
 ## Authors
 

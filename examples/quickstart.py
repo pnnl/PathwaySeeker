@@ -1,67 +1,34 @@
 #!/usr/bin/env python3
 """
-PathwaySeeker Quickstart: Build and visualize a metabolic network.
+PathwaySeeker quickstart: query the T. versicolor graph from the paper. No API key needed.
 
-No API key needed. Uses pre-computed pipeline output.
-
-Usage:
     pip install -e .
     python examples/quickstart.py
 """
 
-import webbrowser
 from pathlib import Path
 
-from pathwayseeker.graph.build import load_and_prepare_data, build_graph
-from pathwayseeker.graph.visualize import get_compound_names, visualize_graph, save_graph_json
+from pathwayseeker import Oracle
+
+GRAPH = Path(__file__).resolve().parents[1] / "paper" / "graph_snapshot"
 
 
 def main():
-    # Use the pre-computed data shipped with the repo
-    repo_root = Path(__file__).parent.parent
-    data_dir = repo_root / "data" / "output"
-    csv_path = data_dir / "matched_metabolites_reactions_all.csv"
+    oracle = Oracle.from_dir(GRAPH)
+    print("Graph:", oracle.stats())
 
-    if not csv_path.exists():
-        print(f"Error: {csv_path} not found. Are you in the PathwaySeeker repo?")
-        return
+    print("\nResolve a name:")
+    for m in oracle.find_compound("ferulate")["data"]["matches"][:3]:
+        print(f"  {m['compound']}  {m['name']}  detected={m['detected']}")
 
-    print("PathwaySeeker Quickstart")
-    print("=" * 50)
+    print("\nShortest verified route, L-phenylalanine to ferulate:")
+    print(" ", oracle.path_search("C00079", "C01494")["summary"])
 
-    # Step 1: Load reaction data
-    print("\n1. Loading reaction data...")
-    df = load_and_prepare_data(str(csv_path))
-    print(f"   {len(df)} reactions loaded")
-
-    # Step 2: Build the metabolic graph
-    print("\n2. Building metabolic graph...")
-    G = build_graph(df)
-    print(f"   {G.number_of_nodes()} compounds, {G.number_of_edges()} edges")
-
-    # Step 3: Resolve compound names from cache
-    print("\n3. Resolving compound names...")
-    cache_file = data_dir / "compound_names_cache.json"
-    compound_names = get_compound_names(G, cache_file=str(cache_file))
-
-    # Step 4: Generate interactive visualization
-    output_html = repo_root / "output" / "quickstart_graph.html"
-    output_html.parent.mkdir(exist_ok=True)
-    print(f"\n4. Generating interactive graph -> {output_html}")
-    visualize_graph(G, compound_names, output_html=str(output_html))
-
-    # Step 5: Also save as JSON
-    output_json = str(output_html).replace(".html", ".json")
-    save_graph_json(G, output_json=output_json)
-
-    # Open in browser
-    print(f"\nDone! Opening in browser...")
-    webbrowser.open(f"file://{output_html.resolve()}")
-
-    print("\n--- Next steps ---")
-    print("- Explore the graph: drag nodes, hover for reaction details")
-    print("- Gold = proteomics, Teal = metabolomics, Purple = both")
-    print("- For AI features: python examples/quickstart_ai.py")
+    print("\nLabel a proposed pathway (last step is not in the graph):")
+    labeled = oracle.label_pathway(["C00079", "C00423", "C00811", "C00156"])
+    for e in labeled["edges"]:
+        print(f"  {e['from_name']} -> {e['to_name']}: {e['label']} {e['graph_reactions']}")
+    print(f"  Experimental Evidence Ratio: {labeled['eer']:.2f}")
 
 
 if __name__ == "__main__":

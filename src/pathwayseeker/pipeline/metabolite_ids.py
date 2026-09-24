@@ -5,6 +5,8 @@ import pandas as pd
 import time
 import urllib.parse
 
+from pathwayseeker.pipeline.io import read_table
+
 
 def get_kegg_c_number(metabolite_name):
     """Retrieve the KEGG C-number for a metabolite name using the KEGG API."""
@@ -36,7 +38,12 @@ def process_metabolite_file(input_file: str, output_file: str, metabolite_column
     delay : float
         Delay in seconds between requests.
     """
-    df = pd.read_excel(input_file)
+    df = read_table(input_file)
+
+    if "KEGG_C_number" in df.columns:
+        df.to_excel(output_file, index=False)
+        print(f"Step 4 skipped: input already has KEGG_C_number; wrote {output_file}")
+        return
 
     if metabolite_column is None:
         metabolite_column = df.columns[0]

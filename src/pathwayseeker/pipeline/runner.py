@@ -106,3 +106,51 @@ def run_after_curation(output_dir: str):
     _timer("Step 9 - Generate interactive graph", _visualize)
 
     print("\nPipeline after curation complete.")
+
+
+def build_graph_dir(proteomics: str, ko_definitions: str, metabolomics: str, out_dir: str,
+                    curated_metabolomics: str = None, stage: str = "all"):
+    """Build a graph directory from raw inputs (queries the KEGG REST API).
+
+    Parameters
+    ----------
+    proteomics : table with a ``proteinID`` column (.xlsx or .csv)
+    ko_definitions : tab-separated protein ID, KO, description (KAAS / GhostKOALA style, no header)
+    metabolomics : table whose first column (or ``metabolite``) holds metabolite names; if it
+        already has a ``KEGG_C_number`` column, name lookup is skipped
+    out_dir : output directory; it becomes the ``--graph`` argument for queries
+    curated_metabolomics : optional hand-curated copy of ``metabolomics_with_C_numbers.xlsx``;
+        without it, the automatic name-to-KEGG mapping is used as is
+    stage : ``all``, ``before`` (stop for manual curation) or ``after``
+    """
+    import shutil
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    proteomics_with_ko = out / "proteomics_with_ko.csv"
+    ko_to_reactions = out / "ko_to_reactions.csv"
+    reaction_to_compounds = out / "reaction_to_compounds_no_cofactors.csv"
+    metabolomics_with_c = out / "metabolomics_with_C_numbers.xlsx"
+    curated = out / "metabolomics_with_C_numbers_curated.xlsx"
+
+    if stage in ("all", "before"):
+        _timer("Step 1 - Extract KO numbers",
+               lambda: extract_ko_numbers(str(proteomics), str(ko_definitions), str(proteomics_with_ko)))
+        _timer("Step 2 - Recover reactions by KO",
+               lambda: recover_reactions(str(proteomics_with_ko), str(ko_to_reactions)))
+        _timer("Step 3 - Recover compounds by reaction",
+               lambda: recover_compounds(str(ko_to_reactions), str(reaction_to_compounds)))
+        _timer("Step 4 - Map metabolite names to KEGG C-numbers",
+               lambda: process_metabolite_file(str(metabolomics), str(metabolomics_with_c)))
+        if stage == "before":
+            print(f"\nReview {metabolomics_with_c}, save the corrected copy as {curated}, "
+                  f"then rerun with --stage after.")
+            return out
+
+    if curated_metabolomics:
+        shutil.copy(curated_metabolomics, curated)
+    elif not curated.exists():
+        print("  No curated metabolomics mapping given; using the automatic KEGG name matches.")
+        shutil.copy(metabolomics_with_c, curated)
+    run_after_curation(str(out))
+    return out

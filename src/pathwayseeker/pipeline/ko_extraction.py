@@ -2,6 +2,8 @@
 
 import pandas as pd
 
+from pathwayseeker.pipeline.io import read_table
+
 
 def extract_ko_numbers(proteomics_file: str, ko_annotation_file: str, output_file: str):
     """
@@ -16,7 +18,7 @@ def extract_ko_numbers(proteomics_file: str, ko_annotation_file: str, output_fil
     output_file : str
         Path to the output CSV file.
     """
-    df_prot = pd.read_excel(proteomics_file)
+    df_prot = read_table(proteomics_file)
 
     ko_df = pd.read_csv(
         ko_annotation_file,
