@@ -2,11 +2,10 @@
 
 import json
 import os
-import time
 
 import networkx as nx
 from pyvis.network import Network
-from bioservices import KEGG
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
 from tqdm import tqdm
 
 from .build import COLOR_MAP
@@ -32,20 +31,17 @@ def get_compound_names(G, cache_file="compound_names_cache.json"):
         with open(cache_file, "r") as f:
             compound_names = json.load(f)
 
-    kegg = KEGG()
     nodes_to_query = [node for node in G.nodes if node not in compound_names]
 
     if nodes_to_query:
         print(f"  Fetching names for {len(nodes_to_query)} compounds from KEGG...")
 
     for node in tqdm(nodes_to_query, desc="Querying KEGG", unit="compound"):
-        try:
-            entry = kegg.get(node)
-            time.sleep(1)
-            parsed = kegg.parse(entry)
-            compound_names[node] = parsed.get("NAME", [""])[0].strip()
-        except Exception:
-            compound_names[node] = node
+        entry = kegg_rest(f"get/cpd:{node}")
+        if entry is None:
+            continue  # failed after retries; not cached, so a rerun retries it
+        names = entry_field(entry, "NAME")
+        compound_names[node] = names[0].rstrip(";").strip() if names else node
 
     with open(cache_file, "w") as f:
         json.dump(compound_names, f)

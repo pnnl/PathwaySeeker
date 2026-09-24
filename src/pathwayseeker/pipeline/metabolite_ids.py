@@ -1,26 +1,19 @@
 """Step 4: Retrieve KEGG C-numbers for metabolite names."""
 
-import requests
 import pandas as pd
-import time
 import urllib.parse
 
 from pathwayseeker.pipeline.io import read_table
+from pathwayseeker.pipeline.kegg import kegg_rest
 
 
 def get_kegg_c_number(metabolite_name):
     """Retrieve the KEGG C-number for a metabolite name using the KEGG API."""
-    base_url = "http://rest.kegg.jp/find/compound/"
-    query = urllib.parse.quote(metabolite_name)
-    url = f"{base_url}{query}"
-    response = requests.get(url)
-
-    if response.status_code == 200 and response.text.strip():
-        first_line = response.text.strip().split("\n")[0]
-        c_number = first_line.split("\t")[0].replace("cpd:", "")
-        return c_number
-    else:
-        return None
+    text = kegg_rest(f"find/compound/{urllib.parse.quote(metabolite_name)}")
+    if text and text.strip():
+        first_line = text.strip().split("\n")[0]
+        return first_line.split("\t")[0].replace("cpd:", "")
+    return None
 
 
 def process_metabolite_file(input_file: str, output_file: str, metabolite_column: str = None, delay: float = 1.0):
@@ -36,7 +29,7 @@ def process_metabolite_file(input_file: str, output_file: str, metabolite_column
     metabolite_column : str, optional
         Name of the column containing metabolite names. If None, uses the first column.
     delay : float
-        Delay in seconds between requests.
+        Unused; KEGG requests are throttled in pathwayseeker.pipeline.kegg.
     """
     df = read_table(input_file)
 
@@ -56,7 +49,6 @@ def process_metabolite_file(input_file: str, output_file: str, metabolite_column
             c_numbers.append(c_number)
         else:
             c_numbers.append(None)
-        time.sleep(delay)
 
     df["KEGG_C_number"] = c_numbers
     df.to_excel(output_file, index=False)

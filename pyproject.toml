@@ -28,7 +28,6 @@ dependencies = [
     "networkx>=3.0",
     "numpy",
     "requests",
-    "bioservices",
     "pyvis",
     "tqdm",
     "openpyxl",

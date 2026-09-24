@@ -125,8 +125,11 @@ def build_graph_dir(proteomics: str, ko_definitions: str, metabolomics: str, out
     """
     import shutil
 
+    from pathwayseeker.pipeline import kegg
+
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    mark = len(kegg.failures)
     proteomics_with_ko = out / "proteomics_with_ko.csv"
     ko_to_reactions = out / "ko_to_reactions.csv"
     reaction_to_compounds = out / "reaction_to_compounds_no_cofactors.csv"
@@ -153,4 +156,10 @@ def build_graph_dir(proteomics: str, ko_definitions: str, metabolomics: str, out
         print("  No curated metabolomics mapping given; using the automatic KEGG name matches.")
         shutil.copy(metabolomics_with_c, curated)
     run_after_curation(str(out))
+    failed = kegg.report_failures(mark, "build")
+    fail_file = out / "kegg_failures.txt"
+    if failed:
+        fail_file.write_text("".join(f"{p}\t{e}\n" for p, e in failed))
+    elif fail_file.exists():
+        fail_file.unlink()
     return out

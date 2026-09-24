@@ -1,8 +1,8 @@
 """Step 3: Retrieve compounds from KEGG reactions (excluding cofactors)."""
 
 import pandas as pd
-import requests
-import time
+
+from pathwayseeker.pipeline.kegg import kegg_rest
 
 
 def recover_compounds(input_file: str, output_file: str, reaction_column: str = "Reaction", delay: float = 0.5):
@@ -19,7 +19,7 @@ def recover_compounds(input_file: str, output_file: str, reaction_column: str = 
     reaction_column : str
         Name of the column containing reaction IDs.
     delay : float
-        Time interval (in seconds) between requests.
+        Unused; KEGG requests are throttled in pathwayseeker.pipeline.kegg.
     """
     df = pd.read_csv(input_file)
 
@@ -34,11 +34,10 @@ def recover_compounds(input_file: str, output_file: str, reaction_column: str = 
     for i, rid in enumerate(reaction_list, start=1):
         print(f"  ({i}/{len(reaction_list)}) Processing reaction {rid}...")
 
-        url = f"http://rest.kegg.jp/get/rn:{rid}"
         try:
-            response = requests.get(url)
-            if response.ok:
-                lines = response.text.split("\n")
+            text = kegg_rest(f"get/rn:{rid}")
+            if text:
+                lines = text.split("\n")
 
                 for line in lines:
                     if line.startswith("EQUATION"):
@@ -59,12 +58,11 @@ def recover_compounds(input_file: str, output_file: str, reaction_column: str = 
                                 results.append({"Reaction": rid, "Compound": first_sub, "Role": "substrate"})
                             if first_prod.startswith("C"):
                                 results.append({"Reaction": rid, "Compound": first_prod, "Role": "product"})
-            else:
-                print(f"  No data found for {rid} (status {response.status_code})")
+            elif text == "":
+                print(f"  No KEGG entry for {rid}")
         except Exception as e:
             print(f"  Error while processing {rid}: {e}")
 
-        time.sleep(delay)
 
     df_out = pd.DataFrame(results)
     df_out.to_csv(output_file, index=False)

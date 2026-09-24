@@ -1,9 +1,8 @@
 """Step 5: Annotate metabolites with their KEGG reactions and roles."""
 
 import pandas as pd
-import time
-import requests
-from bioservices import KEGG
+
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
 
 
 def load_metabolomics_file(file_path):
@@ -12,36 +11,19 @@ def load_metabolomics_file(file_path):
     return df["KEGG_C_number"].dropna().unique().tolist()
 
 
-def get_reactions_from_kegg(c_number, kegg):
+def get_reactions_from_kegg(c_number, kegg=None):
     """Retrieve the reactions associated with a KEGG compound."""
-    reactions = []
-    entry = kegg.get(c_number)
-    if not entry or "REACTION" not in entry:
-        return []
-
-    lines = entry.split("\n")
-    capture = False
-    for line in lines:
-        if line.startswith("REACTION"):
-            reactions.append(line.replace("REACTION", "").strip())
-            capture = True
-        elif capture:
-            if line.startswith(" "):
-                reactions.append(line.strip())
-            else:
-                break
-
-    return " ".join(reactions).split()
+    entry = kegg_rest(f"get/cpd:{c_number}")
+    return " ".join(entry_field(entry, "REACTION")).split()
 
 
 def get_equation_role(rid, c_number):
     """Determine whether a compound acts as a substrate or product in the reaction."""
-    url = f"http://rest.kegg.jp/get/rn:{rid}"
-    response = requests.get(url)
-    if not response.ok:
+    text = kegg_rest(f"get/rn:{rid}")
+    if not text:
         return None
 
-    lines = response.text.split("\n")
+    lines = text.split("\n")
     for line in lines:
         if line.startswith("EQUATION"):
             eq = line.split("EQUATION")[1].strip()
@@ -66,7 +48,7 @@ def get_equation_role(rid, c_number):
 
 def annotate_metabolites(file_path, output_path="reaction_to_compounds_from_metabolomics.csv", delay: float = 0.5):
     """Annotate compounds with their reactions and roles."""
-    kegg = KEGG()
+    kegg = None
     c_numbers = load_metabolomics_file(file_path)
 
     results = []
@@ -81,7 +63,6 @@ def annotate_metabolites(file_path, output_path="reaction_to_compounds_from_meta
                 if roles:
                     for rid, compound, role in roles:
                         results.append({"Reaction": rid, "Compound": compound, "Role": role})
-                time.sleep(delay)
         except Exception as e:
             print(f"  Error processing {c_number}: {e}")
 

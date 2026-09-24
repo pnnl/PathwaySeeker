@@ -3,8 +3,7 @@
 import pandas as pd
 import json
 import os
-import time
-from bioservices import KEGG
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
 
 
 def load_cache(cache_file):
@@ -20,7 +19,6 @@ def load_cache(cache_file):
 
 def fetch_reaction_equations(reactions, existing_cache, sleep_time=1, batch_save=50, cache_file="reaction_equations_cache.json"):
     """Fetch balanced KEGG reaction equations and update the cache."""
-    kegg = KEGG()
     missing = list(set(reactions) - set(existing_cache.keys()))
     total = len(missing)
 
@@ -28,15 +26,12 @@ def fetch_reaction_equations(reactions, existing_cache, sleep_time=1, batch_save
     for i, rid in enumerate(missing, start=1):
         try:
             print(f"  Fetching reaction {rid} ({i}/{total})...")
-            entry = kegg.get(rid)
-            time.sleep(sleep_time)
-            parsed = kegg.parse(entry)
-            equation = parsed.get("EQUATION", "")
-            if isinstance(equation, list):
-                equation = equation[0]
-            existing_cache[rid] = equation
+            entry = kegg_rest(f"get/rn:{rid}")
+            if entry is None:  # failed after retries: leave uncached so a rerun retries it
+                continue
+            eq = entry_field(entry, "EQUATION")
+            existing_cache[rid] = eq[0] if eq else ""
         except Exception as e:
-            existing_cache[rid] = ""
             print(f"  Error fetching reaction {rid}: {e}")
 
         if i % batch_save == 0 or i == total:

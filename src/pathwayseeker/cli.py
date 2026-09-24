@@ -54,7 +54,9 @@ def cmd_build(args):
     if args.stage != "before":
         from pathwayseeker.oracle import Oracle
 
-        _emit({"graph": str(out), "stats": Oracle.from_dir(out).stats()})
+        failed = out / "kegg_failures.txt"
+        _emit({"graph": str(out), "stats": Oracle.from_dir(out).stats(),
+               "kegg_failures": len(failed.read_text().splitlines()) if failed.exists() else 0})
 
 
 def cmd_stats(args):

@@ -1,8 +1,8 @@
 """Step 2: Retrieve reactions associated with KOs from KEGG API."""
 
 import pandas as pd
-import requests
-import time
+
+from pathwayseeker.pipeline.kegg import kegg_rest
 
 
 def recover_reactions(input_file: str, output_file: str, ko_column: str = "KO", delay: float = 0.5):
@@ -18,7 +18,7 @@ def recover_reactions(input_file: str, output_file: str, ko_column: str = "KO", 
     ko_column : str
         Name of the column containing KOs.
     delay : float
-        Interval (in seconds) between requests.
+        Unused; KEGG requests are throttled in pathwayseeker.pipeline.kegg.
     """
     df = pd.read_csv(input_file)
 
@@ -31,23 +31,16 @@ def recover_reactions(input_file: str, output_file: str, ko_column: str = "KO", 
     print(f"Fetching reactions for {len(ko_list)} KOs...")
 
     for ko in ko_list:
-        kegg_id = f"ko:{ko}"
-        url = f"http://rest.kegg.jp/link/reaction/{kegg_id}"
-
-        try:
-            response = requests.get(url)
-            if response.ok and response.text.strip():
-                for line in response.text.strip().split("\n"):
-                    parts = line.split("\t")
-                    if len(parts) == 2:
-                        _, reaction_id = parts
-                        results.append({"KO": ko, "Reaction": reaction_id.split(":")[1]})
-            else:
-                print(f"  No reactions found for {ko}")
-        except Exception as e:
-            print(f"  Error fetching {ko}: {e}")
-
-        time.sleep(delay)
+        text = kegg_rest(f"link/reaction/ko:{ko}")
+        if text is None:
+            continue
+        if text.strip():
+            for line in text.strip().split("\n"):
+                parts = line.split("\t")
+                if len(parts) == 2:
+                    results.append({"KO": ko, "Reaction": parts[1].split(":")[1]})
+        else:
+            print(f"  No reactions found for {ko}")
 
     df_out = pd.DataFrame(results)
     df_out.to_csv(output_file, index=False)
