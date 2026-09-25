@@ -47,6 +47,18 @@ Start a new Claude Code or Codex session and ask, for example:
 
 `tversicolor` is the *Trametes versicolor* graph from the paper, included for testing.
 
+## Data from the paper
+
+All data used in the manuscript is in [`paper/`](paper/README.md):
+
+| | File |
+|---|---|
+| Training data (16,422 examples) | [`paper/training/training_v3.jsonl.gz`](paper/training/training_v3.jsonl.gz), with a readable [5-example sample](paper/training/training_v3_sample.jsonl) and [composition](paper/training/training_v3.stats.json) |
+| Evaluation queries (64) | [`paper/queries/tier1_queries.json`](paper/queries/tier1_queries.json) (60 sampled pairs) and [`phenylpropanoid_queries.json`](paper/queries/phenylpropanoid_queries.json) (4 case studies) |
+| Grader (LLM judge prompt and rubric) | [`paper/evaluation/judge_prompt_and_rubric.md`](paper/evaluation/judge_prompt_and_rubric.md) |
+| Results and logs | [`paper/results/`](paper/results/); `python paper/table1.py` recomputes Table 1 without API calls |
+| Graph used for training and evaluation | [`src/pathwayseeker/data/tversicolor/`](src/pathwayseeker/data/tversicolor/) |
+
 ## What is in this repository
 
 The PathwaySeeker package and assistant skill were added alongside the original project,
@@ -103,8 +115,6 @@ graph.label_pathway(["C00079", "C00423", "C00811", "C00156"])   # label each ste
 
 ## More
 
-- [paper/](paper/README.md): the training data, evaluation queries, scoring rubric and results
-  from the manuscript.
 - [pathway_viz/](pathway_viz/): PathwayViz, an interactive pathway map with abundance bar
   charts per condition.
 - `pathwayseeker --help` lists every command, including `ask`, which sends questions directly

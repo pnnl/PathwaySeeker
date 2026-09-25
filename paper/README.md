@@ -11,6 +11,7 @@ ProteomeXchange PXD054613.
 |---|---|
 | `src/pathwayseeker/data/tversicolor/` | The *T. versicolor* graph used for training and evaluation: 1,192 compounds (1,153 after excluding 39 cofactors), 3,620 reactions, 2,357 enzymes. It ships with the package under the graph name `tversicolor`. |
 | `training/training_v3.jsonl.gz` | The 16,422 fine-tuning examples (OpenAI chat format) |
+| `training/training_v3_sample.jsonl` | One example of each evidence type, uncompressed, for reading on GitHub |
 | `training/training_v3.stats.json` | Composition: 9,334 GRAPH_FACT, 2,831 GRAPH_PATH, 973 HYPOTHESIS, 1,806 NO_PATH, 1,478 INVALID |
 | `queries/tier1_queries.json` | 60 sampled compound pairs: 40 connected, 20 unconnected (seed 42) |
 | `queries/phenylpropanoid_queries.json` | The 4 phenylpropanoid case-study queries (64 queries in total) |
