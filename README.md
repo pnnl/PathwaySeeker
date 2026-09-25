@@ -18,8 +18,7 @@ measurements support and checks every step of the assistant's answer against it:
 - **Orange dashed steps** are the assistant's suggestions that your data does not show. They
   may still be real; they are what you would test next.
 
-It works with Claude Code and Codex, runs on your own machine, and needs no API keys of its
-own.
+It works with Claude Code and Codex, and runs on your own machine.
 
 ## Set up in 5 minutes
 
