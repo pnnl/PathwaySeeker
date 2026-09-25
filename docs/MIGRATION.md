@@ -10,11 +10,11 @@ The Oracle-in-the-Loop code used for the manuscript was developed outside this r
 | `pathseeker_hypothesis_search.py` (`HypothesisBeamSearch`, `LLMReasoner`) | `pathwayseeker.reasoning.search` |
 | `training_data_generator_v3.py` | `pathwayseeker.training.generator` (`pathwayseeker train-data`) |
 | `pathseeker_eval_unified.py` (EER, judge) | `pathwayseeker.evaluation` (`pathwayseeker eval`) |
-| `pathseeker_grounding_eval.py` (query sampler) | output released as `paper/queries/tier1_queries.json` |
+| `pathseeker_grounding_eval.py` (query sampler) | output released as `evals/queries/tier1_queries.json` |
 | `data/*.csv` used for training and evaluation | `src/pathwayseeker/data/tversicolor/` (graph name `tversicolor`) |
 
 Behavior changes relative to the research scripts are listed in the docstring of
-`pathwayseeker/reasoning/search.py` and in `paper/README.md`.
+`pathwayseeker/reasoning/search.py` and in `evals/README.md`.
 
 The graph-construction pipeline (`multiomics_graph/`) maps to `pathwayseeker.pipeline`
 (`pathwayseeker build`). PathwayViz is `pathway_viz/`, a separate Flask app with its own

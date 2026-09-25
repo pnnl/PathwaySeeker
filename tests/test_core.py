@@ -123,7 +123,7 @@ def test_eer_extraction(oracle):
 
 
 def test_table1_recomputes_from_released_results():
-    sys.path.insert(0, str(ROOT / "paper"))
+    sys.path.insert(0, str(ROOT / "evals"))
     import table1
 
     t = table1.main()

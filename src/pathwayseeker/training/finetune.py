@@ -2,10 +2,10 @@
 
 Defaults reproduce the manuscript configuration (Key resources table): base model
 gpt-4.1-2025-04-14, batch size 8, learning-rate multiplier 1.2, 3 epochs, trained on
-``paper/training/training_v3.jsonl.gz``. The resulting model is private to the account that
+``data/training/training_v3.jsonl.gz``. The resulting model is private to the account that
 trains it; pass its deployment name to ``pathwayseeker ask --model``.
 
-    pathwayseeker finetune paper/training/training_v3.jsonl.gz --provider azure
+    pathwayseeker finetune data/training/training_v3.jsonl.gz --provider azure
 """
 
 import gzip

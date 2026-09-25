@@ -4,7 +4,7 @@ pathwayseeker.training.generator
 ================================
 
 Ported from omicslink/training_data_generator_v3.py, which produced the published
-16,422-example training set (paper/training/training_v3.jsonl.gz).
+16,422-example training set (data/training/training_v3.jsonl.gz).
 
 Schema-aware training data generation for fine-tuning LLMs on 
 3-layer multi-omics graphs (Enzyme → Reaction → Compound).

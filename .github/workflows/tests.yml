@@ -19,4 +19,4 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[mcp,dev]"
       - run: pytest -q tests
-      - run: python paper/table1.py
+      - run: python evals/table1.py

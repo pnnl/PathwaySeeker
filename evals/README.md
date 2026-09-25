@@ -1,4 +1,4 @@
-# Manuscript data and results
+# Evaluation and training data from the paper
 
 Training data, evaluation queries, evaluation rubric and results for *PathwaySeeker:
 Evidence-Grounded AI Reasoning over Organism-Specific Metabolic Networks*. The Supplementary
@@ -7,25 +7,25 @@ with the source study (Monteiro et al., 2025): metabolomics MassIVE MSV000094781
 Metabolomics Workbench doi:10.25345/C5H41JZ41; proteomics MassIVE MSV000095519 and
 ProteomeXchange PXD054613.
 
-| Path | Contents |
+| Path (from the repository root) | Contents |
 |---|---|
 | `src/pathwayseeker/data/tversicolor/` | The *T. versicolor* graph used for training and evaluation: 1,192 compounds (1,153 after excluding 39 cofactors), 3,620 reactions, 2,357 enzymes. It ships with the package under the graph name `tversicolor`. |
-| `training/training_v3.jsonl.gz` | The 16,422 fine-tuning examples (OpenAI chat format) |
-| `training/training_v3_sample.jsonl` | One example of each evidence type, uncompressed, for reading on GitHub |
-| `training/training_v3.stats.json` | Composition: 9,334 GRAPH_FACT, 2,831 GRAPH_PATH, 973 HYPOTHESIS, 1,806 NO_PATH, 1,478 INVALID |
-| `queries/tier1_queries.json` | 60 sampled compound pairs: 40 connected, 20 unconnected (seed 42) |
-| `queries/phenylpropanoid_queries.json` | The 4 phenylpropanoid case-study queries (64 queries in total) |
-| `evaluation/judge_prompt_and_rubric.md` | LLM-as-judge prompt and scoring rubric, verbatim. Judge scores were produced by a model from the same family as the evaluated model and should be read as an upper bound. |
-| `results/table1_results.json` | Raw output for the 64 queries: responses, extracted edges, EER, judge scores |
-| `results/logs/` | Run log and per-query logs of the evaluation (2026-01-27) |
-| `table1.py` | Recomputes Table 1 from `table1_results.json` without API calls |
+| `data/training/training_v3.jsonl.gz` | The 16,422 fine-tuning examples (OpenAI chat format) |
+| `data/training/training_v3_sample.jsonl` | One example of each evidence type, uncompressed, for reading on GitHub |
+| `data/training/training_v3.stats.json` | Composition: 9,334 GRAPH_FACT, 2,831 GRAPH_PATH, 973 HYPOTHESIS, 1,806 NO_PATH, 1,478 INVALID |
+| `evals/queries/tier1_queries.json` | 60 sampled compound pairs: 40 connected, 20 unconnected (seed 42) |
+| `evals/queries/phenylpropanoid_queries.json` | The 4 phenylpropanoid case-study queries (64 queries in total) |
+| `evals/grader/judge_prompt_and_rubric.md` | LLM-as-judge prompt and scoring rubric, verbatim. Judge scores were produced by a model from the same family as the evaluated model and should be read as an upper bound. |
+| `evals/results/table1_results.json` | Raw output for the 64 queries: responses, extracted edges, EER, judge scores |
+| `evals/results/logs/` | Run log and per-query logs of the evaluation (2026-01-27) |
+| `evals/table1.py` | Recomputes Table 1 from `table1_results.json` without API calls |
 
 ```bash
-python paper/table1.py
+python evals/table1.py
 ```
 
 The graph reconstructed for *Rhodosporidium toruloides* (additional species, Discussion) is
-in `multiomics_graph_addiitonal/`.
+in `analysis/multiomics_graph_addiitonal/`.
 
 ## Training data, fine-tuning and evaluation
 
@@ -38,7 +38,7 @@ pathwayseeker train-data --graph mygraph --balanced --output train.jsonl
 To score a question set by Experimental Evidence Ratio and the LLM judge:
 
 ```bash
-pathwayseeker eval --queries paper/queries/*.json --graph tversicolor
+pathwayseeker eval --queries evals/queries/*.json --graph tversicolor
 ```
 
 The paper's model was fine-tuned from GPT-4.1 (gpt-4.1-2025-04-14) through the Azure OpenAI
@@ -47,7 +47,7 @@ Fine-Tuning API with batch size 8, learning-rate multiplier 1.2 and 3 epochs (AP
 same configuration (the `finetune` command has not been tested in this release):
 
 ```bash
-pathwayseeker finetune paper/training/training_v3.jsonl.gz --provider azure   # or --provider openai
+pathwayseeker finetune data/training/training_v3.jsonl.gz --provider azure   # or --provider openai
 ```
 
 Then pass the resulting model or deployment to `pathwayseeker ask --model ...`. Base models

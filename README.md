@@ -8,7 +8,7 @@ reaction graph built from an organism's proteomics and metabolomics data.
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: BSD-2](https://img.shields.io/badge/license-BSD--2-green)](LICENSE.txt)
 
-![A labeled PathwaySeeker answer: solid green steps were found in the graph, orange dashed steps were not](images/pathway_answer.png)
+![A labeled PathwaySeeker answer: solid green steps were found in the graph, orange dashed steps were not](docs/images/pathway_answer.png)
 
 Language models can propose plausible metabolic pathways, but they cannot tell which steps are
 consistent with measurements from a particular organism. PathwaySeeker builds a graph of KEGG
@@ -49,34 +49,30 @@ Start a new Claude Code or Codex session and ask, for example:
 
 ## Data from the paper
 
-All data used in the manuscript is in [`paper/`](paper/README.md):
-
-| | File |
+| | Location |
 |---|---|
-| Training data (16,422 examples) | [`paper/training/training_v3.jsonl.gz`](paper/training/training_v3.jsonl.gz), with a readable [5-example sample](paper/training/training_v3_sample.jsonl) and [composition](paper/training/training_v3.stats.json) |
-| Evaluation queries (64) | [`paper/queries/tier1_queries.json`](paper/queries/tier1_queries.json) (60 sampled pairs) and [`phenylpropanoid_queries.json`](paper/queries/phenylpropanoid_queries.json) (4 case studies) |
-| Grader (LLM judge prompt and rubric) | [`paper/evaluation/judge_prompt_and_rubric.md`](paper/evaluation/judge_prompt_and_rubric.md) |
-| Results and logs | [`paper/results/`](paper/results/); `python paper/table1.py` recomputes Table 1 without API calls |
+| Training data (16,422 examples) | [`data/training/training_v3.jsonl.gz`](data/training/training_v3.jsonl.gz), with a readable [sample](data/training/training_v3_sample.jsonl) and its [composition](data/training/training_v3.stats.json) |
+| Evaluation queries (64) | [`evals/queries/`](evals/queries/): 60 sampled compound pairs and 4 case studies |
+| Grader (LLM judge prompt and rubric) | [`evals/grader/judge_prompt_and_rubric.md`](evals/grader/judge_prompt_and_rubric.md) |
+| Results and logs | [`evals/results/`](evals/results/); `python evals/table1.py` recomputes Table 1 without API calls |
 | Graph used for training and evaluation | [`src/pathwayseeker/data/tversicolor/`](src/pathwayseeker/data/tversicolor/) |
 
-## What is in this repository
+Details are in [`evals/README.md`](evals/README.md).
 
-The PathwaySeeker package and assistant skill were added alongside the original project,
-which is unchanged:
+## Repository layout
 
-| Folder | What it is |
+| Folder | Contents |
 | --- | --- |
-| `src/pathwayseeker/`, `skills/` | Python package, command line, MCP server and assistant skill |
-| `multiomics_graph/`, `multiomics_graph_proteomics/` | Original graph-construction scripts (proteomics + metabolomics, and proteomics only) |
-| `notebooks/`, `output/`, `data/` | Analysis notebooks, their outputs, and the *T. versicolor* input tables |
-| `pathway_viz/` | PathwayViz, the interactive pathway map with per-condition abundance charts |
-| `MDF/` | Thermodynamic feasibility (Max-min Driving Force) analyses |
-| `multiomics_graph_addiitonal/` | Graph reconstructed for *Rhodosporidium toruloides* (not evaluated) |
-| `paper/` | Training data, queries, rubric and results from the manuscript |
+| `src/pathwayseeker/` | Python package: graph builder, graph queries, command line, MCP server |
+| `skills/pathwayseeker/` | Skill for Claude Code and Codex |
+| `data/` | *T. versicolor* input tables (`raw/`), pipeline outputs (`output/`) and training data (`training/`) |
+| `evals/` | Evaluation queries, grader, results and the Table 1 script |
+| `analysis/` | Original analysis code, unchanged: graph-construction scripts, notebooks and their outputs, thermodynamic analyses (`MDF/`), and the *Rhodosporidium toruloides* graph (not evaluated) |
+| `pathway_viz/` | PathwayViz, an interactive pathway map with per-condition abundance charts |
+| `docs/`, `examples/`, `tests/` | Documentation and images, a Python example, and tests |
 
-The package's graph builder (`pathwayseeker build`) is a packaged version of the
-`multiomics_graph/` pipeline; [MIGRATION.md](MIGRATION.md) maps each original script to its
-package module.
+`pathwayseeker build` is a packaged version of the `analysis/multiomics_graph/` pipeline;
+[docs/MIGRATION.md](docs/MIGRATION.md) maps each original script to its package module.
 
 ## Use your own data
 

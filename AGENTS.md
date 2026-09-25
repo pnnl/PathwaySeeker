@@ -40,4 +40,5 @@ consistent with the data, not proven; a step it does not contain is a hypothesis
 - Code is in `src/pathwayseeker/`. Run the tests with `pytest -q tests`.
 - `src/pathwayseeker/skill/SKILL.md` is the copy installed by `pathwayseeker setup`. Keep it
   identical to `skills/pathwayseeker/SKILL.md`; a test checks this.
-- `paper/` holds the manuscript's data and results. Do not change them.
+- `evals/` and `data/training/` hold the manuscript's evaluation and training data, and
+  `analysis/` holds the original analysis code. Do not change them.

@@ -1,6 +1,6 @@
 """Recompute manuscript Table 1 from the released evaluation output (no API calls).
 
-    python paper/table1.py
+    python evals/table1.py
 """
 
 import json

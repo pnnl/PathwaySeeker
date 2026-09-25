@@ -360,7 +360,7 @@ def main(argv=None):
     p.set_defaults(func=cmd_ask)
 
     p = sub.add_parser("eval", help="Evaluate on a query set: EER and LLM judge")
-    p.add_argument("--queries", nargs="+", required=True, help="Query JSON files (e.g. paper/queries/*.json)")
+    p.add_argument("--queries", nargs="+", required=True, help="Query JSON files (e.g. evals/queries/*.json)")
     p.add_argument("--out", default="eval_results.json")
     p.add_argument("--limit", type=int)
     p.add_argument("--no-judge", action="store_true")
