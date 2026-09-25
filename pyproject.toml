@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pathwayseeker"
 version = "1.0.0"
-description = "Evidence-grounded reasoning over organism-specific metabolic graphs built from multi-omics data"
+description = "Check proposed metabolic pathway steps against a KEGG reaction graph built from proteomics and metabolomics data"
 requires-python = ">=3.10"
 license = {text = "BSD-2-Clause"}
 authors = [

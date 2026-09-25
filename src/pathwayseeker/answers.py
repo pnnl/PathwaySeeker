@@ -1,7 +1,7 @@
 """Draw checked pathways as standalone HTML and save answers with their labels.
 
 Each saved answer is a JSON record (question, labeled edges, EER, optional answer text)
-plus an HTML page that draws the pathways: green edges are in the data (GRAPH_FACT,
+plus an HTML page that draws the pathways: green edges were found in the graph (GRAPH_FACT,
 GRAPH_PATH), orange dashed edges are HYPOTHESIS, red edges are INVALID. Compounds
 detected by metabolomics have a blue fill.
 """
@@ -27,15 +27,15 @@ LEGEND = """
   <div style="color:#444;margin-bottom:6px">{subtitle}</div>
   {answer}
   <div style="font-size:14px">
-    <span style="color:#2e7d32">&#9644;&#9644;</span> in your data (GRAPH_FACT / GRAPH_PATH) &nbsp;
-    <span style="color:#ef6c00">- - -</span> hypothesis, not seen in your data &nbsp;
+    <span style="color:#2e7d32">&#9644;&#9644;</span> found in the graph (GRAPH_FACT / GRAPH_PATH) &nbsp;
+    <span style="color:#ef6c00">- - -</span> hypothesis, not found in the graph &nbsp;
     <span style="color:#c62828">- - -</span> invalid (cofactor rule) &nbsp;
     <span style="display:inline-block;width:10px;height:10px;background:#90caf9;border:1px solid #1565c0"></span>
     detected by metabolomics &nbsp;
     <span style="display:inline-block;width:10px;height:10px;background:#eeeeee;border:1px solid #757575"></span>
     not detected
   </div>
-  <div style="font-size:13px;color:#666">Evidence ratio (share of steps in your data): {eer}</div>
+  <div style="font-size:13px;color:#666">Evidence ratio (share of steps found in the graph; describes the answer, not its correctness): {eer}</div>
 </div>
 """
 
@@ -117,7 +117,7 @@ NETWORK_EVIDENCE_COLOR = {"both": "#6a1b9a", "proteomics": "#1565c0", "metabolom
 
 
 def network_html(oracle, title: str) -> str:
-    """Whole-graph view: compounds linked by the reactions in the data (cofactors left out).
+    """Whole-graph view: compounds linked by the reactions in the graph (cofactors left out).
 
     Edge color gives the evidence for the reaction: proteomics (blue), metabolomics (green)
     or both (purple). Compounds detected by metabolomics have a blue fill.
@@ -181,7 +181,8 @@ def save_answer(oracle, graph_dir: Path, question: str, pathways: List[dict],
         "saved": datetime.now().isoformat(timespec="seconds"),
         "answer": answer_text,
         "pathways": pathways,
-        "note": "Labels come from the graph check. HYPOTHESIS steps were not observed in the data.",
+        "note": ("Labels come from the graph check. Steps found in the graph are consistent with the data, "
+                 "not proven; HYPOTHESIS steps were not found in the graph and are not ruled out."),
         **(extra or {}),
     }
     json_path = out_dir / f"{stem}.json"

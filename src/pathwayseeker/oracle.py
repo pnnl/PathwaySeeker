@@ -1,8 +1,8 @@
 """Positive-evidence-only graph oracle over an organism-specific metabolic graph.
 
 The oracle answers seven query types over the compound-reaction-enzyme graph and labels
-proposed pathways with evidence types. It confirms relationships that the experimental
-graph contains and never treats absence as rejection: a relationship the graph does not
+proposed pathways with evidence types. It reports relationships that the graph contains and
+never treats absence as rejection: a relationship the graph does not
 contain is reported as "not observed", and a proposed edge without graph support is
 labeled HYPOTHESIS rather than false.
 

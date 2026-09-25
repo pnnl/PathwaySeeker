@@ -1,7 +1,7 @@
 """Evaluation: Experimental Evidence Ratio (EER) and the LLM-as-judge used in the manuscript.
 
-EER is the fraction of compound-to-compound edges in a response that the organism-specific
-graph confirms (a graph reaction consumes the source and produces the target), computed per
+EER is the fraction of compound-to-compound edges in a response that are found in the
+organism-specific graph (a graph reaction consumes the source and produces the target), computed per
 response and averaged over the queries that completed. It characterizes response composition,
 not accuracy.
 """

@@ -5,10 +5,11 @@ description: Build a metabolic graph from a user's proteomics and metabolomics t
 
 # PathwaySeeker
 
-PathwaySeeker builds a graph of the compounds, reactions and enzymes that a user's
-experiment supports (KEGG IDs throughout). You answer questions with your own biochemistry
-knowledge and check every step against that graph. The graph can only confirm: a step that
-is missing from it was not observed in this experiment, which does not make it impossible.
+PathwaySeeker builds a graph of KEGG reactions linked to the enzymes and metabolites detected
+in a user's proteomics and metabolomics data (KEGG IDs throughout). You answer questions with
+your own biochemistry knowledge and check each step against that graph. A step found in the
+graph is consistent with the data, not proven. A step not found may be missing because of
+incomplete annotation or name matching; it is not ruled out.
 
 All commands print JSON. If `pathwayseeker` is not installed, run
 `pip install "pathwayseeker[llm,mcp] @ git+https://github.com/pnnl/PathwaySeeker"`.
@@ -34,8 +35,8 @@ pathwayseeker build --name myorg --organism "Species name" \
     --proteomics prot.xlsx --ko-definitions ko.txt --metabolomics metab.xlsx
 ```
 
-This downloads data from KEGG and can take a couple of hours the first time; downloads
-are cached. Run it in the background and tell the user it is running. When it finishes, report
+This downloads data from KEGG. It took about 20 minutes in our tests and can take a few
+hours for larger datasets; downloads are cached. Run it in the background and tell the user it is running. When it finishes, report
 the `stats` and `kegg_failures` from the output. If there are failures, run the same command
 again.
 
@@ -70,15 +71,18 @@ file as `metabolomics_with_C_numbers_curated.xlsx` in the same folder, then run 
 
 For each route, give the compounds in order, with reaction IDs, and each step's label from
 `save`. Use the labels exactly as returned.
-- `GRAPH_FACT` / `GRAPH_PATH`: in the user's data. Mention the evidence (proteomics,
-  metabolomics) and any enzymes listed.
-- `HYPOTHESIS`: your suggestion, not seen in the data. Give your reasoning and say what
+- `GRAPH_FACT` / `GRAPH_PATH`: found in the graph. State the evidence type. Proteomics
+  evidence means an enzyme that can catalyze the reaction was detected; metabolomics evidence
+  means the reaction involves a detected compound. Neither shows that the reaction occurred,
+  and the graph pools all conditions. Do not call these steps confirmed or proven.
+- `HYPOTHESIS`: your suggestion, not found in the graph. Give your reasoning and say what
   experiment could test it.
 - `INVALID`: breaks the cofactor rule. Drop it or explain it.
 
-Give the share of steps found in the data, and the path of the HTML file. Offer to open it
+Give the share of steps found in the graph, and say that it describes the composition of the
+answer, not its correctness. Give the path of the HTML file. Offer to open it
 with `pathwayseeker show --graph myorg`, which opens the latest saved answer. `show --network`
-opens the whole graph. Never describe a HYPOTHESIS step as confirmed.
+opens the whole graph. Never describe any step as confirmed.
 
 ## Earlier answers
 

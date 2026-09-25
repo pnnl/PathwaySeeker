@@ -243,10 +243,11 @@ def cmd_setup(args):
 
 
 DEMO_QUESTION = "How is L-tyrosine converted to ferulate, and can 4-hydroxybenzoate feed into it?"
-DEMO_ANSWER = ("L-tyrosine reaches ferulate through 4-coumarate and caffeate (R00737, R02950, R03366); "
-               "every step is in the T. versicolor data. 4-Hydroxybenzoate joins at 4-coumarate via "
-               "R01308, also in the data. The CoA-ester route through 4-coumaroyl-CoA, caffeoyl-CoA and "
-               "feruloyl-CoA was not observed, so it stays a hypothesis.")
+DEMO_ANSWER = ("Example answer. Every step from L-tyrosine to ferulate through 4-coumarate and caffeate "
+               "(R00737, R02950, R03366) is found in the T. versicolor graph, as is the step from "
+               "4-hydroxybenzoate to 4-coumarate (R01308). These reactions are linked to detected metabolites; "
+               "this is consistent with the data but does not show that they occur. The CoA-ester route "
+               "through 4-coumaroyl-CoA, caffeoyl-CoA and feruloyl-CoA is not in the graph and remains a hypothesis.")
 DEMO_PATHS = [["C00082", "C00811", "C01197", "C01494"], ["C00156", "C00811"],
               ["C00082", "C00811", "C00223", "C00323", "C00406", "C01494"]]
 

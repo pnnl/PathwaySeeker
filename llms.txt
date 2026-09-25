@@ -1,6 +1,6 @@
 # PathwaySeeker
 
-> PathwaySeeker lets an AI assistant (Claude Code, Codex or any MCP client) answer questions about metabolic pathways using a scientist's own proteomics and metabolomics data. It builds an organism-specific graph of compounds, reactions and enzymes from the measurements (KEGG identifiers), checks every step of a proposed pathway against that graph, and labels each step as supported by the data or as a hypothesis. Published as a bioRxiv preprint (2026) by Pacific Northwest National Laboratory.
+> PathwaySeeker checks the steps of metabolic pathways proposed by an AI assistant (Claude Code, Codex or other MCP clients) against a graph of KEGG reactions linked to the enzymes and metabolites detected in an organism's proteomics and metabolomics data. Each step is labeled as found in the graph (consistent with the data, not proof that the reaction occurs) or as a hypothesis (not found in the graph, not ruled out). Described in a bioRxiv preprint (2026, not peer reviewed) from Pacific Northwest National Laboratory.
 
 ## Start here
 - [README](https://github.com/pnnl/PathwaySeeker/blob/master/README.md): what it does, five-minute setup, using your own data

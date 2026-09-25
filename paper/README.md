@@ -14,7 +14,7 @@ ProteomeXchange PXD054613.
 | `training/training_v3.stats.json` | Composition: 9,334 GRAPH_FACT, 2,831 GRAPH_PATH, 973 HYPOTHESIS, 1,806 NO_PATH, 1,478 INVALID |
 | `queries/tier1_queries.json` | 60 sampled compound pairs: 40 connected, 20 unconnected (seed 42) |
 | `queries/phenylpropanoid_queries.json` | The 4 phenylpropanoid case-study queries (64 queries in total) |
-| `evaluation/judge_prompt_and_rubric.md` | LLM-as-judge prompt and scoring rubric, verbatim |
+| `evaluation/judge_prompt_and_rubric.md` | LLM-as-judge prompt and scoring rubric, verbatim. Judge scores were produced by a model from the same family as the evaluated model and should be read as an upper bound. |
 | `results/table1_results.json` | Raw output for the 64 queries: responses, extracted edges, EER, judge scores |
 | `results/logs/` | Run log and per-query logs of the evaluation (2026-01-27) |
 | `table1.py` | Recomputes Table 1 from `table1_results.json` without API calls |
@@ -43,14 +43,14 @@ pathwayseeker eval --queries paper/queries/*.json --graph tversicolor
 The paper's model was fine-tuned from GPT-4.1 (gpt-4.1-2025-04-14) through the Azure OpenAI
 Fine-Tuning API with batch size 8, learning-rate multiplier 1.2 and 3 epochs (API version
 2025-01-01-preview). The fine-tuned model cannot be redistributed. To train your own with the
-same configuration:
+same configuration (the `finetune` command has not been tested in this release):
 
 ```bash
 pathwayseeker finetune paper/training/training_v3.jsonl.gz --provider azure   # or --provider openai
 ```
 
 Then pass the resulting model or deployment to `pathwayseeker ask --model ...`. Base models
-also work with the Oracle-in-the-Loop search.
+can also be used with the Oracle-in-the-Loop search (not tested with live models in this release).
 
 ## Notes for anyone rerunning
 
@@ -63,7 +63,7 @@ also work with the Oracle-in-the-Loop search.
   used for the Table 1 run: beam width 2 and 2 iterations. The released search
   (`pathwayseeker.reasoning.search`) defaults to the Algorithm 1 parameters (k = 3, T = 3,
   theta = 0.70). The five failed queries hit an output-parsing error (identifiers returned as
-  objects); the released code normalizes such output.
+  objects); the released code normalizes such output (checked by unit test, not by rerunning the evaluation).
 - **Regenerating training data.** `pathwayseeker train-data --graph tversicolor
   --balanced` reproduces the class mix: GRAPH_FACT exactly, the other classes within about 3%.
   Exact example-level reproduction depends on Python's set iteration order, so the released

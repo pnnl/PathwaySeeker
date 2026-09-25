@@ -1,9 +1,10 @@
 """
-PathwaySeeker: evidence-grounded reasoning over organism-specific metabolic graphs.
+PathwaySeeker: check proposed metabolic pathway steps against a KEGG reaction graph built
+from proteomics and metabolomics data.
 
-Build a compound-reaction-enzyme graph from proteomics and metabolomics, query it with a
-positive-evidence-only oracle, and label every proposed pathway edge as confirmed by the
-experiment (GRAPH_FACT, GRAPH_PATH) or as a hypothesis.
+Build a compound-reaction-enzyme graph, query it with a positive-evidence-only oracle, and
+label each proposed pathway edge as found in the graph (GRAPH_FACT, GRAPH_PATH) or not
+(HYPOTHESIS).
 
     from pathwayseeker import Oracle
     oracle = Oracle.from_dir(resolve_graph("tversicolor"))

@@ -23,8 +23,8 @@ minutes.
    ```bash
    pathwayseeker demo
    ```
-   This answers a sample question on the included *Trametes versicolor* graph and opens the
-   pathway picture in a browser. Tell the user where the HTML file is.
+   This labels a pre-written example answer against the included *Trametes versicolor* graph
+   and opens the result in a browser. Tell the user where the HTML file is.
 4. Tell the user to start a new session so the skill loads. Then they can ask questions,
    either about the included graph (`tversicolor`) or about their own data.
 
@@ -32,8 +32,8 @@ minutes.
 
 Follow `skills/pathwayseeker/SKILL.md`. It covers building a graph from the user's
 proteomics and metabolomics files, answering questions by checking each step against the
-graph, and saving answers with a pathway picture. Key rule: a step the graph does not
-contain is a hypothesis, not a fact and not an impossibility.
+graph, and saving answers with a pathway picture. Key rules: a step the graph contains is
+consistent with the data, not proven; a step it does not contain is a hypothesis, not ruled out.
 
 ## Working on this repository
 

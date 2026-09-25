@@ -21,14 +21,16 @@ To answer a question:
 1. Look up compound IDs with find_compound.
 2. Propose 2-4 possible routes from your biochemical knowledge.
 3. Check them with path_search, common_reactions, compound_neighborhood and the other lookups.
-4. Refine routes that are partly supported; stop when most are supported or after ~3 rounds.
+4. Refine routes that are partly found; stop when most steps are found in the graph or after
+   ~3 rounds.
 5. Call verify_pathway on each route you report and use its labels as given:
-   GRAPH_FACT / GRAPH_PATH = in the data; HYPOTHESIS = your suggestion, not seen in the data
-   (not disproven); INVALID = breaks the cofactor rule.
+   GRAPH_FACT / GRAPH_PATH = found in the graph (consistent with the data, not proof that the
+   reaction occurs); HYPOTHESIS = your suggestion, not found in the graph (not ruled out);
+   INVALID = breaks the cofactor rule.
 6. Call save_answer with the question, the routes and your answer, and give the user the
    HTML file path so they can view the pathway.
-A step missing from the graph means "not observed", never "impossible". Never present a
-HYPOTHESIS step as confirmed."""
+A step missing from the graph means "not found", never "impossible". Do not describe any step
+as confirmed."""
 
 
 def _server_class():
@@ -121,7 +123,7 @@ def create_server(default_graph: Optional[str] = None):
     @tool()
     def verify_pathway(compounds: List[str], graph: Optional[str] = None) -> dict:
         """Label each step of an ordered compound route as GRAPH_FACT, GRAPH_PATH, HYPOTHESIS or
-        INVALID, with the share of steps found in the data. Call before presenting any route."""
+        INVALID, with the share of steps found in the graph. Call before presenting any route."""
         return get(graph)[0].label_pathway(compounds)
 
     @tool()
