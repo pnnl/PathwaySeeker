@@ -47,7 +47,7 @@ pathwayseeker = "pathwayseeker.cli:main"
 Repository = "https://github.com/pnnl/PathwaySeeker"
 
 [tool.setuptools.package-data]
-pathwayseeker = ["data/tversicolor/*"]
+pathwayseeker = ["data/tversicolor/*", "skill/SKILL.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

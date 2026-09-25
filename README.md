@@ -1,60 +1,67 @@
 # PathwaySeeker
 
-PathwaySeeker lets you ask questions about your own proteomics and metabolomics data, such as
-"how does my organism turn phenylalanine into ferulate?" or "what connects these two
-metabolites?". It builds a network of the compounds, reactions and enzymes that your
-measurements support. An AI assistant proposes answers, and PathwaySeeker checks every step
-against that network. The answer then says which steps your data supports and which are the
-AI's suggestions.
+**Ask your AI assistant how metabolites connect in your organism, and see which steps your
+own proteomics and metabolomics data actually support.**
 
-![PathwaySeeker overview](images/graphical_abstract.png)
+[![tests](https://github.com/pnnl/PathwaySeeker/actions/workflows/tests.yml/badge.svg)](https://github.com/pnnl/PathwaySeeker/actions/workflows/tests.yml)
+[![bioRxiv](https://img.shields.io/badge/bioRxiv-2026.04.14.718256-b31b1b)](https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: BSD-2](https://img.shields.io/badge/license-BSD--2-green)](LICENSE.txt)
 
-## How it works
+![A PathwaySeeker answer: green steps are in the data, orange dashed steps are hypotheses](images/pathway_answer.png)
 
-1. **Build a graph from your data.** Proteins (with KEGG Orthology annotations) are linked
-   to the reactions they catalyze. Detected metabolites are linked to the reactions they take
-   part in. Reactions and compounds come from KEGG.
-2. **Ask a question.** An AI assistant suggests possible routes from its knowledge of
-   biochemistry. It then looks each one up in your graph and revises its suggestions based
-   on what it finds.
-3. **Get a checked answer.** Each step is marked as either in your data (`GRAPH_FACT`, or
-   `GRAPH_PATH` for a whole route) or a `HYPOTHESIS`: suggested by the AI but not seen in your
-   data. A hypothesis may still be real; your experiment may simply not have detected it.
-   The answer is saved together with a pathway picture you can open in a browser.
+Language models know a lot of biochemistry, but they cannot tell you which of it happens in
+*your* organism under *your* conditions. PathwaySeeker builds a network of the reactions your
+measurements support and checks every step of the assistant's answer against it:
 
-## Install
+- **Green steps** are in your data, backed by detected enzymes, detected metabolites or both.
+- **Orange dashed steps** are the assistant's suggestions that your data does not show. They
+  may still be real; they are what you would test next.
 
-```bash
-pip install "pathwayseeker[llm,mcp] @ git+https://github.com/pnnl/PathwaySeeker"
-```
+It works with Claude Code and Codex, runs on your own machine, and needs no API keys of its
+own.
 
-Requires Python 3.10 or newer. The graph from our paper (*Trametes versicolor*) is included
-under the name `tversicolor`, so you can try it before building your own.
+## Set up in 5 minutes
 
-## Use it from Claude Code or Codex
+Paste this into Claude Code or Codex:
 
-**Claude Code.** Install the skill:
+> Set up PathwaySeeker from https://github.com/pnnl/PathwaySeeker by following its AGENTS.md, then run the demo.
+
+Or do it yourself:
 
 ```bash
-git clone https://github.com/pnnl/PathwaySeeker.git
-cp -r PathwaySeeker/skills/pathwayseeker ~/.claude/skills/
+pip install "pathwayseeker[mcp] @ git+https://github.com/pnnl/PathwaySeeker"
+pathwayseeker setup     # installs the skill for Claude Code and Codex
+pathwayseeker demo      # answers a sample question and opens the picture above
 ```
 
-**Codex.** Add the PathwaySeeker tools to `~/.codex/config.toml`:
+Start a new Claude Code or Codex session and ask, for example:
 
-```toml
-[mcp_servers.pathwayseeker]
-command = "pathwayseeker"
-args = ["mcp"]
-```
+> Using the tversicolor graph, what connects phenylalanine and 4-hydroxybenzoate? Show me the pathway.
 
-Other assistants that support MCP can use the same `pathwayseeker mcp` command.
+`tversicolor` is the *Trametes versicolor* data from our paper, included so you can try it
+right away.
 
-Then ask in plain language:
+## Use your own data
+
+Tell your assistant where your files are:
 
 > Build a PathwaySeeker graph called myorg from proteins.xlsx, ko.txt and metabolites.xlsx.
 
-> Using the tversicolor graph, how is L-phenylalanine converted to ferulate? Show me the pathway.
+| File | What it contains |
+|---|---|
+| Proteomics table (`.xlsx` or `.csv`) | One row per protein, with a `proteinID` column |
+| KO annotation (`.txt`) | Tab-separated protein ID, KEGG Orthology (KO) number and description, no header. Make it with [KAAS](https://www.genome.jp/kegg/kaas/), [GhostKOALA](https://www.kegg.jp/ghostkoala/) or eggNOG-mapper. |
+| Metabolomics table (`.xlsx` or `.csv`) | Metabolite names in the first column, or KEGG compound IDs in a `KEGG_C_number` column |
+
+The first build downloads reaction data from KEGG and can take up to an hour; later builds
+are fast. Your assistant can also go through the automatic metabolite-to-KEGG matches with
+you, which is worth doing before you rely on the results.
+
+Graphs are stored in `~/.pathwayseeker/graphs/<name>/`. Every checked answer is saved there
+too, in `answers/`, as a JSON record and a pathway picture. `pathwayseeker show` opens the
+latest one and `pathwayseeker show --network` opens the whole graph. Saved answers are a
+record only; they are not fed back into later conversations.
 
 ## Use it from Python
 
@@ -62,49 +69,19 @@ Then ask in plain language:
 from pathwayseeker import Oracle, resolve_graph
 
 graph = Oracle.from_dir(resolve_graph("tversicolor"))
-graph.find_compound("ferulate")              # look up KEGG IDs by name
-graph.path_search("C00079", "C01494")        # routes in the data between two compounds
+graph.find_compound("ferulate")                                  # names to KEGG IDs
+graph.path_search("C00079", "C01494")                            # routes in the data
 graph.label_pathway(["C00079", "C00423", "C00811", "C00156"])   # label each step
 ```
 
-## Your data
+## More
 
-You need three files:
-
-| File | What it contains |
-|---|---|
-| Proteomics table (`.xlsx` or `.csv`) | One row per protein, with a `proteinID` column |
-| KO annotation (`.txt`) | Tab-separated `proteinID`, KO number and description, no header row. Make it by running your protein sequences through [KAAS](https://www.genome.jp/kegg/kaas/), [GhostKOALA](https://www.kegg.jp/ghostkoala/) or eggNOG-mapper. |
-| Metabolomics table (`.xlsx` or `.csv`) | Metabolite names in the first column, or KEGG compound IDs in a `KEGG_C_number` column |
-
-Your assistant can build the graph for you, or you can run:
-
-```bash
-pathwayseeker build --name myorg --organism "Species name" \
-    --proteomics proteins.xlsx --ko-definitions ko.txt --metabolomics metabolites.xlsx
-```
-
-The first build downloads reaction data from KEGG and can take up to an hour; later builds
-reuse the downloads. Metabolite names are matched to KEGG automatically. Ask your assistant
-to go through the matches with you before you rely on the results.
-
-## Where things are kept
-
-- Graphs you build are stored in `~/.pathwayseeker/graphs/<name>/`. `pathwayseeker graphs`
-  lists them.
-- Each checked answer is saved in the graph's `answers/` folder as a JSON record and an HTML
-  pathway view. `pathwayseeker show` opens the latest one, and `pathwayseeker show --network`
-  opens the whole graph.
-- Saved answers are only a record. PathwaySeeker does not feed them back into later
-  conversations. An assistant can read one if you ask it to, and hypotheses stay labeled as
-  hypotheses.
-- For interactive pathway maps with abundance bar charts, see PathwayViz in
-  [pathway_viz/](pathway_viz/).
-
-## Data from the paper
-
-[paper/](paper/README.md) has the training examples, evaluation queries, scoring rubric and
-results from the manuscript.
+- [paper/](paper/README.md): the training data, evaluation queries, scoring rubric and results
+  from the manuscript.
+- [pathway_viz/](pathway_viz/): PathwayViz, an interactive pathway map with abundance bar
+  charts per condition.
+- `pathwayseeker --help` lists every command, including `ask`, which answers questions by
+  calling an OpenAI, Azure or Anthropic model directly.
 
 ## Citation
 

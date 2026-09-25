@@ -232,3 +232,27 @@ def test_cli_train_data(tmp_path):
     first = json.loads(out.open().readline())
     assert [m["role"] for m in first["messages"]] == ["system", "user", "assistant"]
     assert out.with_suffix(".stats.json").exists()
+
+
+def test_packaged_skill_matches_repo_copy():
+    packaged = Path(__import__("pathwayseeker").__file__).parent / "skill" / "SKILL.md"
+    repo = ROOT / "skills" / "pathwayseeker" / "SKILL.md"
+    if repo.exists():  # running from a clone
+        assert packaged.read_text() == repo.read_text()
+
+
+def test_setup_installs_skill_and_codex_server(tmp_path):
+    from pathwayseeker.setup_assistants import setup
+
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text('model = "x"\n')
+    out = setup(home=tmp_path)
+    assert "codex" in out and "claude" not in out  # only assistants that are present
+    skill = (tmp_path / ".codex" / "skills" / "pathwayseeker" / "SKILL.md").read_text()
+    assert skill.startswith("---\nname: pathwayseeker") and "On this machine" in skill
+    cfg = (tmp_path / ".codex" / "config.toml").read_text()
+    assert cfg.startswith('model = "x"') and cfg.count("[mcp_servers.pathwayseeker]") == 1
+    setup(["codex"], home=tmp_path)
+    assert (tmp_path / ".codex" / "config.toml").read_text().count("[mcp_servers.pathwayseeker]") == 1
+    setup(["claude"], home=tmp_path)
+    assert (tmp_path / ".claude" / "skills" / "pathwayseeker" / "SKILL.md").exists()

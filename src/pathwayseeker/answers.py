@@ -40,12 +40,27 @@ LEGEND = """
 """
 
 
+def _outside_name(cid: str) -> str:
+    """Name of a compound that is not in the graph: cofactor list, then one quick KEGG lookup."""
+    from pathwayseeker.cofactors import COFACTOR_NAMES
+
+    if cid in COFACTOR_NAMES:
+        return COFACTOR_NAMES[cid]
+    try:
+        from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
+
+        names = entry_field(kegg_rest(f"get/cpd:{cid}", retries=1, backoff=0) or "", "NAME")
+        return names[0].rstrip(";").strip() if names else cid
+    except Exception:
+        return cid
+
+
 def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
                 subtitle: str = "") -> str:
     """HTML page drawing labeled pathways (outputs of ``Oracle.label_pathway``)."""
     from pyvis.network import Network
 
-    net = Network(height="520px", width="100%", directed=True, cdn_resources="in_line")
+    net = Network(height="460px", width="100%", directed=True, cdn_resources="in_line")
     net.set_options(json.dumps({
         "layout": {"hierarchical": {"enabled": True, "direction": "LR", "sortMethod": "directed",
                                     "levelSeparation": 230, "nodeSpacing": 120}},
@@ -65,7 +80,9 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
                 if c not in added:
                     detected = bool(oracle.G.nodes.get(c, {}).get("detected"))
                     name = oracle.name(c)
-                    label = f"{name}\n{c}" if name != c else f"{c}\n(not in graph)"
+                    if name == c:
+                        name = _outside_name(c)
+                    label = f"{name}\n{c}" + ("" if c in oracle.idx.compounds else "\n(not in graph)")
                     net.add_node(c, label=label, shape="box", title=f"{c} {name}"
                                  + (" (detected)" if detected else ""),
                                  color={"background": "#90caf9" if detected else "#eeeeee",

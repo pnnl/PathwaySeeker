@@ -1,5 +1,7 @@
 """PathwaySeeker command line. Commands print JSON so AI assistants and scripts can read them.
 
+    pathwayseeker setup                                   install the skill for Claude Code / Codex
+    pathwayseeker demo                                    sample answer with a pathway picture
     pathwayseeker build --name myorg --proteomics P.xlsx --ko-definitions KO.txt --metabolomics M.xlsx
     pathwayseeker graphs                                  list graphs (tversicolor is built in)
     pathwayseeker find ferulate --graph myorg             compound name -> KEGG ID
@@ -232,6 +234,40 @@ def cmd_finetune(args):
     _emit({"job_id": job.id, "status": job.status, "model": job.model})
 
 
+def cmd_setup(args):
+    from pathwayseeker.setup_assistants import setup
+
+    _emit(setup(args.targets, args.home))
+
+
+DEMO_QUESTION = "How is L-tyrosine converted to ferulate, and can 4-hydroxybenzoate feed into it?"
+DEMO_ANSWER = ("L-tyrosine reaches ferulate through 4-coumarate and caffeate (R00737, R02950, R03366); "
+               "every step is in the T. versicolor data. 4-Hydroxybenzoate joins at 4-coumarate via "
+               "R01308, also in the data. The CoA-ester route through 4-coumaroyl-CoA, caffeoyl-CoA and "
+               "feruloyl-CoA was not observed, so it stays a hypothesis.")
+DEMO_PATHS = [["C00082", "C00811", "C01197", "C01494"], ["C00156", "C00811"],
+              ["C00082", "C00811", "C00223", "C00323", "C00406", "C01494"]]
+
+
+def cmd_demo(args):
+    from pathwayseeker.answers import save_answer
+    from pathwayseeker.oracle import Oracle
+    from pathwayseeker.workspace import resolve_graph
+
+    g = resolve_graph("tversicolor")
+    oracle = Oracle.from_dir(g)
+    labeled = [oracle.label_pathway(p) for p in DEMO_PATHS]
+    files = save_answer(oracle, g, DEMO_QUESTION, labeled, DEMO_ANSWER)
+    _emit({"question": DEMO_QUESTION,
+           "routes": [{"steps": [f"{e['from_name']} -> {e['to_name']}: {e['label']}" for e in p["edges"]]}
+                      for p in labeled],
+           "pathway_view": files["html"],
+           "try_next": "Ask your assistant: 'Using the tversicolor graph, what connects phenylalanine and "
+                       "4-hydroxybenzoate? Show me the pathway.'"})
+    if not args.no_open:
+        webbrowser.open(Path(files["html"]).resolve().as_uri())
+
+
 def cmd_mcp(args):
     from pathwayseeker.mcp_server import serve
 
@@ -351,6 +387,15 @@ def main(argv=None):
     p.add_argument("--batch-size", type=int, default=PAPER_CONFIG["batch_size"])
     p.add_argument("--lr-multiplier", type=float, default=PAPER_CONFIG["learning_rate_multiplier"])
     p.set_defaults(func=cmd_finetune)
+
+    p = sub.add_parser("setup", help="Install the skill for Claude Code and/or Codex (and Codex's MCP server)")
+    p.add_argument("targets", nargs="*", choices=["claude", "codex"], help="Default: every assistant found")
+    p.add_argument("--home", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("demo", help="Check a sample answer on the included graph and open its pathway view")
+    p.add_argument("--no-open", action="store_true")
+    p.set_defaults(func=cmd_demo)
 
     p = sub.add_parser("mcp", help="Serve the tools to an MCP client (stdio)")
     p.add_argument("--graph", help="Default graph for tool calls that do not name one")
