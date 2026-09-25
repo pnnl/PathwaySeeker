@@ -19,3 +19,26 @@ authors:
     given-names: Sutanay
   - family-names: Bardhan
     given-names: Jaydeep P.
+preferred-citation:
+  type: article
+  title: "PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic Networks"
+  journal: bioRxiv
+  year: 2026
+  publisher:
+    name: Cold Spring Harbor Laboratory
+  url: "https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1"
+  authors:
+    - family-names: Monteiro
+      given-names: Lummy M. O.
+    - family-names: Chowdhury
+      given-names: Niaz B.
+    - family-names: Oostrom
+      given-names: Marjolein T.
+    - family-names: McDermott
+      given-names: Jason E.
+    - family-names: Stratton
+      given-names: Kelly G.
+    - family-names: Choudhury
+      given-names: Sutanay
+    - family-names: Bardhan
+      given-names: Jaydeep P.

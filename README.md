@@ -154,9 +154,24 @@ fine-tuning your own model.
 
 ## Citation
 
-Monteiro L.M.O., Chowdhury N.B., Oostrom M.T., McDermott J.E., Stratton K.G., Choudhury S.,
-Bardhan J.P. PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic
-Networks. (Under review.)
+If you use PathwaySeeker, please cite:
+
+Monteiro, L.M., Chowdhury, N.B., Oostrom, M.T., McDermott, J.E., Stratton, K.G., Choudhury, S.
+and Bardhan, J.P., 2026. PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific
+Metabolic Networks. *bioRxiv*, pp.2026-04.
+https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1
+
+```bibtex
+@article{monteiro2026pathwayseeker,
+  title={PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic Networks},
+  author={Monteiro, Lummy MO and Chowdhury, Niaz B and Oostrom, Marjolein T and McDermott, Jason E and Stratton, Kelly G and Choudhury, Sutanay and Bardhan, Jaydeep P},
+  journal={bioRxiv},
+  pages={2026--04},
+  year={2026},
+  publisher={Cold Spring Harbor Laboratory},
+  url={https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1}
+}
+```
 
 ## Authors
 
