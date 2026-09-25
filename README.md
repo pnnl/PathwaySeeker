@@ -130,6 +130,12 @@ https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1
 - Niaz Bahar Chowdhury - thermodynamic validation
 - Sutanay Choudhury - AI methods
 
+## Acknowledgements
+
+This research was supported by the Environmental Molecular Sciences Laboratory, a DOE Office of
+Science User Facility sponsored by the Biological and Environmental Research program under
+Contract No. DE-AC05-76RL01830.
+
 ## License
 
 BSD 2-Clause (Battelle Memorial Institute)
