@@ -31,7 +31,7 @@ in `data/other_organisms/r_toruloides/`.
 To generate training data from any graph (the paper's set came from the `tversicolor` graph):
 
 ```bash
-pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl
+pathwayseeker train-data --graph mygraph --balanced --output train.jsonl
 ```
 
 To score a question set by Experimental Evidence Ratio and the LLM judge:
@@ -64,7 +64,7 @@ also work with the Oracle-in-the-Loop search.
   (`pathwayseeker.reasoning.search`) defaults to the Algorithm 1 parameters (k = 3, T = 3,
   theta = 0.70). The five failed queries hit an output-parsing error (identifiers returned as
   objects); the released code normalizes such output.
-- **Regenerating training data.** `pathwayseeker train-data --graph-dir src/pathwayseeker/data/tversicolor
+- **Regenerating training data.** `pathwayseeker train-data --graph tversicolor
   --balanced` reproduces the class mix: GRAPH_FACT exactly, the other classes within about 3%.
   Exact example-level reproduction depends on Python's set iteration order, so the released
   JSONL is the reference copy.

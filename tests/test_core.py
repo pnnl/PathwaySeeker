@@ -223,3 +223,12 @@ def test_mcp_multi_graph_tools(tmp_path, monkeypatch):
     out = asyncio.run(s.call_tool("save_answer", {"question": "q", "pathways": [["C00079", "C00423"]],
                                                    "graph": "tversicolor"}))
     assert "GRAPH_FACT" in str(out)
+
+
+def test_cli_train_data(tmp_path):
+    out = tmp_path / "t.jsonl"
+    subprocess.run([sys.executable, "-m", "pathwayseeker.cli", "train-data", "--graph", "tversicolor",
+                    "--balanced", "--output", str(out)], capture_output=True, text=True, check=True)
+    first = json.loads(out.open().readline())
+    assert [m["role"] for m in first["messages"]] == ["system", "user", "assistant"]
+    assert out.with_suffix(".stats.json").exists()

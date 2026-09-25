@@ -160,10 +160,24 @@ def cmd_answers(args):
     _emit(list_answers(_graph_dir(args)))
 
 
-def _searcher(args, oracle, organism):
-    from pathwayseeker.reasoning import OitLSearch, get_llm
+def _llm(provider, model):
+    from pathwayseeker.reasoning import get_llm
 
-    return OitLSearch(oracle, get_llm(args.provider, args.model), organism=organism,
+    try:
+        return get_llm(provider, model)
+    except ImportError as e:
+        sys.exit(f"{e}. Install the LLM extras: pip install 'pathwayseeker[llm]'")
+    except Exception as e:  # missing credentials and similar
+        sys.exit(f"Could not set up the language model ({e}). Set OPENAI_API_KEY, or "
+                 "PATHWAYSEEKER_LLM=anthropic with ANTHROPIC_API_KEY, or PATHWAYSEEKER_LLM=azure "
+                 "with the AZURE_OPENAI_* variables. Inside Claude Code or Codex you do not need this: "
+                 "the assistant answers and PathwaySeeker checks.")
+
+
+def _searcher(args, oracle, organism):
+    from pathwayseeker.reasoning import OitLSearch
+
+    return OitLSearch(oracle, _llm(args.provider, args.model), organism=organism,
                       k=args.k, max_iterations=args.iterations)
 
 
@@ -181,7 +195,6 @@ def cmd_ask(args):
 
 def cmd_eval(args):
     from pathwayseeker.evaluation import load_queries, run_eval, summarize
-    from pathwayseeker.reasoning import get_llm
 
     oracle, g = _oracle(args), _graph_dir(args)
     queries = []
@@ -189,7 +202,7 @@ def cmd_eval(args):
         queries += load_queries(f)
     if args.limit:
         queries = queries[: args.limit]
-    judge_llm = None if args.no_judge else get_llm(args.judge_provider or args.provider, args.judge_model)
+    judge_llm = None if args.no_judge else _llm(args.judge_provider or args.provider, args.judge_model)
     organism = _organism(args, g)
     results = run_eval(queries, _searcher(args, oracle, organism), judge_llm, organism=organism)
     out = {"params": {k: v for k, v in vars(args).items() if k != "func"},
@@ -201,7 +214,13 @@ def cmd_eval(args):
 def cmd_train_data(args):
     from pathwayseeker.training.generator import main as gen_main
 
-    gen_main(args.rest)
+    argv = ["--graph-dir", str(_graph_dir(args)), "--output", args.output, "--seed", str(args.seed),
+            "--n-total", str(args.n_total)]
+    if args.balanced:
+        argv.append("--balanced")
+    elif args.max_negative_ratio is not None:
+        argv += ["--max-negative-ratio", str(args.max_negative_ratio)]
+    gen_main(argv)
 
 
 def cmd_finetune(args):
@@ -312,9 +331,13 @@ def main(argv=None):
     llm_args(p)
     p.set_defaults(func=cmd_eval)
 
-    p = sub.add_parser("train-data", help="Generate fine-tuning data (arguments passed to the generator)",
-                       add_help=False)
-    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p = sub.add_parser("train-data", help="Generate fine-tuning examples from a graph")
+    p.add_argument("--graph", "--graph-dir", dest="graph", help="Graph name or directory")
+    p.add_argument("--output", default="train.jsonl", help="Output JSONL (stats go next to it)")
+    p.add_argument("--balanced", action="store_true", help="Cap negatives at 20%% (the paper's setting)")
+    p.add_argument("--max-negative-ratio", type=float)
+    p.add_argument("--n-total", type=int, default=30000)
+    p.add_argument("--seed", type=int, default=42)
     p.set_defaults(func=cmd_train_data)
 
     from pathwayseeker.training.finetune import PAPER_CONFIG
