@@ -188,7 +188,7 @@ def test_named_graphs_and_saved_answers(tmp_path, monkeypatch):
     html = Path(files["html"]).read_text()
     assert "vis-network" in html or "vis.Network" in html
     assert "#ef6c00" in html and "#2e7d32" in html  # hypothesis and in-data edges drawn
-    assert "lib/bindings" not in html  # standalone page
+    assert "lib/bindings" not in html  # standalone page (no local script files)
     assert list_answers(mine)[0]["question"] == "How is Phe converted to 4-HBA?"
 
     builtin_answers = workspace.answers_dir(workspace.BUILTIN["tversicolor"])
