@@ -54,9 +54,9 @@ def create_server(default_graph: Optional[str] = None):
     server = _server_class()("pathwayseeker", instructions=INSTRUCTIONS)
 
     @server.tool()
-    def list_graphs() -> list:
+    def list_graphs() -> dict:
         """Graphs available to query, with organism and location."""
-        return workspace.list_graphs()
+        return {"graphs": workspace.list_graphs()}
 
     @server.tool()
     def graph_stats(graph: Optional[str] = None) -> dict:
@@ -122,11 +122,11 @@ def create_server(default_graph: Optional[str] = None):
         return {"pathways": labeled, "saved": _save(o, p, question, labeled, answer)}
 
     @server.tool()
-    def list_answers(graph: Optional[str] = None) -> list:
+    def list_answers(graph: Optional[str] = None) -> dict:
         """Answers saved earlier for a graph (question, time, JSON and HTML paths)."""
         from pathwayseeker.answers import list_answers as _list
 
-        return _list(get(graph)[1])
+        return {"answers": _list(get(graph)[1])}
 
     return server
 
