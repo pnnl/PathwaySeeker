@@ -71,8 +71,10 @@ def cmd_build(args):
         from pathwayseeker.oracle import Oracle
 
         failed = out / "kegg_failures.txt"
+        unmatched = out / "unmatched_metabolites.txt"
         _emit({"graph": workspace.graph_name(out), "path": str(out), "stats": Oracle.from_dir(out).stats(),
                "kegg_failures": len(failed.read_text().splitlines()) if failed.exists() else 0,
+               "unmatched_metabolites": len(unmatched.read_text().splitlines()) if unmatched.exists() else 0,
                "network_view": str(out / "graph_all.html")})
 
 

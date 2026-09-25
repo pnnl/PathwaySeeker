@@ -156,6 +156,15 @@ def build_graph_dir(proteomics: str, ko_definitions: str, metabolomics: str, out
         print("  No curated metabolomics mapping given; using the automatic KEGG name matches.")
         shutil.copy(metabolomics_with_c, curated)
     run_after_curation(str(out))
+    try:
+        import pandas as pd
+
+        mapped = pd.read_excel(curated)
+        unmatched = mapped[mapped["KEGG_C_number"].isna()].iloc[:, 0].astype(str).tolist()
+        (out / "unmatched_metabolites.txt").write_text("\n".join(unmatched) + ("\n" if unmatched else ""))
+        print(f"  {len(unmatched)} metabolite(s) have no KEGG ID; see unmatched_metabolites.txt")
+    except Exception:
+        pass
     failed = kegg.report_failures(mark, "build")
     fail_file = out / "kegg_failures.txt"
     if failed:

@@ -1,15 +1,26 @@
 """Step 4: Retrieve KEGG C-numbers for metabolite names."""
 
 import pandas as pd
+import re
 import urllib.parse
 
 from pathwayseeker.pipeline.io import read_table
 from pathwayseeker.pipeline.kegg import kegg_rest
 
 
+def search_terms(name: str) -> str:
+    """KEGG's find endpoint rejects commas and primes; search on the remaining words instead.
+
+    "3',5'-cyclic AMP" -> "3 5 cyclic AMP"; "2,4-dihydroxypteridine" -> "2 4-dihydroxypteridine".
+    """
+    text = re.sub(r"[,'\u2019\u2032]", " ", str(name))
+    text = re.sub(r"(^|\s)-+|-+(\s|$)", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def get_kegg_c_number(metabolite_name):
     """Retrieve the KEGG C-number for a metabolite name using the KEGG API."""
-    text = kegg_rest(f"find/compound/{urllib.parse.quote(metabolite_name)}")
+    text = kegg_rest(f"find/compound/{urllib.parse.quote(search_terms(metabolite_name))}")
     if text and text.strip():
         first_line = text.strip().split("\n")[0]
         return first_line.split("\t")[0].replace("cpd:", "")

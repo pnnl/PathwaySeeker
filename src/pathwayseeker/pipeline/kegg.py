@@ -62,6 +62,8 @@ def kegg_rest(path: str, retries: int = 5, backoff: float = 2.0, cache: bool = T
                     _store(path, text)
                 return text
             err = f"HTTP {r.status_code}"
+            if r.status_code == 400:  # malformed request: retrying cannot help
+                break
         time.sleep(backoff * (2 ** attempt))
     failures.append((path, err))
     return None

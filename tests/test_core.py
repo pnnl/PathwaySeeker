@@ -256,3 +256,11 @@ def test_setup_installs_skill_and_codex_server(tmp_path):
     assert (tmp_path / ".codex" / "config.toml").read_text().count("[mcp_servers.pathwayseeker]") == 1
     setup(["claude"], home=tmp_path)
     assert (tmp_path / ".claude" / "skills" / "pathwayseeker" / "SKILL.md").exists()
+
+
+def test_metabolite_search_terms():
+    from pathwayseeker.pipeline.metabolite_ids import search_terms
+
+    assert search_terms("3',5'-cyclic AMP") == "3 5 cyclic AMP"
+    assert search_terms("2,4-dihydroxypteridine") == "2 4-dihydroxypteridine"
+    assert search_terms("L-phenylalanine") == "L-phenylalanine"
