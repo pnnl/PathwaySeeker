@@ -1,4 +1,5 @@
-"""PathwaySeeker command line. Commands print JSON so AI assistants and scripts can read them.
+"""PathwaySeeker command line. Commands print JSON on standard output so AI assistants and scripts
+can read it; `build` and `train-data` also print progress.
 
     pathwayseeker setup                                   install the skill for Claude Code / Codex
     pathwayseeker demo                                    sample answer with a pathway picture
@@ -6,7 +7,7 @@
     pathwayseeker graphs                                  list graphs (tversicolor is built in)
     pathwayseeker find ferulate --graph myorg             compound name -> KEGG ID
     pathwayseeker oracle path C00079 C01494 --graph myorg
-    pathwayseeker verify C00079 C00423 C00811 --graph myorg
+    pathwayseeker label C00079 C00423 C00811 --graph myorg
     pathwayseeker save --question "..." C00079 C00423 C00811 --graph myorg
     pathwayseeker show --graph myorg                      open the latest saved answer
     pathwayseeker mcp                                     serve the tools to an MCP client
@@ -116,9 +117,12 @@ def cmd_oracle(args):
     _emit(_oracle(args).execute(qt, **p))
 
 
-def cmd_verify(args):
+def cmd_label(args):
     steps = json.loads(Path(args.edges_json).read_text()) if args.edges_json else args.compounds
-    _emit(_oracle(args).label_pathway(steps))
+    result = _oracle(args).label_pathway(steps)
+    _emit(result)
+    if "error" in result:
+        sys.exit(1)
 
 
 def cmd_save(args):
@@ -129,6 +133,10 @@ def cmd_save(args):
         sys.exit("Give at least one pathway: compound IDs, or --path C1 C2 ... (repeatable)")
     oracle, g = _oracle(args), _graph_dir(args)
     labeled = [oracle.label_pathway(p) for p in paths]
+    errors = [lp["error"] for lp in labeled if "error" in lp]
+    if errors:
+        _emit({"error": "; ".join(errors)})
+        sys.exit(1)
     answer = Path(args.answer_file).read_text() if args.answer_file else (args.answer or "")
     files = save_answer(oracle, g, args.question, labeled, answer)
     _emit({"pathways": labeled, "saved": files})
@@ -244,12 +252,20 @@ def cmd_setup(args):
 
 DEMO_QUESTION = "How is L-tyrosine converted to ferulate, and can 4-hydroxybenzoate feed into it?"
 DEMO_ANSWER = ("Example answer. Every step from L-tyrosine to ferulate through 4-coumarate and caffeate "
-               "(R00737, R02950, R03366) is found in the T. versicolor graph, as is the step from "
-               "4-hydroxybenzoate to 4-coumarate (R01308). These reactions are linked to detected metabolites; "
-               "this is consistent with the data but does not show that they occur. The CoA-ester route "
-               "through 4-coumaroyl-CoA, caffeoyl-CoA and feruloyl-CoA is not in the graph and remains a hypothesis.")
+               "(R00737, R02950, R03366) is found in the T. versicolor graph. The graph also links "
+               "4-hydroxybenzoate to 4-coumarate through R01308, in the direction in which KEGG writes that "
+               "equation. These reactions are linked to detected metabolites; this is consistent with the data "
+               "but does not show that they occur. The CoA-ester route through 4-coumaroyl-CoA, caffeoyl-CoA "
+               "and feruloyl-CoA is not in the graph and remains a hypothesis.")
 DEMO_PATHS = [["C00082", "C00811", "C01197", "C01494"], ["C00156", "C00811"],
               ["C00082", "C00811", "C00223", "C00323", "C00406", "C01494"]]
+
+
+def _display_name(oracle, cid: str) -> str:
+    from pathwayseeker.answers import _outside_name
+
+    name = oracle.name(cid)
+    return name if name != cid else _outside_name(cid)
 
 
 def cmd_demo(args):
@@ -262,8 +278,8 @@ def cmd_demo(args):
     labeled = [oracle.label_pathway(p) for p in DEMO_PATHS]
     files = save_answer(oracle, g, DEMO_QUESTION, labeled, DEMO_ANSWER)
     _emit({"question": DEMO_QUESTION,
-           "routes": [{"steps": [f"{e['from_name']} -> {e['to_name']}: {e['label']}" for e in p["edges"]]}
-                      for p in labeled],
+           "routes": [{"steps": [f"{_display_name(oracle, e['from'])} -> {_display_name(oracle, e['to'])}: "
+                                 f"{e['label']}" for e in p["edges"]]} for p in labeled],
            "pathway_view": files["html"],
            "try_next": "Ask your assistant: 'Using the tversicolor graph, what connects phenylalanine and "
                        "4-hydroxybenzoate? Show me the pathway.'"})
@@ -323,11 +339,11 @@ def main(argv=None):
     graph_arg(p)
     p.set_defaults(func=cmd_oracle)
 
-    p = sub.add_parser("verify", help="Label each step of a proposed pathway")
+    p = sub.add_parser("label", aliases=["verify"], help="Label each step of a proposed pathway")
     p.add_argument("compounds", nargs="*", help="Ordered compound IDs")
     p.add_argument("--edges-json", help="JSON file with [{from, to, reaction}] edges instead")
     graph_arg(p)
-    p.set_defaults(func=cmd_verify)
+    p.set_defaults(func=cmd_label)
 
     p = sub.add_parser("save", help="Label pathways and save them with the question as JSON and HTML")
     p.add_argument("compounds", nargs="*", help="Ordered compound IDs of the main pathway")

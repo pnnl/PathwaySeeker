@@ -90,9 +90,9 @@ def extract_edges(response: dict) -> List[tuple]:
 
 def response_eer(oracle: Oracle, response: dict) -> dict:
     edges = extract_edges(response)
-    verified = [e for e in edges if oracle.verify_edge(e[0], e[1])]
-    return {"n_edges": len(edges), "n_verified": len(verified),
-            "eer": len(verified) / len(edges) if edges else 0.0}
+    found = [e for e in edges if oracle.edge_reactions(e[0], e[1])]
+    return {"n_edges": len(edges), "n_found": len(found),
+            "eer": len(found) / len(edges) if edges else 0.0}
 
 
 def load_queries(path: str) -> List[dict]:

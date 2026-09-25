@@ -1,4 +1,6 @@
-"""Step 3: Retrieve compounds from KEGG reactions (excluding cofactors)."""
+"""Step 3: For each KEGG reaction of a detected enzyme, record the first compound on each side
+of its equation (the method of the original analysis). Other participants are not recorded,
+and the first compound may be a cofactor such as ATP."""
 
 import pandas as pd
 

@@ -2,11 +2,10 @@
 PathwaySeeker: check proposed metabolic pathway steps against a KEGG reaction graph built
 from proteomics and metabolomics data.
 
-Build a compound-reaction-enzyme graph, query it with a positive-evidence-only oracle, and
-label each proposed pathway edge as found in the graph (GRAPH_FACT, GRAPH_PATH) or not
-(HYPOTHESIS).
+Steps are labeled GRAPH_FACT or GRAPH_PATH (found in the graph), HYPOTHESIS (not found) or
+INVALID (breaks the cofactor rule).
 
-    from pathwayseeker import Oracle
+    from pathwayseeker import Oracle, resolve_graph
     oracle = Oracle.from_dir(resolve_graph("tversicolor"))
     oracle.path_search("C00079", "C01494")
     oracle.label_pathway(["C00079", "C00423", "C00811"])

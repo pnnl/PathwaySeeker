@@ -72,7 +72,7 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
         "interaction": {"hover": True},
     }))
     added = set()
-    total = verified = 0
+    total = n_found = 0
     seen_edges = set()
     for p in pathways:
         for e in p.get("edges", []):
@@ -93,7 +93,7 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
                 continue
             seen_edges.add(key)
             total += 1
-            verified += bool(e.get("verified"))
+            n_found += bool(e.get("found_in_graph"))
             style = EDGE_STYLE.get(e.get("label"), EDGE_STYLE["HYPOTHESIS"])
             rxns = ", ".join(e.get("graph_reactions") or []) or (e.get("proposed_reaction") or "")
             tip = f"{e.get('label')}: {e['from_name']} -> {e['to_name']}"
@@ -109,7 +109,7 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
     header = LEGEND.format(
         title=html.escape(title), subtitle=html.escape(subtitle),
         answer=(f"<p style='white-space:pre-wrap'>{html.escape(answer_text)}</p>" if answer_text else ""),
-        eer=f"{verified}/{total} steps" if total else "no steps")
+        eer=f"{n_found}/{total} steps" if total else "no steps")
     return body.replace("<body>", "<body>" + header, 1)
 
 

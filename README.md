@@ -21,7 +21,12 @@ the routes an assistant proposes:
 - **Orange dashed steps** were not found in the graph. They are not ruled out and are
   candidates for experimental testing.
 
-The graph and tools run locally. Questions and results are sent to the assistant you use and
+In the output, a found step is labeled `GRAPH_PATH` when every step of its route was found,
+and `GRAPH_FACT` when the route is a single step or also contains steps not found. Steps not
+found are labeled `HYPOTHESIS`.
+
+Graphs are stored and queried locally. Building a graph, and naming compounds that are not in
+the graph, uses the KEGG REST API. Questions and results are sent to the assistant you use and
 count toward your usage of that service. PathwaySeeker provides a skill for Claude Code and
 Codex and an MCP server. The command line and MCP tools are tested; end-to-end use inside
 Claude Code and Codex has not yet been tested.
@@ -72,7 +77,7 @@ Details are in [`evals/README.md`](evals/README.md).
 | `docs/`, `examples/`, `tests/` | Documentation and images, a Python example, and tests |
 
 `pathwayseeker build` is a packaged version of the `analysis/multiomics_graph/` pipeline;
-[docs/MIGRATION.md](docs/MIGRATION.md) maps each original script to its package module.
+[docs/PROVENANCE.md](docs/PROVENANCE.md) maps each original script to its package module.
 
 ## Use your own data
 
@@ -93,8 +98,9 @@ matches will be wrong and some names will not match (they are listed in
 `unmatched_metabolites.txt`). The published graph used manually curated matches; review the
 matches before using the results.
 
-Graphs are stored in `~/.pathwayseeker/graphs/<name>/`. Every checked answer is saved there
-too, in `answers/`, as a JSON record and a pathway picture. `pathwayseeker show` opens the
+Graphs are stored in `~/.pathwayseeker/graphs/<name>/`. Saved answers are written to the
+graph's `answers/` folder (for the built-in graph, `~/.pathwayseeker/answers/tversicolor/`) as
+a JSON record and a pathway picture. `pathwayseeker show` opens the
 latest one and `pathwayseeker show --network` opens the whole graph. Saved answers are a
 record only; they are not fed back into later conversations.
 
@@ -124,32 +130,39 @@ graph.label_pathway(["C00079", "C00423", "C00811", "C00156"])   # label each ste
 - A KEGG Orthology annotation indicates enzymatic capability, not activity or substrate
   specificity. Reactions linked to a detected metabolite are included whether or not the
   catalyzing enzyme was detected.
+- For reactions added through proteomics, only the first compound on each side of the KEGG
+  equation is linked, so some conversions catalyzed by detected enzymes are not found (for
+  example, D-glucose to D-glucose 6-phosphate, R01786).
+- Step direction follows the order in which KEGG writes each equation, not the direction in
+  the cell; a step can be found in one direction and not in the reverse.
 - Automatic metabolite-to-KEGG matching is error-prone and should be reviewed.
 - The fine-tuned model described in the paper is not distributed.
 - End-to-end use inside Claude Code and Codex has not yet been tested.
+- Building a graph queries the KEGG REST API, which KEGG provides for academic use; other
+  users should review the [KEGG terms](https://www.kegg.jp/kegg/legal.html). Third-party
+  components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Citation
 
 If you use PathwaySeeker, please cite:
 
-Monteiro, L.M., Chowdhury, N.B., Oostrom, M.T., McDermott, J.E., Stratton, K.G., Choudhury, S.
-and Bardhan, J.P., 2026. PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific
-Metabolic Networks. *bioRxiv*, pp.2026-04.
-https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1
+Monteiro, L.M.O., Chowdhury, N.B., Oostrom, M.T., McDermott, J.E., Stratton, K.G., Choudhury, S.
+and Bardhan, J.P. (2026). PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific
+Metabolic Networks. *bioRxiv*. https://doi.org/10.64898/2026.04.14.718256
 
 ```bibtex
 @article{monteiro2026pathwayseeker,
   title={PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic Networks},
   author={Monteiro, Lummy MO and Chowdhury, Niaz B and Oostrom, Marjolein T and McDermott, Jason E and Stratton, Kelly G and Choudhury, Sutanay and Bardhan, Jaydeep P},
   journal={bioRxiv},
-  pages={2026--04},
   year={2026},
+  doi={10.64898/2026.04.14.718256},
   publisher={Cold Spring Harbor Laboratory},
   url={https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1}
 }
 ```
 
-## Authors
+## Contributors to this repository
 
 - Lummy M. O. Monteiro - multi-omics and graph construction
 - Marjolein T. Oostrom - metabolomics validation

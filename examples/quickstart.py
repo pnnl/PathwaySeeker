@@ -19,7 +19,7 @@ def main():
     for m in oracle.find_compound("ferulate")["data"]["matches"][:3]:
         print(f"  {m['compound']}  {m['name']}  detected={m['detected']}")
 
-    print("\nShortest verified route, L-phenylalanine to ferulate:")
+    print("\nShortest route in the graph, L-phenylalanine to ferulate:")
     print(" ", oracle.path_search("C00079", "C01494")["summary"])
 
     print("\nLabel a proposed pathway (last step is not in the graph):")

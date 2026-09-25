@@ -3,8 +3,8 @@
     pathwayseeker mcp                  # all graphs; default from PATHWAYSEEKER_GRAPH or the only one built
     pathwayseeker mcp --graph myorg    # set the default graph
 
-The assistant does the reasoning. The server supplies lookups against the experimental
-graph, labels proposed pathways, and saves checked answers.
+The assistant does the reasoning. The server supplies lookups against the organism's graph,
+labels proposed pathways, and saves labeled answers.
 """
 
 import functools
@@ -21,12 +21,13 @@ To answer a question:
 1. Look up compound IDs with find_compound.
 2. Propose 2-4 possible routes from your biochemical knowledge.
 3. Check them with path_search, common_reactions, compound_neighborhood and the other lookups.
-4. Refine routes that are partly found; stop when most steps are found in the graph or after
-   ~3 rounds.
-5. Call verify_pathway on each route you report and use its labels as given:
+4. Refine routes that are partly found in the graph. Stop after about three rounds.
+5. Call label_pathway on each route you report and use its labels as given:
    GRAPH_FACT / GRAPH_PATH = found in the graph (consistent with the data, not proof that the
    reaction occurs); HYPOTHESIS = your suggestion, not found in the graph (not ruled out);
-   INVALID = breaks the cofactor rule.
+   INVALID = breaks the cofactor rule. GRAPH_PATH marks a step in a route whose every step was
+   found; GRAPH_FACT marks a found step in a one-step route or in a route that also has steps
+   not found.
 6. Call save_answer with the question, the routes and your answer, and give the user the
    HTML file path so they can view the pathway.
 A step missing from the graph means "not found", never "impossible". Do not describe any step
@@ -112,7 +113,7 @@ def create_server(default_graph: Optional[str] = None):
 
     @tool()
     def path_search(source: str, target: str, graph: Optional[str] = None, max_depth: int = 4) -> dict:
-        """All shortest substrate-to-product routes in the data (at most max_depth reactions)."""
+        """All shortest substrate-to-product routes in the graph (at most max_depth reactions)."""
         return get(graph)[0].path_search(source, target, max_depth)
 
     @tool()
@@ -121,7 +122,7 @@ def create_server(default_graph: Optional[str] = None):
         return get(graph)[0].reaction_exists(reaction)
 
     @tool()
-    def verify_pathway(compounds: List[str], graph: Optional[str] = None) -> dict:
+    def label_pathway(compounds: List[str], graph: Optional[str] = None) -> dict:
         """Label each step of an ordered compound route as GRAPH_FACT, GRAPH_PATH, HYPOTHESIS or
         INVALID, with the share of steps found in the graph. Call before presenting any route."""
         return get(graph)[0].label_pathway(compounds)
@@ -135,6 +136,9 @@ def create_server(default_graph: Optional[str] = None):
 
         o, p = get(graph)
         labeled = [o.label_pathway(pw) for pw in pathways]
+        errors = [lp["error"] for lp in labeled if "error" in lp]
+        if errors:
+            return {"error": "; ".join(errors)}
         return {"pathways": labeled, "saved": _save(o, p, question, labeled, answer)}
 
     @tool()

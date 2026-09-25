@@ -1,4 +1,4 @@
-"""Step 7: Merge proteomics and metabolomics reactions."""
+"""Step 6: Merge proteomics and metabolomics reactions."""
 
 import pandas as pd
 from collections import defaultdict
@@ -93,6 +93,6 @@ def run_pipeline(proteomics_file, metabolomics_file, metabolite_file, output_fil
     df_matches = match_reactions(reaction_dict)
 
     df_matches.to_csv(output_file, index=False)
-    print(f"Step 7 complete: {output_file} ({len(df_matches)} matches)")
+    print(f"Step 6 complete: {output_file} ({len(df_matches)} matches)")
 
     return df_matches

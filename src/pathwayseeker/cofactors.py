@@ -1,9 +1,11 @@
 """Cofactor and currency-metabolite set used by the oracle, reasoning and training layers.
 
 This is the 42-compound set in the manuscript's Supplementary Information (cofactor
-compound set table), used to generate the published training data
-(training_data_generator_v3). The Methods text summarizes its main groups.
-Graph construction in ``pathwayseeker.pipeline`` uses its own, smaller hub list.
+compound set table), used to generate the published training data. The Methods text
+summarizes its main groups. Graph construction does not use this list: for reactions added
+through proteomics it keeps the first compound on each side of the KEGG equation
+(``pipeline/reaction_compounds.py``), and the whole-graph view drops a separate 17-compound
+list (``graph/build.py``).
 """
 
 from typing import Dict, FrozenSet

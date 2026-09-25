@@ -3,7 +3,7 @@
 The oracle answers seven query types over the compound-reaction-enzyme graph and labels
 proposed pathways with evidence types. It reports relationships that the graph contains and
 never treats absence as rejection: a relationship the graph does not
-contain is reported as "not observed", and a proposed edge without graph support is
+contain is reported as "not in the graph", and a proposed edge without graph support is
 labeled HYPOTHESIS rather than false.
 
 Every method returns plain JSON-serializable dicts so the same results can be consumed
@@ -12,6 +12,7 @@ by the CLI, the MCP server, an agent skill, or the LLM search loop.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
 
 import networkx as nx
 
-from pathwayseeker.cofactors import COFACTORS
+from pathwayseeker.cofactors import COFACTOR_NAMES, COFACTORS
 
 QUERY_TYPES = (
     "compound_exists",
@@ -30,6 +31,9 @@ QUERY_TYPES = (
     "path_search",
     "reaction_exists",
 )
+
+COMPOUND_ID = re.compile(r"^C\d{5}$")
+REACTION_ID = re.compile(r"^R\d{5}$")
 
 GRAPH_FACT = "GRAPH_FACT"
 GRAPH_PATH = "GRAPH_PATH"
@@ -106,7 +110,8 @@ class Oracle:
     # ------------------------------------------------------------------ helpers
     def name(self, node: str) -> str:
         d = self.G.nodes.get(node, {})
-        return d.get("label", node) if d else node
+        label = d.get("label", node) if d else node
+        return COFACTOR_NAMES.get(node, label) if label == node else label
 
     def _fmt(self, node: str) -> str:
         return f"{node} ({self.name(node)})"
@@ -152,7 +157,7 @@ class Oracle:
                 for _, _, c in sorted(scored)[:limit]]
         return _evidence("find_compound", {"text": text}, bool(hits), {"matches": hits},
                          f"{len(hits)} compound(s) match '{text}'" if hits
-                         else f"No compound matching '{text}' is observed in the graph")
+                         else f"No compound matching '{text}' is in the graph")
 
     # ------------------------------------------------------------- 7 query types
     def compound_exists(self, compound: str) -> dict:
@@ -161,14 +166,14 @@ class Oracle:
                          {"compound": compound, "name": self.name(compound) if ok else None,
                           "cofactor": compound in self.cofactors,
                           "detected": bool(ok and self.G.nodes[compound].get("detected"))},
-                         f"{self._fmt(compound)} is in the experimental graph" if ok
-                         else f"{compound} is not observed in the experimental graph")
+                         f"{self._fmt(compound)} is in the graph" if ok
+                         else f"{compound} is not in the graph")
 
     def compound_neighborhood(self, compound: str, limit: int = 10) -> dict:
         params = {"compound": compound}
         if compound not in self.idx.compounds:
             return _evidence("compound_neighborhood", params, False, {"compound": compound},
-                             f"{compound} is not observed in the experimental graph")
+                             f"{compound} is not in the graph")
         forward, backward = [], []
         for rxn in sorted(self.idx.consumed_by.get(compound, ())):
             for p in sorted(self.idx.rxn_products.get(rxn, ())):
@@ -186,7 +191,7 @@ class Oracle:
         if backward:
             parts.append("  produced from: " + ", ".join(self._fmt(b["source"]) for b in backward[:5]))
         if not (forward or backward):
-            parts.append("  no non-cofactor neighbors observed")
+            parts.append("  no non-cofactor neighbors in the graph")
         return _evidence("compound_neighborhood", params, bool(forward or backward), {
             "compound": compound, "name": self.name(compound),
             "forward": forward[:limit], "backward": backward[:limit],
@@ -197,7 +202,7 @@ class Oracle:
         params = {"reaction": reaction}
         if reaction not in self.idx.reactions:
             return _evidence("reaction_participants", params, False, {"reaction": reaction},
-                             f"{reaction} is not observed in the experimental graph")
+                             f"{reaction} is not in the graph")
         info = self._reaction_info(reaction)
         subs = ", ".join(self._fmt(s) for s in info["substrates"][:5]) or "none recorded"
         prods = ", ".join(self._fmt(p) for p in info["products"][:5]) or "none recorded"
@@ -211,7 +216,7 @@ class Oracle:
         rxns = sorted(self.idx.enzyme_reactions.get(enzyme, ()))
         if enzyme not in self.idx.enzymes:
             return _evidence("enzyme_reactions", params, False, {"enzyme": enzyme},
-                             f"{enzyme} is not observed in the experimental graph")
+                             f"{enzyme} is not in the graph")
         return _evidence("enzyme_reactions", params, bool(rxns), {
             "enzyme": enzyme, "name": self.name(enzyme),
             "reactions": [self._reaction_info(r) for r in rxns[:10]], "n_reactions": len(rxns),
@@ -238,7 +243,7 @@ class Oracle:
                             for s in sequential[:3])
         if not summary:
             summary = (f"{len(shared)} shared reaction(s), none converting one compound into another"
-                       if shared else "No reaction connecting these compounds is observed")
+                       if shared else "No reaction connecting these compounds is in the graph")
         return _evidence("common_reactions", params, bool(sequential or shared),
                          {"sequential": sequential, "shared": shared}, summary)
 
@@ -253,7 +258,7 @@ class Oracle:
         for role, c in (("source", source), ("target", target)):
             if c not in self.idx.compounds:
                 return _evidence("path_search", params, False, {role: c},
-                                 f"{c} is not observed in the experimental graph")
+                                 f"{c} is not in the graph")
         paths: List[List[str]] = []
         depth = {source: 0}
         queue = deque([(source, [source])])
@@ -283,8 +288,8 @@ class Oracle:
             p = paths[0]
             summary = " ".join(self._fmt(n) if i % 2 == 0 else f"--[{n}]-->" for i, n in enumerate(p))
         else:
-            summary = (f"No path from {source} to {target} within {max_depth} reactions is observed "
-                       f"(absence of evidence, not evidence of absence)")
+            summary = (f"No path from {source} to {target} within {max_depth} reactions is in the graph "
+                       f"(absence from the graph does not rule it out)")
         return _evidence("path_search", params, bool(paths),
                          {"paths": paths, "n_paths": len(paths), "truncated": truncated, "n_steps": best},
                          summary + (f" ({len(paths)} shortest paths)" if len(paths) > 1 else ""))
@@ -295,7 +300,7 @@ class Oracle:
             ev["query"] = "reaction_exists"
             return ev
         return _evidence("reaction_exists", {"reaction": reaction}, False, {"reaction": reaction},
-                         f"{reaction} is not observed in the experimental graph")
+                         f"{reaction} is not in the graph")
 
     def execute(self, query_type: str, **params) -> dict:
         """Dispatch one of the seven query types by name (case-insensitive)."""
@@ -311,64 +316,78 @@ class Oracle:
         except TypeError as e:
             return _evidence(qt, params, False, {}, f"Bad parameters for {qt}: {e}")
 
-    # ------------------------------------------------------------- verification
-    def verify_edge(self, source: str, target: str, reaction: Optional[str] = None) -> List[str]:
+    # ------------------------------------------------------------- labeling
+    def edge_reactions(self, source: str, target: str, reaction: Optional[str] = None) -> List[str]:
         """Reactions in the graph that consume ``source`` and produce ``target``."""
         rxns = self.idx.consumed_by.get(source, set()) & self.idx.produced_by.get(target, set())
         if reaction:
             return [reaction] if reaction in rxns else []
         return sorted(rxns)
 
+    verify_edge = edge_reactions  # earlier name, kept for compatibility
+
     def label_pathway(self, steps: Sequence[Union[str, dict]]) -> dict:
-        """Label each edge of a proposed pathway with its evidence type.
+        """Label each step of a proposed pathway with its evidence type.
 
-        ``steps`` is either a compound list ``["C00079", "C00423", ...]`` (reaction IDs mixed in
-        are ignored) or a list of edge dicts ``{"from": ..., "to": ..., "reaction": optional}``.
+        ``steps`` is either an ordered list of KEGG compound IDs (``["C00079", "C00423", ...]``;
+        reaction IDs such as ``R00697`` may be interleaved and are skipped) or a list of edge
+        dicts ``{"from": ..., "to": ..., "reaction": optional}``. Anything that is not a KEGG ID
+        returns an ``error`` instead of a labeling.
 
-        Verified edges are GRAPH_FACT, or GRAPH_PATH when every edge of a multi-step pathway is
-        verified. Unverified edges are HYPOTHESIS. A cofactor endpoint, or an unverified edge
-        that is cofactor-mediated, is INVALID under the cofactor policy.
+        A step whose reaction is in the graph is GRAPH_FACT, or GRAPH_PATH when every step of a
+        multi-step route is in the graph. A step not in the graph is HYPOTHESIS. A cofactor
+        endpoint, or a step not in the graph that involves a cofactor, is INVALID.
         """
-        edges = []
+        bad = []
         if steps and isinstance(steps[0], dict):
-            edges = [(e.get("from") or e.get("source"), e.get("to") or e.get("target"), e.get("reaction"))
-                     for e in steps]
+            edges = []
+            for e in steps:
+                a = str(e.get("from") or e.get("source") or "").strip().upper()
+                b = str(e.get("to") or e.get("target") or "").strip().upper()
+                r = e.get("reaction")
+                bad += [x for x in (a, b) if not COMPOUND_ID.match(x)]
+                if r is not None and not REACTION_ID.match(str(r).strip().upper()):
+                    bad.append(str(r))
+                edges.append((a, b, str(r).strip().upper() if r else None))
         else:
-            comps = [s for s in steps if isinstance(s, str) and s.upper().startswith("C")]
+            comps = []
+            for s in steps:
+                t = str(s).strip().upper()
+                if COMPOUND_ID.match(t):
+                    comps.append(t)
+                elif not REACTION_ID.match(t):
+                    bad.append(str(s))
             edges = [(a, b, None) for a, b in zip(comps, comps[1:])]
-        edges = [(a, b, r) for a, b, r in edges if isinstance(a, str) and isinstance(b, str)]
+        if bad:
+            return {"error": "Not KEGG compound IDs: " + ", ".join(bad) +
+                             ". Use C-numbers (find_compound looks them up by name)."}
 
         out = []
         for a, b, rxn in edges:
-            confirmed = self.verify_edge(a, b, rxn)
-            if rxn and not confirmed:
-                other = self.verify_edge(a, b)
-            else:
-                other = []
+            found = self.edge_reactions(a, b, rxn)
+            other = self.edge_reactions(a, b) if rxn and not found else []
             rec = {"from": a, "to": b, "from_name": self.name(a), "to_name": self.name(b),
-                   "proposed_reaction": rxn, "verified": bool(confirmed),
-                   "graph_reactions": confirmed or other,
-                   "evidence": sorted({s for r in (confirmed or other) for s in self.G.nodes[r].get("evidence", [])})}
-            if not confirmed and (a in self.cofactors or b in self.cofactors):
+                   "proposed_reaction": rxn, "found_in_graph": bool(found),
+                   "graph_reactions": found or other,
+                   "evidence": sorted({s for r in (found or other) for s in self.G.nodes[r].get("evidence", [])})}
+            if not found and (a in self.cofactors or b in self.cofactors):
                 rec["label"] = INVALID
-                rec["note"] = "Inferred edges must not be cofactor-mediated"
-            elif not confirmed:
+                rec["note"] = "Steps not in the graph must not involve a cofactor"
+            elif not found:
                 rec["label"] = HYPOTHESIS
                 if other:
-                    rec["note"] = f"The graph links these compounds via {', '.join(other)}, not {rxn}"
+                    rec["note"] = f"The graph links these compounds through {', '.join(other)}, not {rxn}"
             out.append(rec)
 
         endpoints_invalid = bool(edges) and (edges[0][0] in self.cofactors or edges[-1][1] in self.cofactors)
-        verified = [e for e in out if e["verified"]]
-        all_verified = bool(out) and len(verified) == len(out)
+        n_found = sum(1 for e in out if e["found_in_graph"])
+        all_found = bool(out) and n_found == len(out)
         for e in out:
-            if e["verified"]:
-                e["label"] = GRAPH_PATH if (all_verified and len(out) > 1) else GRAPH_FACT
+            if e["found_in_graph"]:
+                e["label"] = GRAPH_PATH if (all_found and len(out) > 1) else GRAPH_FACT
         if endpoints_invalid:
             overall = INVALID
-        elif not out:
-            overall = HYPOTHESIS
-        elif all_verified:
+        elif all_found:
             overall = GRAPH_PATH if len(out) > 1 else GRAPH_FACT
         else:
             overall = HYPOTHESIS
@@ -376,8 +395,9 @@ class Oracle:
             "evidence_type": overall,
             "edges": out,
             "n_edges": len(out),
-            "n_verified": len(verified),
-            "eer": (len(verified) / len(out)) if out else 0.0,
+            "n_found": n_found,
+            "eer": (n_found / len(out)) if out else 0.0,
             "note": ("Cofactors cannot be pathway endpoints" if endpoints_invalid else
-                     "HYPOTHESIS edges are unverified in this organism's graph, not refuted"),
+                     "Steps found in the graph are consistent with the data but do not show that a "
+                     "reaction occurs. HYPOTHESIS steps were not found in this graph; they are not ruled out."),
         }

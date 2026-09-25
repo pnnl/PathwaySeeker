@@ -1,4 +1,4 @@
-"""Step 6: Fetch balanced reaction equations from KEGG."""
+"""Step 7: Fetch balanced reaction equations from KEGG."""
 
 import pandas as pd
 import json
@@ -61,5 +61,5 @@ def update_csv_with_equations(input_csv, output_csv=None, cache_file="reaction_e
 
     df["equation"] = df["Reaction"].map(reaction_equations)
     df.to_csv(output_csv, index=False)
-    print(f"Step 6 complete: {output_csv}")
+    print(f"Step 7 complete: {output_csv}")
     return df

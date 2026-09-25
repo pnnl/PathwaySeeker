@@ -9,7 +9,7 @@
 7. SYNTHESIZE   the model writes the answer; the oracle labels every edge
                 (GRAPH_FACT, GRAPH_PATH, HYPOTHESIS), so labels never depend on the model
 
-Differences from the script used for the manuscript's Table 1 (omicslink,
+Differences from the script used for the manuscript's Table 1 (unpublished research script
 pathseeker_eval_unified.py): each refinement branch now creates its own successor state,
 so the beam width k affects selection (previously every iteration produced one state); hypotheses added in
 the last iteration are evaluated before synthesis; identifiers returned as objects are
@@ -353,18 +353,18 @@ Output JSON: {{"answer": "...", "pathway": ["C00079", "C00423", "C00811"],
             c = _chain(alt)
             if len(c) >= 2:
                 pathways.append(c)
-        labeled = [self.oracle.label_pathway(p) for p in pathways]
+        labeled = [lp for lp in (self.oracle.label_pathway(p) for p in pathways) if "error" not in lp]
         edges = {}
         for lp in labeled:
             for e in lp["edges"]:
                 edges.setdefault((e["from"], e["to"]), e)
-        n_verified = sum(1 for e in edges.values() if e["verified"])
+        n_found = sum(1 for e in edges.values() if e["found_in_graph"])
         return {
             "query": query,
             "compounds": compounds,
             "answer": synthesis.get("answer", ""),
             "pathways": labeled,
-            "eer": n_verified / len(edges) if edges else 0.0,
+            "eer": n_found / len(edges) if edges else 0.0,
             "n_edges": len(edges),
             "hypothesis_notes": synthesis.get("hypothesis_notes", []),
             "key_uncertainties": synthesis.get("key_uncertainties", []),

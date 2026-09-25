@@ -1,37 +1,17 @@
 #!/usr/bin/env python3
-"""
-pathwayseeker.training.generator
-================================
+"""Generate fine-tuning examples from a graph.
 
-Ported from omicslink/training_data_generator_v3.py, which produced the published
-16,422-example training set (data/training/training_v3.jsonl.gz).
-
-Schema-aware training data generation for fine-tuning LLMs on 
-3-layer multi-omics graphs (Enzyme → Reaction → Compound).
-
-VERSION 3: Balanced Sampling with Cofactor Awareness
-- Fixed training data balance issues from v2 (was 65% negative)
-- Target distribution: ~40% GRAPH_FACT, ~27% GRAPH_PATH, ~15% NO_PATH, ~5% INVALID, ~13% other
-- Proper caps on negative/invalid examples even in exhaustive mode
-- Implements Lummy's three-tier cofactor constraint strategy
-
-Key changes from v2:
-1. Hard caps on negative examples (NO_PATH + INVALID ≤ 25% of total)
-2. Balanced presets for reproducible training
-3. Post-generation rebalancing to enforce target distribution
+This generator produced the released training set (data/training/training_v3.jsonl.gz),
+ported from the unpublished research script training_data_generator_v3.py. It samples
+examples of five evidence types (GRAPH_FACT, GRAPH_PATH, HYPOTHESIS, NO_PATH, INVALID) from
+the enzyme-reaction-compound graph and applies the three-tier cofactor constraint defined by
+L. M. O. Monteiro. With --balanced, NO_PATH and INVALID examples are capped at 20% of the
+total.
 
 Usage:
-    # Recommended: Balanced generation for production training
-    pathwayseeker train-data --output training_v3.jsonl --balanced
-    
-    # Quick test
-    pathwayseeker train-data --output test.jsonl --n-samples 100
-    
-    # Custom with explicit balance targets
-    pathwayseeker train-data --output custom.jsonl \\
-        --target-positive 0.67 \\
-        --target-negative 0.20 \\
-        --n-total 30000
+    pathwayseeker train-data --graph tversicolor --balanced --output train.jsonl
+
+The prompt strings below match the released training data and should not be changed.
 """
 
 from __future__ import annotations
@@ -44,7 +24,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 
-# Import from existing codebase
 from pathwayseeker.cofactors import COFACTORS
 from pathwayseeker.graph.multilayer import build_core_graph
 
@@ -1086,7 +1065,7 @@ def generate_training_data(
     enzymes_with_reactions = [e for e in idx.enzymes if idx.enzyme_catalyzes.get(e)]
     print(f"    Enzymes with catalyzes edges: {len(enzymes_with_reactions)} of {len(idx.enzymes)}")
     if len(enzymes_with_reactions) == 0:
-        print(f"    ⚠️  No enzyme-catalyzes edges found. Check graph edge types.")
+        print(f"    Warning: no enzyme-catalyzes edges found. Check graph edge types.")
         # Debug: show some edges
         edge_types = {}
         for u, v, data in G.edges(data=True):
@@ -1214,7 +1193,7 @@ def generate_training_data(
     
     # Warn if still imbalanced
     if negative / total > max_negative_ratio + 0.05:
-        print(f"\n⚠️  WARNING: Negative ratio ({100*negative/total:.1f}%) exceeds target ({100*max_negative_ratio:.0f}%)")
+        print(f"\nWarning: negative ratio ({100*negative/total:.1f}%) exceeds target ({100*max_negative_ratio:.0f}%)")
         print(f"    Graph may not support enough positive examples.")
     
     return deduped, stats
@@ -1260,18 +1239,8 @@ def main(argv=None):
         description="Generate balanced training data for graph-constrained LLM fine-tuning (v3)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Recommended: Balanced generation
-  pathwayseeker train-data --output training_v3.jsonl --balanced
-  
-  # Quick test
-  pathwayseeker train-data --output test.jsonl --n-total 1000
-  
-  # Large scale with custom balance
-  pathwayseeker train-data --output large.jsonl \\
-      --n-total 50000 \\
-      --target-positive 0.70 \\
-      --target-negative 0.18
+Example:
+  pathwayseeker train-data --graph tversicolor --balanced --output train.jsonl
         """
     )
     

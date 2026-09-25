@@ -26,7 +26,7 @@ def test_graph_counts_match_manuscript(oracle):
     assert len(COFACTORS) == 42
 
 
-def test_phenylpropanoid_backbone_is_verified(oracle):
+def test_phenylpropanoid_backbone_is_found_in_graph(oracle):
     ev = oracle.path_search("C00079", "C01494")
     assert ev["found"] and ev["data"]["n_steps"] == 4 and not ev["data"]["truncated"]
     assert ev["data"]["paths"][0][::2] == ["C00079", "C00423", "C00811", "C01197", "C01494"]
@@ -38,7 +38,7 @@ def test_absence_is_hypothesis_not_rejection(oracle):
     labeled = oracle.label_pathway(["C00079", "C00423", "C00811", "C00156"])
     assert [e["label"] for e in labeled["edges"]] == ["GRAPH_FACT", "GRAPH_FACT", "HYPOTHESIS"]
     assert labeled["evidence_type"] == "HYPOTHESIS"
-    assert "absence of evidence" in oracle.path_search("C00079", "C00156")["summary"]
+    assert "does not rule it out" in oracle.path_search("C00079", "C00156")["summary"]
 
 
 def test_cofactor_policy(oracle):
@@ -149,7 +149,7 @@ def test_training_generator_matches_published_mix():
 
 
 def test_cli_json(tmp_path):
-    out = subprocess.run([sys.executable, "-m", "pathwayseeker.cli", "verify", "C00079", "C00423",
+    out = subprocess.run([sys.executable, "-m", "pathwayseeker.cli", "label", "C00079", "C00423",
                           "--graph", str(SNAPSHOT)], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout)["evidence_type"] == "GRAPH_FACT"
 
@@ -161,7 +161,7 @@ def test_mcp_server_tools():
     from pathwayseeker.mcp_server import create_server
 
     names = {t.name for t in asyncio.run(create_server(str(SNAPSHOT)).list_tools())}
-    assert {"find_compound", "path_search", "verify_pathway"} <= names
+    assert {"find_compound", "path_search", "label_pathway"} <= names
 
 
 def test_named_graphs_and_saved_answers(tmp_path, monkeypatch):
@@ -219,7 +219,7 @@ def test_mcp_multi_graph_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("PATHWAYSEEKER_HOME", str(tmp_path))
     s = create_server()
     names = {t.name for t in asyncio.run(s.list_tools())}
-    assert {"list_graphs", "save_answer", "list_answers", "verify_pathway"} <= names
+    assert {"list_graphs", "save_answer", "list_answers", "label_pathway"} <= names
     out = asyncio.run(s.call_tool("save_answer", {"question": "q", "pathways": [["C00079", "C00423"]],
                                                    "graph": "tversicolor"}))
     assert "GRAPH_FACT" in str(out)
@@ -264,3 +264,18 @@ def test_metabolite_search_terms():
     assert search_terms("3',5'-cyclic AMP") == "3 5 cyclic AMP"
     assert search_terms("2,4-dihydroxypteridine") == "2 4-dihydroxypteridine"
     assert search_terms("L-phenylalanine") == "L-phenylalanine"
+
+
+def test_label_pathway_rejects_non_ids(oracle):
+    # A name in place of an ID must not be dropped silently.
+    assert "error" in oracle.label_pathway(["C00082", "ferulate", "C00811"])
+    assert "ferulate" in oracle.label_pathway(["C00082", "ferulate", "C00811"])["error"]
+    ok = oracle.label_pathway(["C00082", "R00737", "c00811"])  # reaction IDs skipped, case ignored
+    assert ok["evidence_type"] == "GRAPH_FACT" and ok["n_found"] == 1
+    assert "error" in oracle.label_pathway([{"from": "C00082", "to": "coumarate"}])
+
+
+def test_cli_label_error_exit_code():
+    r = subprocess.run([sys.executable, "-m", "pathwayseeker.cli", "label", "C00082", "ferulate",
+                        "--graph", "tversicolor"], capture_output=True, text=True)
+    assert r.returncode == 1 and "Not KEGG compound IDs" in r.stdout

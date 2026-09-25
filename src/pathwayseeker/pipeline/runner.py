@@ -23,45 +23,9 @@ def _timer(label, func):
     return result
 
 
-def run_before_curation(data_dir: str, output_dir: str):
-    """
-    Steps 1-4: Extract KOs, recover reactions, get compounds, get C-numbers.
-
-    After this completes, manually curate metabolomics_with_C_numbers.xlsx
-    before running run_after_curation().
-    """
-    data_dir = Path(data_dir)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    proteomics_file = data_dir / "proteomics.xlsx"
-    ko_annotation_file = data_dir / "Tver_ko_definition.txt"
-    metabolomics_file = data_dir / "metabolomics.xlsx"
-
-    proteomics_with_ko = output_dir / "proteomics_with_ko.csv"
-    ko_to_reactions = output_dir / "ko_to_reactions.csv"
-    reaction_to_compounds = output_dir / "reaction_to_compounds_no_cofactors.csv"
-    metabolomics_with_c = output_dir / "metabolomics_with_C_numbers.xlsx"
-
-    _timer("Step 1 - Extract KO numbers",
-           lambda: extract_ko_numbers(str(proteomics_file), str(ko_annotation_file), str(proteomics_with_ko)))
-
-    _timer("Step 2 - Recover reactions by KO",
-           lambda: recover_reactions(str(proteomics_with_ko), str(ko_to_reactions)))
-
-    _timer("Step 3 - Recover compounds by reaction (no cofactors)",
-           lambda: recover_compounds(str(ko_to_reactions), str(reaction_to_compounds)))
-
-    _timer("Step 4 - Recover C-numbers from metabolites",
-           lambda: process_metabolite_file(str(metabolomics_file), str(metabolomics_with_c)))
-
-    print("\nPipeline before curation complete.")
-    print(f"  -> Curate {metabolomics_with_c} before running the next step.")
-
-
 def run_after_curation(output_dir: str):
     """
-    Steps 5-7: Annotate metabolites, merge reactions, add equations, visualize.
+    Steps 5-8: annotate metabolites, merge reactions, add equations, draw the whole-graph view.
 
     Requires curated file: output_dir/metabolomics_with_C_numbers_curated.xlsx
     """
@@ -80,7 +44,7 @@ def run_after_curation(output_dir: str):
     _timer("Step 5 - Annotate compounds with reactions",
            lambda: annotate_metabolites(str(metabolomics_curated), output_path=str(reaction_from_metabolomics)))
 
-    _timer("Step 7 - Merge proteomics + metabolomics reactions",
+    _timer("Step 6 - Merge proteomics and metabolomics reactions",
            lambda: run_pipeline(
                proteomics_file=str(reaction_from_proteomics),
                metabolomics_file=str(reaction_from_metabolomics),
@@ -88,7 +52,7 @@ def run_after_curation(output_dir: str):
                output_file=str(matched_reactions),
            ))
 
-    _timer("Step 8 - Recover balanced equations",
+    _timer("Step 7 - Recover balanced equations",
            lambda: update_csv_with_equations(
                input_csv=str(matched_reactions),
                output_csv=str(matched_reactions),
@@ -103,7 +67,7 @@ def run_after_curation(output_dir: str):
         visualize_graph(G, compound_names, output_html=str(graph_html))
         save_graph_json(G, output_json=str(graph_html).replace(".html", ".json"))
 
-    _timer("Step 9 - Generate interactive graph", _visualize)
+    _timer("Step 8 - Draw the whole-graph view", _visualize)
 
     print("\nPipeline after curation complete.")
 
@@ -141,7 +105,7 @@ def build_graph_dir(proteomics: str, ko_definitions: str, metabolomics: str, out
                lambda: extract_ko_numbers(str(proteomics), str(ko_definitions), str(proteomics_with_ko)))
         _timer("Step 2 - Recover reactions by KO",
                lambda: recover_reactions(str(proteomics_with_ko), str(ko_to_reactions)))
-        _timer("Step 3 - Recover compounds by reaction",
+        _timer("Step 3 - Record the first compound on each side of each reaction",
                lambda: recover_compounds(str(ko_to_reactions), str(reaction_to_compounds)))
         _timer("Step 4 - Map metabolite names to KEGG C-numbers",
                lambda: process_metabolite_file(str(metabolomics), str(metabolomics_with_c)))
