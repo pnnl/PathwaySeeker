@@ -137,7 +137,9 @@ def cmd_show(args):
 
     g = _graph_dir(args)
     if args.network:
-        target = g / "graph_all.html"
+        from pathwayseeker.answers import network_view
+
+        target = network_view(_oracle(args), g)
     elif args.file:
         target = Path(args.file)
     else:

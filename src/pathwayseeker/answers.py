@@ -45,11 +45,16 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
     """HTML page drawing labeled pathways (outputs of ``Oracle.label_pathway``)."""
     from pyvis.network import Network
 
-    net = Network(height="560px", width="100%", directed=True, cdn_resources="in_line")
+    net = Network(height="520px", width="100%", directed=True, cdn_resources="in_line")
     net.set_options(json.dumps({
-        "physics": {"solver": "forceAtlas2Based", "stabilization": {"iterations": 200}},
-        "edges": {"arrows": {"to": {"enabled": True, "scaleFactor": 0.6}}, "smooth": {"type": "dynamic"}},
-        "nodes": {"shape": "box", "font": {"size": 14}},
+        "layout": {"hierarchical": {"enabled": True, "direction": "LR", "sortMethod": "directed",
+                                    "levelSeparation": 230, "nodeSpacing": 120}},
+        "physics": {"enabled": False},
+        "edges": {"arrows": {"to": {"enabled": True, "scaleFactor": 0.7}},
+                  "smooth": {"type": "cubicBezier", "forceDirection": "horizontal"},
+                  "font": {"size": 12, "align": "top"}},
+        "nodes": {"shape": "box", "margin": 10, "font": {"size": 14}},
+        "interaction": {"hover": True},
     }))
     added = set()
     total = verified = 0
@@ -59,7 +64,7 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
             for c in (e["from"], e["to"]):
                 if c not in added:
                     detected = bool(oracle.G.nodes.get(c, {}).get("detected"))
-                    net.add_node(c, label=f"{oracle.name(c)}\n{c}", title=f"{c} {oracle.name(c)}"
+                    net.add_node(c, label=f"{oracle.name(c)}\n{c}", shape="box", title=f"{c} {oracle.name(c)}"
                                  + (" (detected)" if detected else ""),
                                  color={"background": "#90caf9" if detected else "#eeeeee",
                                         "border": "#1565c0" if detected else "#757575"})
@@ -87,6 +92,58 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
         answer=(f"<p style='white-space:pre-wrap'>{html.escape(answer_text)}</p>" if answer_text else ""),
         eer=f"{verified}/{total} steps" if total else "no steps")
     return body.replace("<body>", "<body>" + header, 1)
+
+
+NETWORK_EVIDENCE_COLOR = {"both": "#6a1b9a", "proteomics": "#1565c0", "metabolomics": "#2e7d32"}
+
+
+def network_html(oracle, title: str) -> str:
+    """Whole-graph view: compounds linked by the reactions in the data (cofactors left out).
+
+    Edge color gives the evidence for the reaction: proteomics (blue), metabolomics (green)
+    or both (purple). Compounds detected by metabolomics have a blue fill.
+    """
+    from pyvis.network import Network
+
+    net = Network(height="800px", width="100%", directed=True, cdn_resources="in_line",
+                  select_menu=False, filter_menu=False)
+    net.set_options(json.dumps({"physics": {"solver": "forceAtlas2Based",
+                                            "stabilization": {"iterations": 150}},
+                                "edges": {"arrows": {"to": {"enabled": True, "scaleFactor": 0.4}}},
+                                "nodes": {"shape": "dot", "size": 8, "font": {"size": 10}}}))
+    idx, cof = oracle.idx, oracle.cofactors
+    edges = {}
+    for r in idx.reactions:
+        ev = oracle.G.nodes[r].get("evidence", [])
+        kind = "both" if len(ev) == 2 else (ev[0] if ev else "metabolomics")
+        for s in idx.rxn_substrates.get(r, ()):
+            for p in idx.rxn_products.get(r, ()):
+                if s != p and s not in cof and p not in cof:
+                    edges.setdefault((s, p), (r, kind))
+    for c in {n for e in edges for n in e}:
+        detected = bool(oracle.G.nodes[c].get("detected"))
+        net.add_node(c, label=oracle.name(c), title=f"{c} {oracle.name(c)}" + (" (detected)" if detected else ""),
+                     color="#90caf9" if detected else "#bdbdbd")
+    for (s, p), (r, kind) in edges.items():
+        net.add_edge(s, p, title=f"{r} ({kind})", color=NETWORK_EVIDENCE_COLOR[kind])
+    header = (f"<div style='font-family:sans-serif;margin:10px'><h2 style='margin:0'>{html.escape(title)}</h2>"
+              f"<div style='font-size:14px'>{len(net.nodes)} compounds, {len(edges)} links. Links by evidence: "
+              "<span style='color:#1565c0'>proteomics</span>, <span style='color:#2e7d32'>metabolomics</span>, "
+              "<span style='color:#6a1b9a'>both</span>. Blue compounds were detected by metabolomics. "
+              "Hover for IDs; scroll to zoom.</div></div>")
+    return net.generate_html().replace("<body>", "<body>" + header, 1)
+
+
+def network_view(oracle, graph_dir: Path) -> Path:
+    """Path to the whole-graph HTML: the build's graph_all.html, or one drawn now."""
+    built = Path(graph_dir) / "graph_all.html"
+    if built.exists():
+        return built
+    out = workspace.answers_dir(graph_dir) / "network.html"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(network_html(oracle, f"Graph: {workspace.graph_name(graph_dir)}"))
+    return out
 
 
 def _slug(text: str) -> str:
