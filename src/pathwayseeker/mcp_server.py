@@ -7,6 +7,7 @@ The assistant does the reasoning. The server supplies lookups against the experi
 graph, labels proposed pathways, and saves checked answers.
 """
 
+import functools
 from typing import Dict, List, Optional
 
 from pathwayseeker import workspace
@@ -52,65 +53,78 @@ def create_server(default_graph: Optional[str] = None):
         return oracles[key], path
 
     server = _server_class()("pathwayseeker", instructions=INSTRUCTIONS)
+    _register = server.tool
 
-    @server.tool()
+    def tool():
+        """Register a tool; an unknown graph name comes back as a readable error, not a crash."""
+        def deco(fn):
+            @functools.wraps(fn)
+            def wrapper(*a, **kw):
+                try:
+                    return fn(*a, **kw)
+                except workspace.GraphNotFound as e:
+                    return {"found": False, "error": str(e)}
+            return _register()(wrapper)
+        return deco
+
+    @tool()
     def list_graphs() -> dict:
         """Graphs available to query, with organism and location."""
         return {"graphs": workspace.list_graphs()}
 
-    @server.tool()
+    @tool()
     def graph_stats(graph: Optional[str] = None) -> dict:
         """Size of a graph: compounds, detected compounds, reactions, enzymes."""
         o, p = get(graph)
         return {"graph": workspace.graph_name(p), **workspace.read_meta(p), "stats": o.stats()}
 
-    @server.tool()
+    @tool()
     def find_compound(text: str, graph: Optional[str] = None, limit: int = 10) -> dict:
         """Look up compounds in the graph by name, partial name or C-number."""
         return get(graph)[0].find_compound(text, limit)
 
-    @server.tool()
+    @tool()
     def compound_exists(compound: str, graph: Optional[str] = None) -> dict:
         """Whether a KEGG compound is in the graph, and whether metabolomics detected it."""
         return get(graph)[0].compound_exists(compound)
 
-    @server.tool()
+    @tool()
     def compound_neighborhood(compound: str, graph: Optional[str] = None, limit: int = 10) -> dict:
         """Reactions producing and consuming a compound, and its non-cofactor neighbors."""
         return get(graph)[0].compound_neighborhood(compound, limit)
 
-    @server.tool()
+    @tool()
     def reaction_participants(reaction: str, graph: Optional[str] = None) -> dict:
         """Substrates, products, enzymes and omics evidence for a KEGG reaction."""
         return get(graph)[0].reaction_participants(reaction)
 
-    @server.tool()
+    @tool()
     def enzyme_reactions(enzyme: str, graph: Optional[str] = None) -> dict:
         """Reactions in the graph catalyzed by a KEGG Orthology (K-number) enzyme."""
         return get(graph)[0].enzyme_reactions(enzyme)
 
-    @server.tool()
+    @tool()
     def common_reactions(compounds: List[str], graph: Optional[str] = None) -> dict:
         """Reactions that convert one of the given compounds into another, or that they share."""
         return get(graph)[0].common_reactions(compounds)
 
-    @server.tool()
+    @tool()
     def path_search(source: str, target: str, graph: Optional[str] = None, max_depth: int = 4) -> dict:
         """All shortest substrate-to-product routes in the data (at most max_depth reactions)."""
         return get(graph)[0].path_search(source, target, max_depth)
 
-    @server.tool()
+    @tool()
     def reaction_exists(reaction: str, graph: Optional[str] = None) -> dict:
         """Whether a KEGG reaction is in the graph."""
         return get(graph)[0].reaction_exists(reaction)
 
-    @server.tool()
+    @tool()
     def verify_pathway(compounds: List[str], graph: Optional[str] = None) -> dict:
         """Label each step of an ordered compound route as GRAPH_FACT, GRAPH_PATH, HYPOTHESIS or
         INVALID, with the share of steps found in the data. Call before presenting any route."""
         return get(graph)[0].label_pathway(compounds)
 
-    @server.tool()
+    @tool()
     def save_answer(question: str, pathways: List[List[str]], answer: str = "",
                     graph: Optional[str] = None) -> dict:
         """Label the routes (each an ordered list of C-numbers) and save them with the question and
@@ -121,7 +135,7 @@ def create_server(default_graph: Optional[str] = None):
         labeled = [o.label_pathway(pw) for pw in pathways]
         return {"pathways": labeled, "saved": _save(o, p, question, labeled, answer)}
 
-    @server.tool()
+    @tool()
     def list_answers(graph: Optional[str] = None) -> dict:
         """Answers saved earlier for a graph (question, time, JSON and HTML paths)."""
         from pathwayseeker.answers import list_answers as _list
