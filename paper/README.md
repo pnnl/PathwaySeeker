@@ -26,9 +26,21 @@ python paper/table1.py
 The graph reconstructed for *Rhodosporidium toruloides* (additional species, Discussion) is
 in `data/other_organisms/r_toruloides/`.
 
-## Fine-tuning
+## Training data, fine-tuning and evaluation
 
-The model was fine-tuned from GPT-4.1 (gpt-4.1-2025-04-14) through the Azure OpenAI
+To generate training data from any graph (the paper's set came from `graph_snapshot/`):
+
+```bash
+pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl
+```
+
+To score a question set by Experimental Evidence Ratio and the LLM judge:
+
+```bash
+pathwayseeker eval --queries paper/queries/*.json --graph paper/graph_snapshot
+```
+
+The paper's model was fine-tuned from GPT-4.1 (gpt-4.1-2025-04-14) through the Azure OpenAI
 Fine-Tuning API with batch size 8, learning-rate multiplier 1.2 and 3 epochs (API version
 2025-01-01-preview). The fine-tuned model cannot be redistributed. To train your own with the
 same configuration:
