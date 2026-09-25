@@ -11,7 +11,7 @@ own proteomics and metabolomics data actually support.**
 ![A PathwaySeeker answer: green steps are in the data, orange dashed steps are hypotheses](images/pathway_answer.png)
 
 Language models know a lot of biochemistry, but they cannot tell you which of it happens in
-*your* organism under *your* conditions. PathwaySeeker builds a network of the reactions your
+*your* organism under specific conditions. PathwaySeeker builds a network of the reactions your
 measurements support and checks every step of the assistant's answer against it:
 
 - **Green steps** are in your data, backed by detected enzymes, detected metabolites or both.
