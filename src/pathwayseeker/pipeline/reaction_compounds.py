@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from pathwayseeker.pipeline.kegg import kegg_rest
+from pathwayseeker.pipeline.kegg import kegg_rest, prefetch_entries
 
 
 def recover_compounds(input_file: str, output_file: str, reaction_column: str = "Reaction", delay: float = 0.5):
@@ -30,6 +30,7 @@ def recover_compounds(input_file: str, output_file: str, reaction_column: str = 
     results = []
 
     print(f"Searching compounds for {len(reaction_list)} reactions...")
+    prefetch_entries("rn", reaction_list)
 
     for i, rid in enumerate(reaction_list, start=1):
         print(f"  ({i}/{len(reaction_list)}) Processing reaction {rid}...")

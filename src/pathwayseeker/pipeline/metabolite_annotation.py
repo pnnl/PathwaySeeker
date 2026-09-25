@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest, prefetch_entries
 
 
 def load_metabolomics_file(file_path):
@@ -53,6 +53,8 @@ def annotate_metabolites(file_path, output_path="reaction_to_compounds_from_meta
 
     results = []
     print(f"Fetching equations for {len(c_numbers)} compounds...")
+    prefetch_entries("cpd", c_numbers)
+    prefetch_entries("rn", [r for c in c_numbers for r in get_reactions_from_kegg(c)])
 
     for i, c_number in enumerate(c_numbers, start=1):
         print(f"  ({i}/{len(c_numbers)}) {c_number}")

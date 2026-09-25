@@ -38,7 +38,7 @@ def _throttle():
     _last_request[0] = time.monotonic()
 
 
-def kegg_rest(path: str, retries: int = 5, backoff: float = 2.0) -> Optional[str]:
+def kegg_rest(path: str, retries: int = 5, backoff: float = 2.0, cache: bool = True) -> Optional[str]:
     """GET ``https://rest.kegg.jp/<path>``.
 
     Returns the response text, ``""`` when KEGG has no such entry, or ``None`` when every
@@ -46,7 +46,7 @@ def kegg_rest(path: str, retries: int = 5, backoff: float = 2.0) -> Optional[str
     :data:`failures`.
     """
     cf = _cache_file(path)
-    if cf.exists():
+    if cache and cf.exists():
         return cf.read_text()
     err = ""
     for attempt in range(retries):
@@ -58,13 +58,63 @@ def kegg_rest(path: str, retries: int = 5, backoff: float = 2.0) -> Optional[str
         else:
             if r.status_code in (200, 404):
                 text = r.text if r.status_code == 200 else ""
-                cf.parent.mkdir(parents=True, exist_ok=True)
-                cf.write_text(text)
+                if cache:
+                    _store(path, text)
                 return text
             err = f"HTTP {r.status_code}"
         time.sleep(backoff * (2 ** attempt))
     failures.append((path, err))
     return None
+
+
+def _store(path: str, text: str) -> None:
+    cf = _cache_file(path)
+    cf.parent.mkdir(parents=True, exist_ok=True)
+    cf.write_text(text)
+
+
+def _chunks(items: List[str], n: int):
+    for i in range(0, len(items), n):
+        yield items[i:i + n]
+
+
+def prefetch_entries(db: str, ids, batch: int = 10) -> None:
+    """Fetch many ``get/<db>:<id>`` entries, ``batch`` per request, into the cache.
+
+    Later ``kegg_rest(f"get/{db}:{id}")`` calls are then cache hits. Entries KEGG does not
+    return are left uncached, so single requests still handle them.
+    """
+    todo = [i for i in dict.fromkeys(str(x) for x in ids if x) if not _cache_file(f"get/{db}:{i}").exists()]
+    for chunk in _chunks(todo, batch):
+        mark = len(failures)
+        text = kegg_rest("get/" + "+".join(f"{db}:{i}" for i in chunk), cache=False, retries=2)
+        del failures[mark:]  # single requests retry these IDs later
+        if not text:
+            continue
+        wanted = set(chunk)
+        for entry in text.split("\n///"):
+            m = re.match(r"\s*ENTRY\s+(\S+)", entry)
+            if m and m.group(1) in wanted:
+                _store(f"get/{db}:{m.group(1)}", entry.strip("\n") + "\n///\n")
+
+
+def prefetch_links(target: str, db: str, ids, batch: int = 10) -> None:
+    """Fetch ``link/<target>/<db>:<id>`` for many IDs, ``batch`` per request, into the cache."""
+    todo = [i for i in dict.fromkeys(str(x) for x in ids if x)
+            if not _cache_file(f"link/{target}/{db}:{i}").exists()]
+    for chunk in _chunks(todo, batch):
+        mark = len(failures)
+        text = kegg_rest(f"link/{target}/" + "+".join(f"{db}:{i}" for i in chunk), cache=False, retries=2)
+        del failures[mark:]  # single requests retry these IDs later
+        if text is None:
+            continue
+        lines = {i: [] for i in chunk}
+        for line in text.strip().split("\n"):
+            src = line.split("\t")[0].split(":", 1)[-1]
+            if src in lines:
+                lines[src].append(line)
+        for i, ls in lines.items():
+            _store(f"link/{target}/{db}:{i}", "\n".join(ls) + ("\n" if ls else ""))
 
 
 def report_failures(since: int, step: str) -> List[Tuple[str, str]]:

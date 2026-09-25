@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from pathwayseeker.pipeline.kegg import kegg_rest
+from pathwayseeker.pipeline.kegg import kegg_rest, prefetch_links
 
 
 def recover_reactions(input_file: str, output_file: str, ko_column: str = "KO", delay: float = 0.5):
@@ -29,6 +29,7 @@ def recover_reactions(input_file: str, output_file: str, ko_column: str = "KO", 
     results = []
 
     print(f"Fetching reactions for {len(ko_list)} KOs...")
+    prefetch_links("reaction", "ko", ko_list)
 
     for ko in ko_list:
         text = kegg_rest(f"link/reaction/ko:{ko}")

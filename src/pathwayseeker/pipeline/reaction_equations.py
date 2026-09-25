@@ -3,7 +3,7 @@
 import pandas as pd
 import json
 import os
-from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest, prefetch_entries
 
 
 def load_cache(cache_file):
@@ -23,6 +23,7 @@ def fetch_reaction_equations(reactions, existing_cache, sleep_time=1, batch_save
     total = len(missing)
 
     print(f"Total reactions to fetch: {total}")
+    prefetch_entries("rn", missing)
     for i, rid in enumerate(missing, start=1):
         try:
             print(f"  Fetching reaction {rid} ({i}/{total})...")

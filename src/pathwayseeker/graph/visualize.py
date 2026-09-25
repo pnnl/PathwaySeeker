@@ -5,7 +5,7 @@ import os
 
 import networkx as nx
 from pyvis.network import Network
-from pathwayseeker.pipeline.kegg import entry_field, kegg_rest
+from pathwayseeker.pipeline.kegg import entry_field, kegg_rest, prefetch_entries
 from tqdm import tqdm
 
 from .build import COLOR_MAP
@@ -35,6 +35,7 @@ def get_compound_names(G, cache_file="compound_names_cache.json"):
 
     if nodes_to_query:
         print(f"  Fetching names for {len(nodes_to_query)} compounds from KEGG...")
+        prefetch_entries("cpd", nodes_to_query)
 
     for node in tqdm(nodes_to_query, desc="Querying KEGG", unit="compound"):
         entry = kegg_rest(f"get/cpd:{node}")
