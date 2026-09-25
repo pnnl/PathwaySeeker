@@ -73,8 +73,8 @@ Tell your assistant where your files are:
 | KO annotation (`.txt`) | Tab-separated protein ID, KEGG Orthology (KO) number and description, no header. Make it with [KAAS](https://www.genome.jp/kegg/kaas/), [GhostKOALA](https://www.kegg.jp/ghostkoala/) or eggNOG-mapper. |
 | Metabolomics table (`.xlsx` or `.csv`) | Metabolite names in the first column, or KEGG compound IDs in a `KEGG_C_number` column |
 
-The first build downloads reaction data from KEGG and can take up to an hour; later builds
-are fast. Your assistant can also go through the automatic metabolite-to-KEGG matches with
+The first build downloads reaction data from KEGG and can take a couple of hours; later
+builds reuse the downloads and are fast. Your assistant can also go through the automatic metabolite-to-KEGG matches with
 you, which is worth doing before you rely on the results.
 
 Graphs are stored in `~/.pathwayseeker/graphs/<name>/`. Every checked answer is saved there

@@ -1,0 +1,15 @@
+# PathwaySeeker
+
+> PathwaySeeker lets an AI assistant (Claude Code, Codex or any MCP client) answer questions about metabolic pathways using a scientist's own proteomics and metabolomics data. It builds an organism-specific graph of compounds, reactions and enzymes from the measurements (KEGG identifiers), checks every step of a proposed pathway against that graph, and labels each step as supported by the data or as a hypothesis. Published as a bioRxiv preprint (2026) by Pacific Northwest National Laboratory.
+
+## Start here
+- [README](https://github.com/pnnl/PathwaySeeker/blob/master/README.md): what it does, five-minute setup, using your own data
+- [AGENTS.md](https://github.com/pnnl/PathwaySeeker/blob/master/AGENTS.md): step-by-step setup instructions for AI assistants
+- [Skill](https://github.com/pnnl/PathwaySeeker/blob/master/skills/pathwayseeker/SKILL.md): how an assistant builds graphs and answers questions
+
+## Reference
+- [Paper data](https://github.com/pnnl/PathwaySeeker/blob/master/paper/README.md): training data, evaluation queries, scoring rubric and results
+- [Preprint](https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1): PathwaySeeker: Evidence-Grounded AI Reasoning over Organism-Specific Metabolic Networks
+
+## Topics
+multi-omics, proteomics, metabolomics, metabolic pathways, metabolic network reconstruction, KEGG, knowledge graph, LLM agents, Model Context Protocol (MCP), Claude Code, Codex, non-model organisms, Trametes versicolor

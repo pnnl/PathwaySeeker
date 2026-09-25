@@ -34,8 +34,8 @@ pathwayseeker build --name myorg --organism "Species name" \
     --proteomics prot.xlsx --ko-definitions ko.txt --metabolomics metab.xlsx
 ```
 
-This downloads data from KEGG and can take up to an hour the first time; downloads are
-cached. Run it in the background and tell the user it is running. When it finishes, report
+This downloads data from KEGG and can take a couple of hours the first time; downloads
+are cached. Run it in the background and tell the user it is running. When it finishes, report
 the `stats` and `kegg_failures` from the output. If there are failures, run the same command
 again.
 

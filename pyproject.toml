@@ -15,7 +15,8 @@ authors = [
     {name = "Sutanay Choudhury"},
 ]
 readme = "README.md"
-keywords = ["multi-omics", "metabolic-pathways", "knowledge-graph", "proteomics", "metabolomics", "KEGG"]
+keywords = ["multi-omics", "metabolic-pathways", "knowledge-graph", "proteomics", "metabolomics", "KEGG",
+            "llm", "ai-agents", "mcp", "claude-code", "codex", "bioinformatics", "systems-biology"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -45,6 +46,7 @@ pathwayseeker = "pathwayseeker.cli:main"
 
 [project.urls]
 Repository = "https://github.com/pnnl/PathwaySeeker"
+Paper = "https://www.biorxiv.org/content/10.64898/2026.04.14.718256v1"
 
 [tool.setuptools.package-data]
 pathwayseeker = ["data/tversicolor/*", "skill/SKILL.md"]
