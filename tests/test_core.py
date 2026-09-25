@@ -28,7 +28,7 @@ def test_graph_counts_match_manuscript(oracle):
 
 def test_phenylpropanoid_backbone_is_verified(oracle):
     ev = oracle.path_search("C00079", "C01494")
-    assert ev["found"] and ev["data"]["n_steps"] == 4
+    assert ev["found"] and ev["data"]["n_steps"] == 4 and not ev["data"]["truncated"]
     assert ev["data"]["paths"][0][::2] == ["C00079", "C00423", "C00811", "C01197", "C01494"]
     labeled = oracle.label_pathway(["C00079", "C00423", "C00811", "C01197", "C01494"])
     assert labeled["evidence_type"] == "GRAPH_PATH" and labeled["eer"] == 1.0
@@ -128,9 +128,10 @@ def test_table1_recomputes_from_released_results():
 
     t = table1.main()
     assert t["All queries"]["n"] == "59/64"
-    assert t["All queries"]["eer_pct"] == 26.4
+    assert t["All queries"]["eer_pct"] == 26.43
     assert t["All queries"]["overall"] == 4.78
-    assert t["Connected"]["eer_pct"] == 40.8 and t["Unconnected"]["eer_pct"] == 0.9
+    assert t["Connected"]["eer_pct"] == 40.77 and t["Unconnected"]["eer_pct"] == 0.94
+    assert t["Phenylpropanoid"]["eer_pct"] == 8.47
     assert summarize([{"eer": 1.0, "category": "x"}])["x"]["n"] == "1/1"
 
 

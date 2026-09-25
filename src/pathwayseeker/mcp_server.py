@@ -78,7 +78,7 @@ def create_server(graph_dir: str):
 
     @server.tool()
     def path_search(source: str, target: str, max_depth: int = 4) -> dict:
-        """Shortest substrate-to-product paths (at most max_depth reactions), skipping cofactors."""
+        """All shortest substrate-to-product paths (at most max_depth reactions), skipping cofactors."""
         return oracle.path_search(source, target, max_depth)
 
     @server.tool()

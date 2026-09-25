@@ -1,7 +1,8 @@
 """Cofactor and currency-metabolite set used by the oracle, reasoning and training layers.
 
-This is the 42-compound set listed in the manuscript Methods ("Cofactor compound set").
-It was used to generate the published training data (training_data_generator_v3).
+This is the 42-compound set in the manuscript's Supplementary Information (cofactor
+compound set table), used to generate the published training data
+(training_data_generator_v3). The Methods text summarizes its main groups.
 Graph construction in ``pathwayseeker.pipeline`` uses its own, smaller hub list.
 """
 

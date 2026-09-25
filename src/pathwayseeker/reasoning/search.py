@@ -5,13 +5,13 @@
 3. RETRIEVE     the oracle executes them (positive evidence only)
 4. EVALUATE     the model grades each hypothesis: direct, partial, alternative or none
 5. BRANCH       partial or alternative hypotheses spawn refinements
-6. SELECT       heuristic top-k selection over candidate states by composite score
+6. SELECT       beam search: keep the top-k candidate states by composite score
 7. SYNTHESIZE   the model writes the answer; the oracle labels every edge
                 (GRAPH_FACT, GRAPH_PATH, HYPOTHESIS), so labels never depend on the model
 
 Differences from the script used for the manuscript's Table 1 (omicslink,
 pathseeker_eval_unified.py): each refinement branch now creates its own successor state,
-so k affects selection (previously every iteration produced one state); hypotheses added in
+so the beam width k affects selection (previously every iteration produced one state); hypotheses added in
 the last iteration are evaluated before synthesis; identifiers returned as objects are
 normalized instead of crashing (the cause of the five Table 1 failures); and final edge
 labels come from the oracle.
@@ -122,7 +122,8 @@ class OitLSearch:
     organism : str
         Named in prompts, e.g. "Trametes versicolor (white-rot fungus)".
     k, max_iterations, theta, weights
-        Algorithm 1 parameters (defaults k=3, T=3, theta=0.70, weights 0.4/0.4/0.2).
+        Algorithm 1 parameters: beam width k=3, maximum iterations T=3, convergence
+        threshold theta=0.70, scoring weights w_e=0.4, w_c=0.4, w_p=0.2.
     """
 
     def __init__(self, oracle: Oracle, llm: LLM, organism: str = "the studied organism",

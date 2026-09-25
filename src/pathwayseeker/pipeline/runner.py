@@ -75,7 +75,7 @@ def run_after_curation(output_dir: str):
     reaction_from_metabolomics = output_dir / "reaction_to_compounds_from_metabolomics.csv"
     reaction_from_proteomics = output_dir / "reaction_to_compounds_no_cofactors.csv"
     matched_reactions = output_dir / "matched_metabolites_reactions_all.csv"
-    graph_html = output_dir / "graph_notebook.html"
+    graph_html = output_dir / "graph_all.html"
 
     _timer("Step 5 - Annotate compounds with reactions",
            lambda: annotate_metabolites(str(metabolomics_curated), output_path=str(reaction_from_metabolomics)))

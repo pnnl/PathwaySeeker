@@ -242,8 +242,12 @@ class Oracle:
         return _evidence("common_reactions", params, bool(sequential or shared),
                          {"sequential": sequential, "shared": shared}, summary)
 
-    def path_search(self, source: str, target: str, max_depth: int = 4, max_paths: int = 3) -> dict:
-        """Shortest substrate->product paths of at most ``max_depth`` reactions, skipping cofactors."""
+    def path_search(self, source: str, target: str, max_depth: int = 4, max_paths: int = 100) -> dict:
+        """All shortest substrate->product paths of at most ``max_depth`` reactions, skipping cofactors.
+
+        Cofactor nodes are excluded from traversal. At most ``max_paths`` paths are returned;
+        ``truncated`` reports whether more shortest paths exist.
+        """
         max_depth, max_paths = int(max_depth), int(max_paths)
         params = {"source": source, "target": target, "max_depth": max_depth}
         for role, c in (("source", source), ("target", target)):
@@ -254,6 +258,7 @@ class Oracle:
         depth = {source: 0}
         queue = deque([(source, [source])])
         best = None
+        truncated = False
         while queue:
             node, path = queue.popleft()
             steps = len(path) // 2
@@ -268,6 +273,8 @@ class Oracle:
                         best = steps + 1
                         if len(paths) < max_paths:
                             paths.append(new)
+                        else:
+                            truncated = True
                         continue
                     if depth.get(prod, max_depth + 1) >= steps + 1:
                         depth[prod] = steps + 1
@@ -279,7 +286,8 @@ class Oracle:
             summary = (f"No path from {source} to {target} within {max_depth} reactions is observed "
                        f"(absence of evidence, not evidence of absence)")
         return _evidence("path_search", params, bool(paths),
-                         {"paths": paths, "n_steps": best}, summary)
+                         {"paths": paths, "n_paths": len(paths), "truncated": truncated, "n_steps": best},
+                         summary + (f" ({len(paths)} shortest paths)" if len(paths) > 1 else ""))
 
     def reaction_exists(self, reaction: str) -> dict:
         if reaction in self.idx.reactions:

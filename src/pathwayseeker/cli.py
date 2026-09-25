@@ -134,6 +134,15 @@ def cmd_train_data(args):
     gen_main(args.rest)
 
 
+def cmd_finetune(args):
+    from pathwayseeker.training.finetune import create_job
+
+    job = create_job(args.training_file, provider=args.provider, model=args.model,
+                     n_epochs=args.epochs, batch_size=args.batch_size,
+                     learning_rate_multiplier=args.lr_multiplier, validation_file=args.validation_file)
+    _emit({"job_id": job.id, "status": job.status, "model": job.model})
+
+
 def cmd_mcp(args):
     from pathwayseeker.mcp_server import serve
 
@@ -153,7 +162,7 @@ def main(argv=None):
         p.add_argument("--provider", help="openai, azure or anthropic (default: $PATHWAYSEEKER_LLM or openai)")
         p.add_argument("--model", help="Model or Azure deployment (default: $PATHWAYSEEKER_MODEL)")
         p.add_argument("--organism", default="the studied organism", help="Organism named in prompts")
-        p.add_argument("--k", type=int, default=3, help="Candidate states kept per iteration")
+        p.add_argument("--k", type=int, default=3, help="Beam width: candidate states kept per iteration")
         p.add_argument("--iterations", type=int, default=3, help="Maximum search iterations")
 
     p = sub.add_parser("build", help="Build a graph directory from proteomics and metabolomics tables")
@@ -211,6 +220,18 @@ def main(argv=None):
                        add_help=False)
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(func=cmd_train_data)
+
+    from pathwayseeker.training.finetune import PAPER_CONFIG
+
+    p = sub.add_parser("finetune", help="Start a fine-tuning job (OpenAI or Azure) with the paper's settings")
+    p.add_argument("training_file", help="Chat-format JSONL (.jsonl or .jsonl.gz)")
+    p.add_argument("--validation-file")
+    p.add_argument("--provider", choices=["azure", "openai"], default="azure")
+    p.add_argument("--model", default=PAPER_CONFIG["model"])
+    p.add_argument("--epochs", type=int, default=PAPER_CONFIG["n_epochs"])
+    p.add_argument("--batch-size", type=int, default=PAPER_CONFIG["batch_size"])
+    p.add_argument("--lr-multiplier", type=float, default=PAPER_CONFIG["learning_rate_multiplier"])
+    p.set_defaults(func=cmd_finetune)
 
     p = sub.add_parser("mcp", help="Serve the graph oracle over MCP (stdio)")
     graph_arg(p)

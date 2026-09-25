@@ -146,7 +146,7 @@ def summarize(results: List[dict], category_of=None) -> Dict[str, dict]:
     for cat, rows in groups.items():
         ok = [r for r in rows if not r.get("error")]
         row = {"n": f"{len(ok)}/{len(rows)}",
-               "eer_pct": round(100 * mean(r["eer"] for r in ok), 1) if ok else None}
+               "eer_pct": round(100 * mean(r["eer"] for r in ok), 2) if ok else None}
         for k in JUDGE_DIMENSIONS + ("overall",):
             vals = [r[k] for r in ok if isinstance(r.get(k), (int, float))]
             row[k] = round(mean(vals), 2) if vals else None

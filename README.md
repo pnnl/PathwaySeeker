@@ -91,7 +91,7 @@ pathwayseeker ask "How is L-phenylalanine (C00079) converted to ferulate (C01494
 ```
 
 `ask` runs the Oracle-in-the-Loop search: hypothesize, query the graph, evaluate, refine,
-select, synthesize. Every edge in the answer is labeled by the oracle, not the model. Any
+select by beam search (beam width `--k`, default 3), synthesize. Every edge in the answer is labeled by the oracle, not the model. Any
 OpenAI-compatible endpoint works via `OPENAI_BASE_URL`. A fine-tuned deployment can be
 selected with `--model`.
 
@@ -111,14 +111,17 @@ result = OitLSearch(oracle, get_llm(), organism="Trametes versicolor").search(
 - `pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl` generates
   schema-aware training examples (GRAPH_FACT, GRAPH_PATH, HYPOTHESIS, NO_PATH, INVALID) in
   OpenAI chat fine-tuning format.
+- `pathwayseeker finetune train.jsonl --provider azure` starts a fine-tuning job with the
+  paper's settings (GPT-4.1, batch size 8, learning-rate multiplier 1.2, 3 epochs).
 - `pathwayseeker eval --queries paper/queries/*.json --graph paper/graph_snapshot` reports
   the Experimental Evidence Ratio and LLM-judge scores for a query set.
 
 ## Reproducing the paper
 
-`paper/` holds the graph snapshot, the 64 evaluation queries, the 16,422-example training
-set, the raw evaluation output with logs, and `paper/table1.py`, which recomputes Table 1
-without API calls. See [paper/README.md](paper/README.md).
+`paper/` holds all training datasets, the evaluation rubric and the queries used in the
+manuscript: the graph snapshot, the 16,422-example training set, the 64 evaluation queries,
+the judge prompt and rubric, and the raw evaluation output with logs. `paper/table1.py`
+recomputes Table 1 without API calls. See [paper/README.md](paper/README.md).
 
 ## Repository layout
 
@@ -127,7 +130,7 @@ without API calls. See [paper/README.md](paper/README.md).
 | `src/pathwayseeker/` | package: `pipeline` (graph build), `oracle`, `reasoning` (search, LLM adapters), `training`, `evaluation`, `mcp_server`, `cli` |
 | `skills/pathwayseeker/` | agent skill |
 | `paper/` | manuscript data, queries, results and Table 1 script |
-| `data/raw`, `data/output` | *T. versicolor* inputs and current pipeline outputs |
+| `data/raw`, `data/output` | *T. versicolor* inputs and current pipeline outputs (`graph_all.html`, `graph_all.json`) |
 | `data/other_organisms/` | graph reconstructed for *Rhodosporidium toruloides* |
 | `pathway_viz/` | PathwayViz, the interactive Escher-based pathway viewer (see its README) |
 | `MDF/` | thermodynamic (Max-min Driving Force) analyses with eQuilibrator (`pip install -e ".[thermo]"`) |
