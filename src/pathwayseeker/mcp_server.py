@@ -1,29 +1,33 @@
-"""MCP server exposing the graph oracle to any MCP-capable agent.
+"""MCP server exposing PathwaySeeker's graph tools to any MCP-capable assistant.
 
-    pathwayseeker mcp --graph path/to/graph_dir
+    pathwayseeker mcp                  # all graphs; default from PATHWAYSEEKER_GRAPH or the only one built
+    pathwayseeker mcp --graph myorg    # set the default graph
 
-The agent does the reasoning. The server provides deterministic, positive-evidence-only
-tools and a ``verify_pathway`` tool that assigns evidence labels. That tool keeps the
-boundary between what the experiment supports and what the agent proposes.
+The assistant does the reasoning. The server supplies lookups against the experimental
+graph, labels proposed pathways, and saves checked answers.
 """
 
-from typing import List
+from typing import Dict, List, Optional
 
+from pathwayseeker import workspace
 from pathwayseeker.oracle import Oracle
 
-INSTRUCTIONS = """Tools over one organism-specific metabolic graph built from proteomics and metabolomics.
-Compounds are KEGG C-numbers, reactions R-numbers, enzymes KEGG Orthology K-numbers.
+INSTRUCTIONS = """PathwaySeeker checks metabolic pathways against a graph built from one organism's
+proteomics and metabolomics data. Compounds are KEGG C-numbers, reactions R-numbers,
+enzymes K-numbers. Every tool takes an optional `graph` name (see list_graphs).
 
-Protocol (Oracle-in-the-Loop):
-1. Resolve names with find_compound.
-2. Propose 2-4 hypotheses from your biochemical knowledge.
-3. Test each with the graph tools (path_search, common_reactions, compound_neighborhood, ...).
-4. Refine hypotheses that get partial or alternative support; stop when most are supported.
-5. Before answering, call verify_pathway on every pathway you report and use its labels:
-   GRAPH_FACT / GRAPH_PATH = confirmed in this organism's data; HYPOTHESIS = your proposal, not
-   observed here (not refuted); INVALID = violates the cofactor policy.
-The graph only confirms. Absence of an edge means "not observed", never "impossible".
-Never present a HYPOTHESIS edge as verified."""
+To answer a question:
+1. Look up compound IDs with find_compound.
+2. Propose 2-4 possible routes from your biochemical knowledge.
+3. Check them with path_search, common_reactions, compound_neighborhood and the other lookups.
+4. Refine routes that are partly supported; stop when most are supported or after ~3 rounds.
+5. Call verify_pathway on each route you report and use its labels as given:
+   GRAPH_FACT / GRAPH_PATH = in the data; HYPOTHESIS = your suggestion, not seen in the data
+   (not disproven); INVALID = breaks the cofactor rule.
+6. Call save_answer with the question, the routes and your answer, and give the user the
+   HTML file path so they can view the pathway.
+A step missing from the graph means "not observed", never "impossible". Never present a
+HYPOTHESIS step as confirmed."""
 
 
 def _server_class():
@@ -37,63 +41,95 @@ def _server_class():
         return FastMCP
 
 
-def create_server(graph_dir: str):
-    oracle = Oracle.from_dir(graph_dir)
+def create_server(default_graph: Optional[str] = None):
+    oracles: Dict[str, Oracle] = {}
+
+    def get(graph: Optional[str]):
+        path = workspace.resolve_graph(graph or default_graph)
+        key = str(path.resolve())
+        if key not in oracles:
+            oracles[key] = Oracle.from_dir(path)
+        return oracles[key], path
+
     server = _server_class()("pathwayseeker", instructions=INSTRUCTIONS)
 
     @server.tool()
-    def graph_stats() -> dict:
-        """Size of the loaded graph: compounds, detected compounds, reactions, enzymes."""
-        return oracle.stats()
+    def list_graphs() -> list:
+        """Graphs available to query, with organism and location."""
+        return workspace.list_graphs()
 
     @server.tool()
-    def find_compound(text: str, limit: int = 10) -> dict:
-        """Resolve a compound name (or partial name, or C-number) to compounds present in the graph."""
-        return oracle.find_compound(text, limit)
+    def graph_stats(graph: Optional[str] = None) -> dict:
+        """Size of a graph: compounds, detected compounds, reactions, enzymes."""
+        o, p = get(graph)
+        return {"graph": workspace.graph_name(p), **workspace.read_meta(p), "stats": o.stats()}
 
     @server.tool()
-    def compound_exists(compound: str) -> dict:
+    def find_compound(text: str, graph: Optional[str] = None, limit: int = 10) -> dict:
+        """Look up compounds in the graph by name, partial name or C-number."""
+        return get(graph)[0].find_compound(text, limit)
+
+    @server.tool()
+    def compound_exists(compound: str, graph: Optional[str] = None) -> dict:
         """Whether a KEGG compound is in the graph, and whether metabolomics detected it."""
-        return oracle.compound_exists(compound)
+        return get(graph)[0].compound_exists(compound)
 
     @server.tool()
-    def compound_neighborhood(compound: str, limit: int = 10) -> dict:
-        """Reactions producing and consuming a compound, with non-cofactor neighbors one step away."""
-        return oracle.compound_neighborhood(compound, limit)
+    def compound_neighborhood(compound: str, graph: Optional[str] = None, limit: int = 10) -> dict:
+        """Reactions producing and consuming a compound, and its non-cofactor neighbors."""
+        return get(graph)[0].compound_neighborhood(compound, limit)
 
     @server.tool()
-    def reaction_participants(reaction: str) -> dict:
-        """Substrates, products, catalyzing enzymes and omics evidence for a KEGG reaction."""
-        return oracle.reaction_participants(reaction)
+    def reaction_participants(reaction: str, graph: Optional[str] = None) -> dict:
+        """Substrates, products, enzymes and omics evidence for a KEGG reaction."""
+        return get(graph)[0].reaction_participants(reaction)
 
     @server.tool()
-    def enzyme_reactions(enzyme: str) -> dict:
+    def enzyme_reactions(enzyme: str, graph: Optional[str] = None) -> dict:
         """Reactions in the graph catalyzed by a KEGG Orthology (K-number) enzyme."""
-        return oracle.enzyme_reactions(enzyme)
+        return get(graph)[0].enzyme_reactions(enzyme)
 
     @server.tool()
-    def common_reactions(compounds: List[str]) -> dict:
-        """Reactions converting one of the given compounds into another, or shared by them."""
-        return oracle.common_reactions(compounds)
+    def common_reactions(compounds: List[str], graph: Optional[str] = None) -> dict:
+        """Reactions that convert one of the given compounds into another, or that they share."""
+        return get(graph)[0].common_reactions(compounds)
 
     @server.tool()
-    def path_search(source: str, target: str, max_depth: int = 4) -> dict:
-        """All shortest substrate-to-product paths (at most max_depth reactions), skipping cofactors."""
-        return oracle.path_search(source, target, max_depth)
+    def path_search(source: str, target: str, graph: Optional[str] = None, max_depth: int = 4) -> dict:
+        """All shortest substrate-to-product routes in the data (at most max_depth reactions)."""
+        return get(graph)[0].path_search(source, target, max_depth)
 
     @server.tool()
-    def reaction_exists(reaction: str) -> dict:
+    def reaction_exists(reaction: str, graph: Optional[str] = None) -> dict:
         """Whether a KEGG reaction is in the graph."""
-        return oracle.reaction_exists(reaction)
+        return get(graph)[0].reaction_exists(reaction)
 
     @server.tool()
-    def verify_pathway(compounds: List[str]) -> dict:
-        """Label each edge of an ordered compound pathway as GRAPH_FACT, GRAPH_PATH, HYPOTHESIS or INVALID,
-        and report the Experimental Evidence Ratio. Call this before presenting any pathway."""
-        return oracle.label_pathway(compounds)
+    def verify_pathway(compounds: List[str], graph: Optional[str] = None) -> dict:
+        """Label each step of an ordered compound route as GRAPH_FACT, GRAPH_PATH, HYPOTHESIS or
+        INVALID, with the share of steps found in the data. Call before presenting any route."""
+        return get(graph)[0].label_pathway(compounds)
+
+    @server.tool()
+    def save_answer(question: str, pathways: List[List[str]], answer: str = "",
+                    graph: Optional[str] = None) -> dict:
+        """Label the routes (each an ordered list of C-numbers) and save them with the question and
+        your answer as JSON and an HTML pathway view. Returns the labels and file paths."""
+        from pathwayseeker.answers import save_answer as _save
+
+        o, p = get(graph)
+        labeled = [o.label_pathway(pw) for pw in pathways]
+        return {"pathways": labeled, "saved": _save(o, p, question, labeled, answer)}
+
+    @server.tool()
+    def list_answers(graph: Optional[str] = None) -> list:
+        """Answers saved earlier for a graph (question, time, JSON and HTML paths)."""
+        from pathwayseeker.answers import list_answers as _list
+
+        return _list(get(graph)[1])
 
     return server
 
 
-def serve(graph_dir: str):
-    create_server(graph_dir).run()
+def serve(default_graph: Optional[str] = None):
+    create_server(default_graph).run()

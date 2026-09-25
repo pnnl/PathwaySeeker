@@ -64,7 +64,8 @@ def visualize_graph(G, compound_names, output_html="graph.html", notebook=False)
         Display inline in Jupyter.
     """
     print("  Generating interactive graph...")
-    net = Network(height="800px", width="100%", notebook=notebook, directed=True)
+    net = Network(height="800px", width="100%", notebook=notebook, directed=True,
+                  cdn_resources="remote" if notebook else "in_line")
     net.force_atlas_2based()
 
     for node in G.nodes():

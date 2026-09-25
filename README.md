@@ -17,140 +17,94 @@ AI's suggestions.
 2. **Ask a question.** An AI assistant suggests possible routes from its knowledge of
    biochemistry. It then looks each one up in your graph and revises its suggestions based
    on what it finds.
-3. **Get a checked answer.** Every step in the answer carries one of these labels:
-   - `GRAPH_FACT`: this reaction is in your data.
-   - `GRAPH_PATH`: every step of this route is in your data.
-   - `HYPOTHESIS`: suggested by the AI but not seen in your data. It may still be real;
-     your experiment may simply not have detected it.
-   - `INVALID`: breaks a basic rule, such as starting or ending a pathway at ATP or water.
-
-A step missing from your graph is never treated as impossible, only as not observed.
+3. **Get a checked answer.** Each step is marked as either in your data (`GRAPH_FACT`, or
+   `GRAPH_PATH` for a whole route) or a `HYPOTHESIS`: suggested by the AI but not seen in your
+   data. A hypothesis may still be real; your experiment may simply not have detected it.
+   The answer is saved together with a pathway picture you can open in a browser.
 
 ## Install
 
 ```bash
-git clone https://github.com/pnnl/PathwaySeeker.git
-cd PathwaySeeker
-pip install -e ".[llm,mcp]"
+pip install "pathwayseeker[llm,mcp] @ git+https://github.com/pnnl/PathwaySeeker"
 ```
 
-Requires Python 3.10 or newer.
+Requires Python 3.10 or newer. The graph from our paper (*Trametes versicolor*) is included
+under the name `tversicolor`, so you can try it before building your own.
 
-## Use it with an AI assistant
+## Use it from Claude Code or Codex
 
-This is the main way to use PathwaySeeker. The assistant does the reasoning, and
-PathwaySeeker supplies the checks.
-
-**Claude Code.** Copy the skill into your skills folder:
+**Claude Code.** Install the skill:
 
 ```bash
-cp -r skills/pathwayseeker ~/.claude/skills/
+git clone https://github.com/pnnl/PathwaySeeker.git
+cp -r PathwaySeeker/skills/pathwayseeker ~/.claude/skills/
 ```
 
-Then ask in plain language, for example:
+**Codex.** Add the PathwaySeeker tools to `~/.codex/config.toml`:
 
-> Build a PathwaySeeker graph from proteins.xlsx, ko.txt and metabolites.xlsx.
-> How is L-phenylalanine converted to ferulate in this organism?
-
-**Other assistants.** Any assistant that supports MCP can use the same tools. Add this to
-its MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "pathwayseeker": {
-      "command": "pathwayseeker",
-      "args": ["mcp", "--graph", "/path/to/mygraph"]
-    }
-  }
-}
+```toml
+[mcp_servers.pathwayseeker]
+command = "pathwayseeker"
+args = ["mcp"]
 ```
 
-## Build a graph from your data
+Other assistants that support MCP can use the same `pathwayseeker mcp` command.
+
+Then ask in plain language:
+
+> Build a PathwaySeeker graph called myorg from proteins.xlsx, ko.txt and metabolites.xlsx.
+
+> Using the tversicolor graph, how is L-phenylalanine converted to ferulate? Show me the pathway.
+
+## Use it from Python
+
+```python
+from pathwayseeker import Oracle, resolve_graph
+
+graph = Oracle.from_dir(resolve_graph("tversicolor"))
+graph.find_compound("ferulate")              # look up KEGG IDs by name
+graph.path_search("C00079", "C01494")        # routes in the data between two compounds
+graph.label_pathway(["C00079", "C00423", "C00811", "C00156"])   # label each step
+```
+
+## Your data
 
 You need three files:
 
 | File | What it contains |
 |---|---|
 | Proteomics table (`.xlsx` or `.csv`) | One row per protein, with a `proteinID` column |
-| KO annotation (`.txt`) | Tab-separated `proteinID`, KO number and description, no header row. Create it by running your protein sequences through [KAAS](https://www.genome.jp/kegg/kaas/), [GhostKOALA](https://www.kegg.jp/ghostkoala/) or eggNOG-mapper. |
+| KO annotation (`.txt`) | Tab-separated `proteinID`, KO number and description, no header row. Make it by running your protein sequences through [KAAS](https://www.genome.jp/kegg/kaas/), [GhostKOALA](https://www.kegg.jp/ghostkoala/) or eggNOG-mapper. |
 | Metabolomics table (`.xlsx` or `.csv`) | Metabolite names in the first column, or KEGG compound IDs in a `KEGG_C_number` column |
 
-```bash
-pathwayseeker build --proteomics proteins.xlsx --ko-definitions ko.txt \
-    --metabolomics metabolites.xlsx --out mygraph
-```
-
-The build downloads reaction data from KEGG and can take several minutes. Downloads are
-cached, so running it again is fast. Metabolite names are matched to KEGG automatically;
-check these matches before relying on the results. To review them, run with
-`--stage before`, fix `mygraph/metabolomics_with_C_numbers.xlsx`, save it as
-`metabolomics_with_C_numbers_curated.xlsx`, and run again with `--stage after`.
-
-## Try it without your own data
-
-The *Trametes versicolor* graph from our paper is included:
+Your assistant can build the graph for you, or you can run:
 
 ```bash
-export PATHWAYSEEKER_GRAPH=paper/graph_snapshot
-pathwayseeker find ferulate                          # look up a compound's KEGG ID
-pathwayseeker oracle path C00079 C01494              # routes in the data from phenylalanine to ferulate
-pathwayseeker verify C00079 C00423 C00811 C00156     # label each step of a proposed route
+pathwayseeker build --name myorg --organism "Species name" \
+    --proteomics proteins.xlsx --ko-definitions ko.txt --metabolomics metabolites.xlsx
 ```
 
-The last command reports the first two steps as `GRAPH_FACT` and the step to
-4-hydroxybenzoate as `HYPOTHESIS`. All commands print JSON.
+The first build downloads reaction data from KEGG and can take up to an hour; later builds
+reuse the downloads. Metabolite names are matched to KEGG automatically. Ask your assistant
+to go through the matches with you before you rely on the results.
 
-## Use it without an assistant
+## Where things are kept
 
-`pathwayseeker ask` runs the whole question-answering loop by calling a language model
-directly. It needs an API key for OpenAI, Azure OpenAI or Anthropic:
-
-```bash
-export OPENAI_API_KEY=...
-pathwayseeker ask "How is L-phenylalanine (C00079) converted to ferulate (C01494)?" \
-    --graph mygraph --organism "Trametes versicolor"
-```
-
-To use Anthropic, set `PATHWAYSEEKER_LLM=anthropic` and `ANTHROPIC_API_KEY`. For Azure,
-set `PATHWAYSEEKER_LLM=azure` and the `AZURE_OPENAI_*` variables. To choose a model, use
-`--model`.
-
-From Python:
-
-```python
-from pathwayseeker import Oracle
-from pathwayseeker.reasoning import OitLSearch, get_llm
-
-graph = Oracle.from_dir("mygraph")
-answer = OitLSearch(graph, get_llm(), organism="Trametes versicolor").search(
-    "How is C00079 converted to C01494?")
-```
+- Graphs you build are stored in `~/.pathwayseeker/graphs/<name>/`. `pathwayseeker graphs`
+  lists them.
+- Each checked answer is saved in the graph's `answers/` folder as a JSON record and an HTML
+  pathway view. `pathwayseeker show` opens the latest one, and `pathwayseeker show --network`
+  opens the whole graph.
+- Saved answers are only a record. PathwaySeeker does not feed them back into later
+  conversations. An assistant can read one if you ask it to, and hypotheses stay labeled as
+  hypotheses.
+- For interactive pathway maps with abundance bar charts, see PathwayViz in
+  [pathway_viz/](pathway_viz/).
 
 ## Data from the paper
 
-The `paper/` folder has everything used in the manuscript:
-- the graph
-- the 16,422 training examples
-- the 64 evaluation queries
-- the scoring rubric
-- the raw results with logs
-
-`python paper/table1.py` recomputes Table 1 from those results without any API calls. See
-[paper/README.md](paper/README.md), which also covers generating training data and
-fine-tuning your own model.
-
-## Repository layout
-
-| Path | Contents |
-|---|---|
-| `src/pathwayseeker/` | the Python package |
-| `skills/pathwayseeker/` | the Claude Code skill |
-| `paper/` | data, queries and results from the paper |
-| `data/` | *T. versicolor* input and output tables, and a graph for *Rhodosporidium toruloides* |
-| `pathway_viz/` | PathwayViz, an interactive pathway viewer (see its README) |
-| `MDF/` | thermodynamic feasibility analyses (install with `pip install -e ".[thermo]"`) |
-| `notebooks/`, `multiomics_graph*/` | original exploratory notebooks and scripts |
+[paper/](paper/README.md) has the training examples, evaluation queries, scoring rubric and
+results from the manuscript.
 
 ## Citation
 

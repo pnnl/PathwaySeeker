@@ -10,7 +10,7 @@ from pathwayseeker.evaluation import extract_edges, response_eer, summarize
 from pathwayseeker.reasoning.search import OitLSearch, _ids
 
 ROOT = Path(__file__).resolve().parents[1]
-SNAPSHOT = ROOT / "paper" / "graph_snapshot"
+SNAPSHOT = Path(__import__("pathwayseeker").__file__).parent / "data" / "tversicolor"
 
 
 @pytest.fixture(scope="module")
@@ -143,7 +143,9 @@ def test_training_generator_matches_published_mix():
     by_type = stats["samples"]["by_evidence_type"]
     assert by_type["GRAPH_FACT"] == 9334
     assert abs(stats["samples"]["negative_ratio"] - 0.20) < 0.01
-    assert 16000 < len(examples) < 16800
+    # Totals vary a little with Python's hash seed (set iteration order); the mix does not.
+    assert 15500 < len(examples) < 17500
+    assert abs(stats["samples"]["positive_ratio"] - 0.74) < 0.01
 
 
 def test_cli_json(tmp_path):
@@ -160,3 +162,64 @@ def test_mcp_server_tools():
 
     names = {t.name for t in asyncio.run(create_server(str(SNAPSHOT)).list_tools())}
     assert {"find_compound", "path_search", "verify_pathway"} <= names
+
+
+def test_named_graphs_and_saved_answers(tmp_path, monkeypatch):
+    from pathwayseeker import workspace
+    from pathwayseeker.answers import list_answers, save_answer
+
+    monkeypatch.setenv("PATHWAYSEEKER_HOME", str(tmp_path))
+    monkeypatch.delenv("PATHWAYSEEKER_GRAPH", raising=False)
+    assert workspace.resolve_graph() == workspace.BUILTIN["tversicolor"]
+    assert workspace.resolve_graph("tversicolor") == workspace.BUILTIN["tversicolor"]
+    with pytest.raises(workspace.GraphNotFound):
+        workspace.resolve_graph("nope")
+
+    import shutil
+    mine = workspace.graphs_dir() / "mine"
+    shutil.copytree(SNAPSHOT, mine)
+    workspace.write_meta(mine, organism="Test organism")
+    assert workspace.resolve_graph() == mine  # the only user graph becomes the default
+    assert workspace.read_meta(mine)["organism"] == "Test organism"
+
+    oracle = Oracle.from_dir(mine)
+    labeled = [oracle.label_pathway(["C00079", "C00423", "C00811", "C00156"])]
+    files = save_answer(oracle, mine, "How is Phe converted to 4-HBA?", labeled, "Two steps in the data.")
+    html = Path(files["html"]).read_text()
+    assert "vis-network" in html or "vis.Network" in html
+    assert "#ef6c00" in html and "#2e7d32" in html  # hypothesis and in-data edges drawn
+    assert "lib/bindings" not in html  # standalone page
+    assert list_answers(mine)[0]["question"] == "How is Phe converted to 4-HBA?"
+
+    builtin_answers = workspace.answers_dir(workspace.BUILTIN["tversicolor"])
+    assert str(builtin_answers).startswith(str(tmp_path))  # never writes into the package
+
+
+def test_cli_save_and_show(tmp_path, monkeypatch):
+    env = {**__import__("os").environ, "PATHWAYSEEKER_HOME": str(tmp_path)}
+    env.pop("PATHWAYSEEKER_GRAPH", None)
+    run = lambda *a: json.loads(subprocess.run([sys.executable, "-m", "pathwayseeker.cli", *a],
+                                               capture_output=True, text=True, check=True, env=env).stdout)
+    names = [g["name"] for g in run("graphs")]
+    assert "tversicolor" in names
+    saved = run("save", "--question", "Phe to ferulate?", "C00079", "C00423", "C00811", "C01197", "C01494",
+                "--path", "C00082", "C00811")
+    assert saved["pathways"][0]["evidence_type"] == "GRAPH_PATH"
+    assert Path(saved["saved"]["html"]).exists()
+    assert run("show", "--no-open")["opened"] == saved["saved"]["html"]
+    assert len(run("answers")) == 1
+
+
+def test_mcp_multi_graph_tools(tmp_path, monkeypatch):
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from pathwayseeker.mcp_server import create_server
+
+    monkeypatch.setenv("PATHWAYSEEKER_HOME", str(tmp_path))
+    s = create_server()
+    names = {t.name for t in asyncio.run(s.list_tools())}
+    assert {"list_graphs", "save_answer", "list_answers", "verify_pathway"} <= names
+    out = asyncio.run(s.call_tool("save_answer", {"question": "q", "pathways": [["C00079", "C00423"]],
+                                                   "graph": "tversicolor"}))
+    assert "GRAPH_FACT" in str(out)

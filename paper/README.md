@@ -9,7 +9,7 @@ ProteomeXchange PXD054613.
 
 | Path | Contents |
 |---|---|
-| `graph_snapshot/` | Pipeline tables defining the *T. versicolor* graph used for training and evaluation: 1,192 compounds (1,153 backbone after excluding 39 cofactors), 3,620 reactions, 2,357 enzymes. Load with `Oracle.from_dir("paper/graph_snapshot")`. |
+| `src/pathwayseeker/data/tversicolor/` | The *T. versicolor* graph used for training and evaluation: 1,192 compounds (1,153 after excluding 39 cofactors), 3,620 reactions, 2,357 enzymes. It ships with the package under the graph name `tversicolor`. |
 | `training/training_v3.jsonl.gz` | The 16,422 fine-tuning examples (OpenAI chat format) |
 | `training/training_v3.stats.json` | Composition: 9,334 GRAPH_FACT, 2,831 GRAPH_PATH, 973 HYPOTHESIS, 1,806 NO_PATH, 1,478 INVALID |
 | `queries/tier1_queries.json` | 60 sampled compound pairs: 40 connected, 20 unconnected (seed 42) |
@@ -28,7 +28,7 @@ in `data/other_organisms/r_toruloides/`.
 
 ## Training data, fine-tuning and evaluation
 
-To generate training data from any graph (the paper's set came from `graph_snapshot/`):
+To generate training data from any graph (the paper's set came from the `tversicolor` graph):
 
 ```bash
 pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl
@@ -37,7 +37,7 @@ pathwayseeker train-data --graph-dir mygraph --balanced --output train.jsonl
 To score a question set by Experimental Evidence Ratio and the LLM judge:
 
 ```bash
-pathwayseeker eval --queries paper/queries/*.json --graph paper/graph_snapshot
+pathwayseeker eval --queries paper/queries/*.json --graph tversicolor
 ```
 
 The paper's model was fine-tuned from GPT-4.1 (gpt-4.1-2025-04-14) through the Azure OpenAI
@@ -54,9 +54,9 @@ also work with the Oracle-in-the-Loop search.
 
 ## Notes for anyone rerunning
 
-- **Why a snapshot.** `graph_snapshot/` differs slightly from `data/output/`, which is
-  regenerated from the KEGG API. KEGG has since added reactions, such as R13626. The snapshot
-  is the graph the model was trained and evaluated on.
+- **Why a fixed copy.** The `tversicolor` graph differs slightly from `data/output/`, which is
+  regenerated from the KEGG API. KEGG has since added reactions, such as R13626. It is the
+  graph the model was trained and evaluated on.
 - **Table 1 values.** `table1.py` prints EER to two decimals. The phenylpropanoid EER is 8.47%
   (reported as 8.4); every other cell matches Table 1 exactly.
 - **Evaluation run settings.** `results/table1_results.json` and the logs record the settings
@@ -64,7 +64,7 @@ also work with the Oracle-in-the-Loop search.
   (`pathwayseeker.reasoning.search`) defaults to the Algorithm 1 parameters (k = 3, T = 3,
   theta = 0.70). The five failed queries hit an output-parsing error (identifiers returned as
   objects); the released code normalizes such output.
-- **Regenerating training data.** `pathwayseeker train-data --graph-dir paper/graph_snapshot
+- **Regenerating training data.** `pathwayseeker train-data --graph-dir src/pathwayseeker/data/tversicolor
   --balanced` reproduces the class mix: GRAPH_FACT exactly, the other classes within about 3%.
   Exact example-level reproduction depends on Python's set iteration order, so the released
   JSONL is the reference copy.

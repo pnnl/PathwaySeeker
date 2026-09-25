@@ -46,5 +46,8 @@ pathwayseeker = "pathwayseeker.cli:main"
 [project.urls]
 Repository = "https://github.com/pnnl/PathwaySeeker"
 
+[tool.setuptools.package-data]
+pathwayseeker = ["data/tversicolor/*"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

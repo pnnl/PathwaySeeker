@@ -6,13 +6,14 @@ positive-evidence-only oracle, and label every proposed pathway edge as confirme
 experiment (GRAPH_FACT, GRAPH_PATH) or as a hypothesis.
 
     from pathwayseeker import Oracle
-    oracle = Oracle.from_dir("paper/graph_snapshot")
+    oracle = Oracle.from_dir(resolve_graph("tversicolor"))
     oracle.path_search("C00079", "C01494")
     oracle.label_pathway(["C00079", "C00423", "C00811"])
 """
 
 from pathwayseeker.cofactors import COFACTORS
 from pathwayseeker.oracle import Oracle
+from pathwayseeker.workspace import list_graphs, resolve_graph
 
 __version__ = "1.0.0"
-__all__ = ["Oracle", "COFACTORS", "__version__"]
+__all__ = ["Oracle", "COFACTORS", "list_graphs", "resolve_graph", "__version__"]

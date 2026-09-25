@@ -6,11 +6,9 @@ PathwaySeeker quickstart: query the T. versicolor graph from the paper. No API k
     python examples/quickstart.py
 """
 
-from pathlib import Path
+from pathwayseeker import Oracle, resolve_graph
 
-from pathwayseeker import Oracle
-
-GRAPH = Path(__file__).resolve().parents[1] / "paper" / "graph_snapshot"
+GRAPH = resolve_graph("tversicolor")  # the graph from the paper, shipped with the package
 
 
 def main():
