@@ -24,7 +24,7 @@ python paper/table1.py
 ```
 
 The graph reconstructed for *Rhodosporidium toruloides* (additional species, Discussion) is
-in `data/other_organisms/r_toruloides/`.
+in `multiomics_graph_addiitonal/`.
 
 ## Training data, fine-tuning and evaluation
 
