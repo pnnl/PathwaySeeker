@@ -64,7 +64,9 @@ def render_html(oracle, pathways: List[dict], title: str, answer_text: str = "",
             for c in (e["from"], e["to"]):
                 if c not in added:
                     detected = bool(oracle.G.nodes.get(c, {}).get("detected"))
-                    net.add_node(c, label=f"{oracle.name(c)}\n{c}", shape="box", title=f"{c} {oracle.name(c)}"
+                    name = oracle.name(c)
+                    label = f"{name}\n{c}" if name != c else f"{c}\n(not in graph)"
+                    net.add_node(c, label=label, shape="box", title=f"{c} {name}"
                                  + (" (detected)" if detected else ""),
                                  color={"background": "#90caf9" if detected else "#eeeeee",
                                         "border": "#1565c0" if detected else "#757575"})
