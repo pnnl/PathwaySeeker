@@ -47,15 +47,15 @@ right away.
 The PathwaySeeker package and assistant skill were added alongside the original project,
 which is unchanged:
 
-| Folder | What it is | Main authors |
-|---|---|---|
-| `src/pathwayseeker/`, `skills/` | Python package, command line, MCP server and assistant skill | S. Choudhury |
-| `multiomics_graph/`, `multiomics_graph_proteomics/` | Original graph-construction scripts (proteomics + metabolomics, and proteomics only) | L. M. O. Monteiro |
-| `notebooks/`, `output/`, `data/` | Analysis notebooks, their outputs, and the *T. versicolor* input tables | L. M. O. Monteiro |
-| `pathway_viz/` | PathwayViz, the interactive pathway map with per-condition abundance charts | M. T. Oostrom |
-| `MDF/` | Thermodynamic feasibility (Max-min Driving Force) analyses | N. B. Chowdhury |
-| `multiomics_graph_addiitonal/` | Graph reconstructed for *Rhodosporidium toruloides* | L. M. O. Monteiro |
-| `paper/` | Training data, queries, rubric and results from the manuscript | all authors |
+| Folder | What it is |
+| --- | --- |
+| `src/pathwayseeker/`, `skills/` | Python package, command line, MCP server and assistant skill |
+| `multiomics_graph/`, `multiomics_graph_proteomics/` | Original graph-construction scripts (proteomics + metabolomics, and proteomics only) |
+| `notebooks/`, `output/`, `data/` | Analysis notebooks, their outputs, and the *T. versicolor* input tables |
+| `pathway_viz/` | PathwayViz, the interactive pathway map with per-condition abundance charts |
+| `MDF/` | Thermodynamic feasibility (Max-min Driving Force) analyses |
+| `multiomics_graph_addiitonal/` | Graph reconstructed for *Rhodosporidium toruloides* |
+| `paper/` | Training data, queries, rubric and results from the manuscript |
 
 The package's graph builder (`pathwayseeker build`) is a packaged version of the
 `multiomics_graph/` pipeline; [MIGRATION.md](MIGRATION.md) maps each original script to its
