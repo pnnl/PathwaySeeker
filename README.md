@@ -104,6 +104,62 @@ a JSON record and a pathway picture. `pathwayseeker show` opens the
 latest one and `pathwayseeker show --network` opens the whole graph. Saved answers are a
 record only; they are not fed back into later conversations.
 
+## Graph construction
+
+The graph is built in eight steps. Each step writes a table, so the pipeline can be inspected
+or resumed at any point.
+
+| Step | What it does | Output |
+|---|---|---|
+| 1 | Attach KEGG Orthology (KO) numbers to the proteomics table | `proteomics_with_ko.csv` |
+| 2 | Retrieve the KEGG reactions of each KO | `ko_to_reactions.csv` |
+| 3 | Record the first substrate and first product of each reaction | `reaction_to_compounds_no_cofactors.csv` |
+| 4 | Match metabolite names to KEGG compound IDs | `metabolomics_with_C_numbers.xlsx` |
+| | *Manual curation: correct the matches and save the file as `metabolomics_with_C_numbers_curated.xlsx`* | |
+| 5 | Retrieve the KEGG reactions of each detected metabolite, with its role (substrate or product) | `reaction_to_compounds_from_metabolomics.csv` |
+| 6 | Merge the proteomics and metabolomics reactions, recording the evidence for each | `matched_metabolites_reactions_all.csv` |
+| 7 | Add the balanced KEGG equation of each reaction | `matched_metabolites_reactions_all.csv` |
+| 8 | Build the graph and an interactive view | `graph_all.html`, `graph_all.json` |
+
+Manual curation between steps 4 and 5 is recommended: automatic matching takes the first KEGG
+search result. The pipeline can be run in two ways.
+
+**From the command line** (script mode). `pathwayseeker build` runs all eight steps; it is the
+packaged version of the scripts in `analysis/multiomics_graph/`. To curate,
+stop after step 4, edit the table, and resume:
+
+```bash
+pathwayseeker build --name myorg --proteomics proteins.xlsx --ko-definitions ko.txt \
+    --metabolomics metabolites.xlsx --stage before
+# correct ~/.pathwayseeker/graphs/myorg/metabolomics_with_C_numbers.xlsx and save it as
+# metabolomics_with_C_numbers_curated.xlsx in the same folder, then:
+pathwayseeker build --name myorg --proteomics proteins.xlsx --ko-definitions ko.txt \
+    --metabolomics metabolites.xlsx --stage after
+```
+
+**With the original notebooks** (exploratory mode), in `analysis/notebooks/`:
+
+```bash
+conda create -n pathseeker python=3.11
+conda activate pathseeker
+pip install -r analysis/requirements.txt
+python -m ipykernel install --user --name=pathseeker --display-name "Python (pathseeker)"
+jupyter lab
+```
+
+For proteomics and metabolomics data, open
+`analysis/notebooks/multiomics_graph_proteomics&metabolomics.ipynb`; for proteomics (or
+transcriptomics) data only, open `analysis/notebooks/multiomics_graph_only_proteomics.ipynb`.
+Run the cells in order. The first notebook reads the *T. versicolor* tables in `data/raw/`;
+the second expects your files at `data/proteomics.xlsx` and `data/user_ko_definition.txt`.
+Both write their outputs to `analysis/output/`.
+
+The graph can be viewed in a web browser or embedded in Jupyter, and the JSON file can be loaded into
+PathwayViz ([pathway_viz/](pathway_viz/)) for interactive pathway maps with abundance charts
+per condition. Thermodynamic feasibility of selected pathways (Max-min Driving Force with
+eQuilibrator) is analyzed in `analysis/MDF/`; install its dependencies with
+`pip install -e ".[thermo]"`.
+
 ## Use it from Python
 
 ```python
