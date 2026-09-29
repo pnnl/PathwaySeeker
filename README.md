@@ -1,5 +1,7 @@
 # PathwaySeeker
 
+![PathwaySeeker graphical abstract](docs/images/graphical_abstract.png)
+
 PathwaySeeker checks each step of a metabolic pathway proposed by an AI assistant against a
 reaction graph built from an organism's proteomics and metabolomics data.
 
