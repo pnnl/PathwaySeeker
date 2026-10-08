@@ -1,6 +1,7 @@
 import pandas as pd
 import time
 import networkx as nx
+from collections import defaultdict
 from pyvis.network import Network
 from bioservices import KEGG
 import json
@@ -91,14 +92,31 @@ def build_graph(df):
     """
     print("🔧 Building directed graph...")
     G = nx.DiGraph()
+    node_origins = defaultdict(set)
+
     for _, row in df.iterrows():
         rxn_label = f"{row['reaction']} - {row['equation']}"
+        origins = {o.strip() for o in str(row['origin']).split(',') if o.strip()}
         for s in row['substrates']:
             for p in row['products']:
                 if s != p:
                     G.add_edge(s, p, label=rxn_label)
-                    G.nodes[s]['origin'] = row['origin']
-                    G.nodes[p]['origin'] = row['origin']
+                    node_origins[s] |= origins
+                    node_origins[p] |= origins
+
+    # Resolve an aggregated origin per node instead of letting the last
+    # reaction that touches a node overwrite its origin. A node is "both" if
+    # any touching reaction is "both", or if it is touched by both a
+    # proteomics-only and a metabolomics-only reaction.
+    for node, origins in node_origins.items():
+        if node not in G:
+            continue
+        if 'both' in origins or ('proteomics' in origins and 'metabolomics' in origins):
+            resolved = 'both'
+        else:
+            resolved = next(iter(origins)) if origins else ''
+        G.nodes[node]['origin'] = resolved
+
     G.remove_nodes_from(list(nx.isolates(G)))
     print(f"📈 Total nodes in graph: {len(G.nodes)}")
     return G

@@ -11,9 +11,10 @@ def read_and_merge_reactions(proteomics_file, metabolomics_file):
     df_metab["Origin"] = "metabolomics"
     
     df_all = pd.concat([df_prot, df_metab], ignore_index=True)
-    df_all["key"] = df_all["Reaction"] + "_" + df_all["Compound"] + "_" + df_all["Role"]
-    df_all = df_all.drop_duplicates(subset="key").drop(columns="key")
-    
+
+    # Reconcile Origin per (Reaction, Compound, Role) BEFORE deduping so that a
+    # compound seen in both sources keeps a "both" tag instead of having its
+    # metabolomics copy silently dropped by drop_duplicates.
     dup_keys = df_all.groupby(["Reaction", "Compound", "Role"]).Origin.nunique()
     both_keys = dup_keys[dup_keys > 1].index
 
@@ -24,6 +25,12 @@ def read_and_merge_reactions(proteomics_file, metabolomics_file):
         return row["Origin"]
 
     df_all["Origin"] = df_all.apply(define_origin, axis=1)
+
+    # Now that Origin reflects the reconciled value, collapse duplicate
+    # (Reaction, Compound, Role) rows.
+    df_all["key"] = df_all["Reaction"] + "_" + df_all["Compound"] + "_" + df_all["Role"]
+    df_all = df_all.drop_duplicates(subset="key").drop(columns="key")
+
     return df_all
 
 
