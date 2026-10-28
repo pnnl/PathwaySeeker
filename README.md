@@ -233,7 +233,7 @@ This research was supported by the Environmental Molecular Sciences Laboratory, 
 Science User Facility sponsored by the Biological and Environmental Research program under
 Contract No. DE-AC05-76RL01830.
  
-DISCLAIMER
+## DISCLAIMER
 This material was prepared as an account of work sponsored by an agency of the
 United States Government.  Neither the United States Government nor the United
 States Department of Energy, nor Battelle, nor any of their employees, nor any
@@ -257,9 +257,10 @@ reflect those of the United States Government or any agency thereof.
                   UNITED STATES DEPARTMENT OF ENERGY
                    under Contract DE-AC05-76RL01830
 _____________________________________________________________________________________
-LICENSE
+## LICENSE
 BSD 2-Clause (Battelle Memorial Institute)
-Copyright Battelle Memorial Institute 2026
+
+## Copyright Battelle Memorial Institute 2026
  
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
